@@ -10,7 +10,7 @@ from index_tester import IndexTester
 from rtree_index import RtreeIndex
 from geohash_index import GeoHashSpatialIndex
 from s2_index import S2SpatialIndex
-from h3_index import H3SpatialIndexs
+from h3_index import H3SpatialIndex
 
 import os
 
