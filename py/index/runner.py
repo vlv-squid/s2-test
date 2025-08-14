@@ -4,22 +4,29 @@
 #   @date: 2025-07-23
 #
 
+import sys
+
+from pathlib import Path
+
+project_root = Path(__file__).parent.parent
+sys.path.append(str(project_root))
+
 from typing import Dict
-from index_base import SpatialIndex
-from index_tester import IndexTester
-from rtree_index import RtreeIndex
-from geohash_index import GeoHashSpatialIndex
-from s2_index import S2SpatialIndex
-from h3_index import H3SpatialIndex
+from index.index_base import SpatialIndex
+from index.index_tester import IndexTester
+from index.rtree_index import RtreeIndex
+from index.geohash_index import GeoHashSpatialIndex
+from index.s2_index import S2SpatialIndex
+from index.h3_index import H3SpatialIndex
 
 import os
 
 if __name__ == "__main__":
-    # test_data = "./data/test.shp"
-    # sample_bbox = (103.2504, 26.4297, 103.3028, 26.4747)
+    test_data = "./data/test.shp"
+    sample_bbox = (103.2504, 26.4297, 103.3028, 26.4747)
 
-    test_data = "/home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp"
-    sample_bbox = (100.546875, 25.3125, 101.25, 26.015625)
+    # test_data = "/home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp"
+    # sample_bbox = (100.546875, 25.3125, 101.25, 26.015625)
 
     indexers: Dict[str, SpatialIndex] = {
         "Rtree": RtreeIndex(test_data),
