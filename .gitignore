@@ -1,0 +1,7 @@
+.vscode/
+.idea/
+.cache/
+build/
+data/
+png/
+py/index/__pycache__/
