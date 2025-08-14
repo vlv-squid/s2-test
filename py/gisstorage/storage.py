@@ -57,19 +57,13 @@ class GeometryStorage:
                 fid = struct.unpack('Q', fid_data)[0]
                 offsets[fid] = current_pos
 
-                # 正确解析整个记录结构
+                # 正确解析整个记录结构（不包含S2字段）
                 try:
                     # geometry_type(1B)
                     f.seek(1, 1)
 
                     # bbox(32B)
                     f.seek(32, 1)
-
-                    # s2_cell_count(8B)
-                    s2_cell_count = struct.unpack('Q', f.read(8))[0]
-
-                    # s2_cells(8B * count)
-                    f.seek(8 * s2_cell_count, 1)
 
                     # coord_size(4B)
                     coord_size = struct.unpack('I', f.read(4))[0]
@@ -108,15 +102,6 @@ class GeometryStorage:
                 # 读取bbox
                 f.read(32)
 
-                # 读取S2单元格数量
-                cell_count_data = f.read(8)
-                if len(cell_count_data) < 8:
-                    break
-                cell_count = struct.unpack('Q', cell_count_data)[0]
-
-                # 跳过S2单元格ID
-                f.read(8 * cell_count)
-
                 # 读取坐标大小并跳过坐标数据
                 coord_size_data = f.read(4)
                 if len(coord_size_data) < 4:
@@ -145,8 +130,6 @@ class GeometryStorage:
                 try:
                     f.seek(1, 1)  # geometry_type
                     f.seek(32, 1)  # bbox
-                    s2_cell_count = struct.unpack('Q', f.read(8))[0]
-                    f.seek(8 * s2_cell_count + 4, 1)  # s2_cells + coord_size
                     coord_size = struct.unpack('I', f.read(4))[0]
                     f.seek(coord_size, 1)
                 except:

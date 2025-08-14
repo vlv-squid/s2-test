@@ -4,6 +4,7 @@
 """
 
 import sys
+import os
 
 from pathlib import Path
 
@@ -17,12 +18,12 @@ if __name__ == "__main__":
     # 1. 转换Shapefile
     print("=== 转换Shapefile ===")
     storage_system = GisStorageSystem("./output_data")
-    validfid_num = storage_system.convert_shapefile("./data/test.shp",
-                                                    s2_resolution=15)
+    validfid_num = storage_system.convert_shapefile("./data/test.shp")
     print(f"转换生成的有效FID数量: {len(validfid_num)}")
 
     # 2. 使用S2索引进行空间查询
-    index_file = "./index_py/s2.pkl"
+    shapefile_name = os.path.splitext(os.path.basename("./data/test.shp"))[0]
+    index_file = f"./index_py/s2.pkl"
     s2_index = S2SpatialIndex("./data/test.shp", index_file, resolution=15)
 
     print("\n=== 空间查询 ===")

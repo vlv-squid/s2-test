@@ -12,19 +12,33 @@ from gisstorage.serializers import GeometrySerializer
 class ShapefileConverter:
     """Shapefile转换器"""
 
-    def __init__(self, output_dir: str):
+    def __init__(self, shapefile_path: str, output_dir: str):
         from gissystem import GeometryStorage, AttributeStorage
+
+        # 提取shapefile文件名（不含扩展名）作为前缀
+        shapefile_name = os.path.splitext(os.path.basename(shapefile_path))[0]
+
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
-        # 初始化存储管理器
-        self.geometry_storage = GeometryStorage(
-            os.path.join(output_dir, "geom.dat"))
-        self.attribute_storage = AttributeStorage(
-            os.path.join(output_dir, "attr.dat"))
+        # 构造文件路径
+        geom_file_path = os.path.join(output_dir, f"{shapefile_name}_geom.dat")
+        attr_file_path = os.path.join(output_dir, f"{shapefile_name}_attr.dat")
+        self.index_file = os.path.join(output_dir,
+                                       f"{shapefile_name}_index.dat")
 
-        # 添加索引文件（仅存储要素偏移量）
-        self.index_file = os.path.join(output_dir, "index.dat")
+        # 清空现有文件（如果存在）
+        open(geom_file_path, 'wb').close()
+        open(attr_file_path, 'wb').close()
+        open(self.index_file, 'wb').close()
+
+        # 使用shapefile名称作为前缀初始化存储管理器
+        self.geometry_storage = GeometryStorage(geom_file_path)
+        self.attribute_storage = AttributeStorage(attr_file_path)
+
+        # 保存shapefile路径和名称
+        self.shapefile_path = shapefile_path
+        self.shapefile_name = shapefile_name
 
     def _calculate_bbox(
         self, coordinates: List[Tuple[float, float]]
@@ -175,14 +189,14 @@ class ShapefileConverter:
 
         return coordinates
 
-    def convert(self, shapefile_path: str, s2_resolution: int = 15):
+    def convert(self, s2_resolution: int = 15):
         """将Shapefile转换为自定义二进制格式"""
-        print(f"开始转换Shapefile: {shapefile_path}")
+        print(f"开始转换Shapefile: {self.shapefile_path}")
 
         # 打开Shapefile
-        datasource = ogr.Open(shapefile_path)
+        datasource = ogr.Open(self.shapefile_path)
         if not datasource:
-            raise ValueError(f"无法打开Shapefile: {shapefile_path}")
+            raise ValueError(f"无法打开Shapefile: {self.shapefile_path}")
 
         layer = datasource.GetLayer()
         if not layer:
@@ -203,7 +217,7 @@ class ShapefileConverter:
         # 创建字段信息字典并序列化存储
         field_info = {'names': field_names, 'types': field_types}
 
-        # 将字段信息写入属性存储的开头
+        # 将字段信息写入属性存储的开头（使用'wb'模式覆盖旧文件）
         field_info_bytes = pickle.dumps(field_info)
         with open(self.attribute_storage.attribute_file, 'wb') as f:
             # 先写入字段信息长度和字段信息
@@ -289,7 +303,7 @@ class ShapefileConverter:
             # 创建几何数据对象（不包含S2单元格信息）
             geom_data = GeometryData(fid, geom_type, coord_data, bbox)
 
-            # 写入几何文件并记录偏移位置
+            # 写入几何文件并记录偏移位置（使用'ab'模式追加写入）
             geom_offset = self.geometry_storage.write_geometry(geom_data)
 
             # 处理属性数据
@@ -327,7 +341,7 @@ class ShapefileConverter:
                 }
                 valid_fids.append(fid)
 
-        # 保存索引数据
+        # 保存索引数据（使用'wb'模式覆盖旧索引文件）
         with open(self.index_file, 'wb') as f:
             pickle.dump({'version': 1, 'data': index_data}, f)
 
