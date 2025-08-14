@@ -5,3 +5,5 @@ build/
 data/
 png/
 py/index/__pycache__/
+index/
+index_py/
