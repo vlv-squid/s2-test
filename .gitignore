@@ -5,5 +5,8 @@ build/
 data/
 png/
 py/index/__pycache__/
+py/gisstorage/__pycache__/
 index/
 index_py/
+output/
+output_data/

@@ -5,7 +5,7 @@
 #
 
 import time
-from visualization import Visualizer
+from index.visualization import Visualizer
 
 
 class IndexTester:

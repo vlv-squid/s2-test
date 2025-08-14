@@ -5,7 +5,7 @@
 #
 
 from rtree import index
-from index_base import SpatialIndex
+from index.index_base import SpatialIndex
 import pickle
 import os
 import time

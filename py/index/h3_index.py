@@ -5,7 +5,7 @@
 #
 
 from h3 import geo_to_cells
-from index_base import SpatialIndex
+from index.index_base import SpatialIndex
 import pickle
 import os
 import time
