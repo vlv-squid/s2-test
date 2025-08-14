@@ -19,9 +19,7 @@ class GisStorageSystem:
         self.geometry_storage = GeometryStorage(self.geometry_file)
         self.attribute_storage = AttributeStorage(self.attribute_file)
 
-    def convert_shapefile(self,
-                          shapefile_path: str,
-                          s2_resolution: int = 15) -> str:
+    def convert_shapefile(self, shapefile_path: str, s2_resolution: int = 15):
         """转换Shapefile"""
         converter = ShapefileConverter(shapefile_path, self.data_dir)
         return converter.convert(s2_resolution)
