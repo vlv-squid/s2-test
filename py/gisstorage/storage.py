@@ -3,6 +3,7 @@
 
 import os
 import struct
+import json
 from typing import Dict, List, Tuple
 from gisstorage.serializers import GeometrySerializer, AttributeSerializer
 from gisstorage.models import GeometryData, AttributeData
@@ -17,12 +18,15 @@ class GeometryStorage:
         os.makedirs(os.path.dirname(geometry_file), exist_ok=True)
 
     def write_geometry(self, geometry: GeometryData) -> int:
-        """写入几何数据并返回文件偏移量"""
         with open(self.geometry_file, 'ab') as f:
             offset = f.tell()
             geom_binary = GeometrySerializer.serialize_geometry(geometry)
-            f.write(geom_binary)
-            return offset
+            # 写入前校验数据完整性
+            if len(geom_binary) > 0:
+                f.write(geom_binary)
+                return offset
+            else:
+                raise ValueError(f"几何数据序列化失败 for FID {geometry.feature_id}")
 
     def read_geometry(self, feature_id: int) -> GeometryData:
         """根据要素ID读取几何数据"""
@@ -39,7 +43,6 @@ class GeometryStorage:
             return geometry
 
     def _build_offset_index(self) -> Dict[int, int]:
-        """构建feature_id到文件偏移的索引"""
         offsets = {}
         if not os.path.exists(self.geometry_file):
             return offsets
@@ -47,38 +50,36 @@ class GeometryStorage:
         with open(self.geometry_file, 'rb') as f:
             while True:
                 current_pos = f.tell()
-                # 读取feature_id
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
-                    break
+                    break  # 文件结束
 
                 fid = struct.unpack('Q', fid_data)[0]
                 offsets[fid] = current_pos
 
-                # 跳到下一个记录
-                # 读取geometry_type
-                geom_type_data = f.read(1)
-                if len(geom_type_data) < 1:
+                # 正确解析整个记录结构
+                try:
+                    # geometry_type(1B)
+                    f.seek(1, 1)
+
+                    # bbox(32B)
+                    f.seek(32, 1)
+
+                    # s2_cell_count(8B)
+                    s2_cell_count = struct.unpack('Q', f.read(8))[0]
+
+                    # s2_cells(8B * count)
+                    f.seek(8 * s2_cell_count, 1)
+
+                    # coord_size(4B)
+                    coord_size = struct.unpack('I', f.read(4))[0]
+
+                    # coordinates(coord_size)
+                    f.seek(coord_size, 1)
+
+                except Exception as e:
+                    print(f"解析几何记录失败 at FID {fid}: {str(e)}")
                     break
-
-                # 读取bbox
-                f.read(32)
-
-                # 读取S2单元格数量
-                cell_count_data = f.read(8)
-                if len(cell_count_data) < 8:
-                    break
-                cell_count = struct.unpack('Q', cell_count_data)[0]
-
-                # 跳过S2单元格ID
-                f.read(8 * cell_count)
-
-                # 读取坐标大小并跳过坐标数据
-                coord_size_data = f.read(4)
-                if len(coord_size_data) < 4:
-                    break
-                coord_size = struct.unpack('I', coord_size_data)[0]
-                f.read(coord_size)
 
         return offsets
 
@@ -124,6 +125,32 @@ class GeometryStorage:
                 f.read(coord_size)
 
         return feature_ids
+
+    def _is_valid_fid(self, fid: int) -> bool:
+        # 直接检查文件是否存在该FID
+        if not os.path.exists(self.geometry_file):
+            return False
+
+        with open(self.geometry_file, 'rb') as f:
+            while True:
+                fid_data = f.read(8)
+                if len(fid_data) < 8:
+                    return False
+
+                current_fid = struct.unpack('Q', fid_data)[0]
+                if current_fid == fid:
+                    return True
+
+                # 跳过当前记录的其余部分
+                try:
+                    f.seek(1, 1)  # geometry_type
+                    f.seek(32, 1)  # bbox
+                    s2_cell_count = struct.unpack('Q', f.read(8))[0]
+                    f.seek(8 * s2_cell_count + 4, 1)  # s2_cells + coord_size
+                    coord_size = struct.unpack('I', f.read(4))[0]
+                    f.seek(coord_size, 1)
+                except:
+                    return False
 
 
 class AttributeStorage:

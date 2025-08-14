@@ -14,28 +14,18 @@ from index.s2_index import S2SpatialIndex
 from gisstorage.gissystem import GisStorageSystem
 
 if __name__ == "__main__":
-    # 初始化GIS存储系统
-    storage_system = GisStorageSystem("./output_data")
-
     # 1. 转换Shapefile
-    # print("=== 转换Shapefile ===")
-    # output_dir = storage_system.convert_shapefile("./data/test.shp",
-    #                                               s2_resolution=15)
-    # print(f"数据已保存至: {output_dir}")
+    print("=== 转换Shapefile ===")
+    storage_system = GisStorageSystem("./output_data")
+    validfid_num = storage_system.convert_shapefile("./data/test.shp",
+                                                    s2_resolution=15)
+    print(f"转换生成的有效FID数量: {len(validfid_num)}")
 
-    s2_index = S2SpatialIndex("./data/test.shp",
-                              "./index_py/s2.pkl",
-                              resolution=15)
+    # 2. 使用S2索引进行空间查询
+    index_file = "./index_py/s2.pkl"
+    s2_index = S2SpatialIndex("./data/test.shp", index_file, resolution=15)
 
-    # 2. 查询要素
     print("\n=== 空间查询 ===")
     bbox = (103.2504, 26.4297, 103.3028, 26.4747)
-    features = storage_system.query_by_region(bbox, s2_index)
-    print(f"查询到 {len(features)} 个要素")
-
-    # 3. 获取属性信息
-    # print("\n=== 获取属性信息 ===")
-    # for feature in features[:5]:  # 只显示前5个要素
-    #     attrs = storage_system.get_attributes(feature['id'])
-    #     print(f"要素 {feature['id']} 属性: {attrs}")
-    #     print(f"坐标: {feature['coordinates'][:3]}...")  # 只显示前3个坐标点
+    candidate_fids = s2_index.query_by_bbox(bbox)
+    print(f"查询到 {len(candidate_fids)} 个候选要素")

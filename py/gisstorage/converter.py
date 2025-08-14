@@ -5,7 +5,6 @@ import struct
 from typing import Tuple, List
 from osgeo import ogr
 
-from gisstorage.index_adapter import S2IndexAdapter
 from gisstorage.models import GeometryData, AttributeData
 from gisstorage.serializers import GeometrySerializer
 
@@ -14,7 +13,6 @@ class ShapefileConverter:
     """Shapefile转换器"""
 
     def __init__(self, output_dir: str):
-
         from gissystem import GeometryStorage, AttributeStorage
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -25,10 +23,7 @@ class ShapefileConverter:
         self.attribute_storage = AttributeStorage(
             os.path.join(output_dir, "attr.dat"))
 
-        # 初始化S2适配器
-        self.s2_adapter = S2IndexAdapter()
-
-        # 添加索引文件
+        # 添加索引文件（仅存储要素偏移量）
         self.index_file = os.path.join(output_dir, "index.dat")
 
     def _calculate_bbox(
@@ -180,12 +175,9 @@ class ShapefileConverter:
 
         return coordinates
 
-    def convert(self, shapefile_path: str, s2_resolution: int = 15) -> str:
+    def convert(self, shapefile_path: str, s2_resolution: int = 15):
         """将Shapefile转换为自定义二进制格式"""
         print(f"开始转换Shapefile: {shapefile_path}")
-
-        # 设置S2分辨率
-        self.s2_adapter.resolution = s2_resolution
 
         # 打开Shapefile
         datasource = ogr.Open(shapefile_path)
@@ -218,11 +210,9 @@ class ShapefileConverter:
             f.write(struct.pack('I', len(field_info_bytes)))
             f.write(field_info_bytes)
 
-        # 创建索引结构
-        index_data = {
-            'features': {},  # fid -> {geom_offset, attr_offset, s2_cells}
-            's2_index': {}  # s2_cell_id -> [fid_list]
-        }
+        # 创建索引结构（仅存储要素偏移量）
+        index_data = {'features': {}}
+        valid_fids = []
 
         processed_count = 0
         for feature in layer:
@@ -296,12 +286,8 @@ class ShapefileConverter:
             # 使用优化的差分编码压缩坐标数据
             coord_data = self._encode_coordinates_delta_optimized(coords)
 
-            # 计算S2单元格
-            s2_cell_ids = self.s2_adapter.calculate_s2_cells(bbox)
-
-            # 创建几何数据对象
-            geom_data = GeometryData(fid, geom_type, coord_data, bbox,
-                                     s2_cell_ids)
+            # 创建几何数据对象（不包含S2单元格信息）
+            geom_data = GeometryData(fid, geom_type, coord_data, bbox)
 
             # 写入几何文件并记录偏移位置
             geom_offset = self.geometry_storage.write_geometry(geom_data)
@@ -324,30 +310,30 @@ class ShapefileConverter:
                 attr_offset = f.tell()
                 f.write(attr_bytes)
 
-            # 更新索引
+            # 更新索引（仅存储偏移量）
             index_data['features'][fid] = {
                 'geom_offset': geom_offset,
-                'attr_offset': attr_offset,
-                's2_cells': s2_cell_ids
+                'attr_offset': attr_offset
             }
-
-            # 更新S2索引
-            for cell_id in s2_cell_ids:
-                if cell_id not in index_data['s2_index']:
-                    index_data['s2_index'][cell_id] = []
-                index_data['s2_index'][cell_id].append(fid)
 
             processed_count += 1
             if processed_count % 1000 == 0:
                 print(f"已处理 {processed_count} 个要素")
 
+            if geom_offset is not None and attr_offset is not None:
+                index_data['features'][fid] = {
+                    'geom_offset': geom_offset,
+                    'attr_offset': attr_offset
+                }
+                valid_fids.append(fid)
+
         # 保存索引数据
         with open(self.index_file, 'wb') as f:
-            pickle.dump(index_data, f)
+            pickle.dump({'version': 1, 'data': index_data}, f)
 
         print(f"转换完成，共处理 {processed_count} 个要素")
         print(f"- 几何数据: {self.geometry_storage.geometry_file}")
         print(f"- 属性数据: {self.attribute_storage.attribute_file}")
         print(f"- 索引数据: {self.index_file}")
 
-        return self.output_dir
+        return valid_fids
