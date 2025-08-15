@@ -1,5 +1,7 @@
 # storage.py
-"""数据存储管理"""
+# created by:
+#   @author: vlv-squid
+#   @date: 2025-08-15
 
 import os
 import struct
@@ -50,7 +52,7 @@ class GeometryStorage:
         with open(self.geometry_file, 'rb') as f:
             while True:
                 current_pos = f.tell()
-                
+
                 # 读取feature_id
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
@@ -63,13 +65,13 @@ class GeometryStorage:
                 try:
                     # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
                     f.seek(40, 1)
-                    
+
                     # 读取坐标大小(4B)
                     coord_size_data = f.read(4)
                     if len(coord_size_data) < 4:
                         break
                     coord_size = struct.unpack('I', coord_size_data)[0]
-                    
+
                     # 跳过坐标数据
                     f.seek(coord_size, 1)
 
@@ -88,7 +90,7 @@ class GeometryStorage:
         with open(self.geometry_file, 'rb') as f:
             while True:
                 current_pos = f.tell()
-                
+
                 # 读取feature_id
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
@@ -101,13 +103,13 @@ class GeometryStorage:
                 try:
                     # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
                     f.seek(40, 1)
-                    
+
                     # 读取坐标大小(4B)
                     coord_size_data = f.read(4)
                     if len(coord_size_data) < 4:
                         break
                     coord_size = struct.unpack('I', coord_size_data)[0]
-                    
+
                     # 跳过坐标数据
                     f.seek(coord_size, 1)
 
@@ -125,7 +127,7 @@ class GeometryStorage:
         with open(self.geometry_file, 'rb') as f:
             while True:
                 current_pos = f.tell()
-                
+
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
                     return False
@@ -138,13 +140,13 @@ class GeometryStorage:
                 try:
                     # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
                     f.seek(40, 1)
-                    
+
                     # 读取坐标大小(4B)
                     coord_size_data = f.read(4)
                     if len(coord_size_data) < 4:
                         return False
                     coord_size = struct.unpack('I', coord_size_data)[0]
-                    
+
                     # 跳过坐标数据
                     f.seek(coord_size, 1)
 
@@ -179,7 +181,8 @@ class AttributeStorage:
                 # 读取字段信息长度
                 field_info_length_data = attr_file.read(4)
                 if len(field_info_length_data) >= 4:
-                    field_info_length = struct.unpack('I', field_info_length_data)[0]
+                    field_info_length = struct.unpack(
+                        'I', field_info_length_data)[0]
                     # 跳过字段信息
                     attr_file.seek(field_info_length, 1)
             except:

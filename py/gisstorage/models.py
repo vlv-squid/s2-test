@@ -1,8 +1,9 @@
 # models.py
-"""数据模型定义"""
+# created by:
+#   @author: vlv-squid
+#   @date: 2025-08-15
 
 from typing import List, Tuple, Dict, Any
-
 
 import struct
 from typing import List, Tuple, Dict, Any

@@ -1,5 +1,7 @@
 # gissystem.py
-"""主程序入口"""
+# created by:
+#   @author: vlv-squid
+#   @date: 2025-08-15
 
 import os
 from typing import Tuple, List, Dict

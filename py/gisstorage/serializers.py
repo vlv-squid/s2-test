@@ -1,5 +1,7 @@
 # serializers.py
-"""数据序列化工具"""
+# created by:
+#   @author: vlv-squid
+#   @date: 2025-08-15
 
 import struct
 import json

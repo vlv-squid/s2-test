@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-#
+# gisstorage_demo.py
 # created by:
 #   @author: vlv-squid
-#   @date: 2025-01-21
-#
+#   @date: 2025-08-15
 
 import os
 import sys

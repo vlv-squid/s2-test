@@ -1,4 +1,8 @@
-# 修改后的converter.py，实现相对坐标存储优化
+# converter.py
+# created by:
+#   @author: vlv-squid
+#   @date: 2025-08-15
+
 import os
 import pickle
 import struct

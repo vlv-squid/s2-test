@@ -1,7 +1,7 @@
 # runner.py
-"""
-使用示例
-"""
+# created by:
+#   @author: vlv-squid
+#   @date: 2025-08-15
 
 import sys
 import os
