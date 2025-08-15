@@ -51,14 +51,14 @@ class GeometrySerializer:
     @staticmethod
     def deserialize_geometry(data: bytes) -> Tuple[GeometryData, int]:
         """从二进制数据反序列化几何对象"""
-        if len(data) < 41:  # 最小长度：8+1+32=41
+        if len(data) < 48:  # 最小长度：8+1+8+8+8+8+8=41字节，但实际需要48字节（内存对齐）
             raise ValueError("数据长度不足，无法反序列化几何对象")
 
         # 解析基本字段
         feature_id, geometry_type, min_x, min_y, max_x, max_y = \
-            struct.unpack('Qbdddd', data[:41])
+            struct.unpack('Qbdddd', data[:48])
 
-        offset = 41
+        offset = 48
 
         # 检查坐标数据长度
         if offset + 4 > len(data):
@@ -70,9 +70,10 @@ class GeometrySerializer:
         if offset + coord_size > len(data):
             raise ValueError("坐标数据不完整")
 
-        coordinates = data[offset:offset + coord_size]
+        # 获取压缩的坐标数据
+        compressed_coords = data[offset:offset + coord_size]
 
-        return GeometryData(feature_id, geometry_type, coordinates,
+        return GeometryData(feature_id, geometry_type, compressed_coords,
                             (min_x, min_y, max_x, max_y)), offset + coord_size
 
 

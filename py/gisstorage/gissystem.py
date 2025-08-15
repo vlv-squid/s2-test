@@ -23,7 +23,3 @@ class GisStorageSystem:
         """转换Shapefile"""
         converter = ShapefileConverter(shapefile_path, self.data_dir)
         return converter.convert(s2_resolution)
-
-    def get_attributes(self, feature_id: int) -> Dict:
-        """获取指定要素的属性"""
-        return self.attribute_storage.read_attribute(feature_id)

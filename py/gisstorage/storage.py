@@ -50,6 +50,8 @@ class GeometryStorage:
         with open(self.geometry_file, 'rb') as f:
             while True:
                 current_pos = f.tell()
+                
+                # 读取feature_id
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
                     break  # 文件结束
@@ -57,18 +59,18 @@ class GeometryStorage:
                 fid = struct.unpack('Q', fid_data)[0]
                 offsets[fid] = current_pos
 
-                # 正确解析整个记录结构（不包含S2字段）
+                # 手动解析记录结构
                 try:
-                    # geometry_type(1B)
-                    f.seek(1, 1)
-
-                    # bbox(32B)
-                    f.seek(32, 1)
-
-                    # coord_size(4B)
-                    coord_size = struct.unpack('I', f.read(4))[0]
-
-                    # coordinates(coord_size)
+                    # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
+                    f.seek(40, 1)
+                    
+                    # 读取坐标大小(4B)
+                    coord_size_data = f.read(4)
+                    if len(coord_size_data) < 4:
+                        break
+                    coord_size = struct.unpack('I', coord_size_data)[0]
+                    
+                    # 跳过坐标数据
                     f.seek(coord_size, 1)
 
                 except Exception as e:
@@ -85,6 +87,8 @@ class GeometryStorage:
 
         with open(self.geometry_file, 'rb') as f:
             while True:
+                current_pos = f.tell()
+                
                 # 读取feature_id
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
@@ -93,21 +97,23 @@ class GeometryStorage:
                 fid = struct.unpack('Q', fid_data)[0]
                 feature_ids.append(fid)
 
-                # 跳到下一个记录
-                # 读取geometry_type
-                geom_type_data = f.read(1)
-                if len(geom_type_data) < 1:
-                    break
+                # 手动解析记录结构
+                try:
+                    # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
+                    f.seek(40, 1)
+                    
+                    # 读取坐标大小(4B)
+                    coord_size_data = f.read(4)
+                    if len(coord_size_data) < 4:
+                        break
+                    coord_size = struct.unpack('I', coord_size_data)[0]
+                    
+                    # 跳过坐标数据
+                    f.seek(coord_size, 1)
 
-                # 读取bbox
-                f.read(32)
-
-                # 读取坐标大小并跳过坐标数据
-                coord_size_data = f.read(4)
-                if len(coord_size_data) < 4:
+                except Exception as e:
+                    print(f"解析几何记录失败 at FID {fid}: {str(e)}")
                     break
-                coord_size = struct.unpack('I', coord_size_data)[0]
-                f.read(coord_size)
 
         return feature_ids
 
@@ -118,6 +124,8 @@ class GeometryStorage:
 
         with open(self.geometry_file, 'rb') as f:
             while True:
+                current_pos = f.tell()
+                
                 fid_data = f.read(8)
                 if len(fid_data) < 8:
                     return False
@@ -126,13 +134,21 @@ class GeometryStorage:
                 if current_fid == fid:
                     return True
 
-                # 跳过当前记录的其余部分
+                # 手动解析记录结构
                 try:
-                    f.seek(1, 1)  # geometry_type
-                    f.seek(32, 1)  # bbox
-                    coord_size = struct.unpack('I', f.read(4))[0]
+                    # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
+                    f.seek(40, 1)
+                    
+                    # 读取坐标大小(4B)
+                    coord_size_data = f.read(4)
+                    if len(coord_size_data) < 4:
+                        return False
+                    coord_size = struct.unpack('I', coord_size_data)[0]
+                    
+                    # 跳过坐标数据
                     f.seek(coord_size, 1)
-                except:
+
+                except Exception as e:
                     return False
 
 
@@ -144,18 +160,32 @@ class AttributeStorage:
         # 创建目录
         os.makedirs(os.path.dirname(attribute_file), exist_ok=True)
 
-    def write_attribute(self, attribute: AttributeData):
+    def write_attribute(self, attribute: AttributeData) -> int:
         """写入属性数据"""
         with open(self.attribute_file, 'ab') as f:
+            offset = f.tell()
             attr_binary = AttributeSerializer.serialize_attributes(attribute)
             f.write(attr_binary)
+            return offset
 
-    def read_attribute(self, feature_id: int) -> Dict:
+    def read_attribute(self, feature_id: int) -> AttributeData:
         """根据要素ID读取属性数据"""
         if not os.path.exists(self.attribute_file):
-            return {}
+            return None
 
         with open(self.attribute_file, 'rb') as attr_file:
+            # 跳过文件开头的字段信息
+            try:
+                # 读取字段信息长度
+                field_info_length_data = attr_file.read(4)
+                if len(field_info_length_data) >= 4:
+                    field_info_length = struct.unpack('I', field_info_length_data)[0]
+                    # 跳过字段信息
+                    attr_file.seek(field_info_length, 1)
+            except:
+                # 如果读取字段信息失败，重置文件指针到开头
+                attr_file.seek(0)
+
             while True:
                 # 读取feature_id和json长度
                 header_data = attr_file.read(12)
@@ -167,9 +197,10 @@ class AttributeStorage:
                     # 读取属性数据
                     props_data = attr_file.read(json_length)
                     props_json = props_data.decode('utf-8')
-                    return json.loads(props_json)
+                    properties = json.loads(props_json)
+                    return AttributeData(feature_id, properties)
                 else:
                     # 跳过属性数据
                     attr_file.seek(json_length, 1)
 
-        return {}
+        return None

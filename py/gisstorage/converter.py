@@ -304,7 +304,11 @@ class ShapefileConverter:
             geom_data = GeometryData(fid, geom_type, coord_data, bbox)
 
             # 写入几何文件并记录偏移位置（使用'ab'模式追加写入）
-            geom_offset = self.geometry_storage.write_geometry(geom_data)
+            try:
+                geom_offset = self.geometry_storage.write_geometry(geom_data)
+            except Exception as e:
+                print(f"几何数据写入失败 for FID {fid}: {str(e)}")
+                geom_offset = None
 
             # 处理属性数据
             props = {}
@@ -315,25 +319,18 @@ class ShapefileConverter:
                     props[field_name] = None
 
             attr_data = AttributeData(fid, props)
-            # 使用pickle序列化属性数据以提高效率
-            attr_bytes = pickle.dumps(props)
-
-            # 追加写入属性文件
-            attr_offset = 0
-            with open(self.attribute_storage.attribute_file, 'ab') as f:
-                attr_offset = f.tell()
-                f.write(attr_bytes)
-
-            # 更新索引（仅存储偏移量）
-            index_data['features'][fid] = {
-                'geom_offset': geom_offset,
-                'attr_offset': attr_offset
-            }
+            # 使用AttributeStorage的写入方法
+            try:
+                attr_offset = self.attribute_storage.write_attribute(attr_data)
+            except Exception as e:
+                print(f"属性数据写入失败 for FID {fid}: {str(e)}")
+                attr_offset = None
 
             processed_count += 1
             if processed_count % 1000 == 0:
                 print(f"已处理 {processed_count} 个要素")
 
+            # 更新索引（仅存储偏移量）
             if geom_offset is not None and attr_offset is not None:
                 index_data['features'][fid] = {
                     'geom_offset': geom_offset,
