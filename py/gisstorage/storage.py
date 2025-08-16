@@ -16,6 +16,8 @@ class GeometryStorage:
 
     def __init__(self, geometry_file: str):
         self.geometry_file = geometry_file
+        self._offset_index = None  # 缓存偏移索引
+        self._index_built = False  # 标记索引是否已构建
         # 创建目录
         os.makedirs(os.path.dirname(geometry_file), exist_ok=True)
 
@@ -26,13 +28,17 @@ class GeometryStorage:
             # 写入前校验数据完整性
             if len(geom_binary) > 0:
                 f.write(geom_binary)
+                # 写入后清除索引缓存，因为文件已改变
+                self._offset_index = None
+                self._index_built = False
                 return offset
             else:
                 raise ValueError(f"几何数据序列化失败 for FID {geometry.feature_id}")
 
     def read_geometry(self, feature_id: int) -> GeometryData:
         """根据要素ID读取几何数据"""
-        feature_offsets = self._build_offset_index()
+        # 使用缓存的偏移索引
+        feature_offsets = self._get_offset_index()
         if feature_id not in feature_offsets:
             raise ValueError(f"Feature ID {feature_id} not found")
 
@@ -43,6 +49,13 @@ class GeometryStorage:
             geom_data = f.read(1024 * 1024)
             geometry, _ = GeometrySerializer.deserialize_geometry(geom_data)
             return geometry
+
+    def _get_offset_index(self) -> Dict[int, int]:
+        """获取偏移索引，使用缓存机制"""
+        if self._offset_index is None or not self._index_built:
+            self._offset_index = self._build_offset_index()
+            self._index_built = True
+        return self._offset_index
 
     def _build_offset_index(self) -> Dict[int, int]:
         offsets = {}
@@ -83,75 +96,19 @@ class GeometryStorage:
 
     def get_all_feature_ids(self) -> List[int]:
         """获取所有要素ID"""
-        feature_ids = []
-        if not os.path.exists(self.geometry_file):
-            return feature_ids
-
-        with open(self.geometry_file, 'rb') as f:
-            while True:
-                current_pos = f.tell()
-
-                # 读取feature_id
-                fid_data = f.read(8)
-                if len(fid_data) < 8:
-                    break
-
-                fid = struct.unpack('Q', fid_data)[0]
-                feature_ids.append(fid)
-
-                # 手动解析记录结构
-                try:
-                    # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
-                    f.seek(40, 1)
-
-                    # 读取坐标大小(4B)
-                    coord_size_data = f.read(4)
-                    if len(coord_size_data) < 4:
-                        break
-                    coord_size = struct.unpack('I', coord_size_data)[0]
-
-                    # 跳过坐标数据
-                    f.seek(coord_size, 1)
-
-                except Exception as e:
-                    print(f"解析几何记录失败 at FID {fid}: {str(e)}")
-                    break
-
-        return feature_ids
+        # 使用缓存的偏移索引
+        feature_offsets = self._get_offset_index()
+        return list(feature_offsets.keys())
 
     def _is_valid_fid(self, fid: int) -> bool:
-        # 直接检查文件是否存在该FID
-        if not os.path.exists(self.geometry_file):
-            return False
+        # 使用缓存的偏移索引
+        feature_offsets = self._get_offset_index()
+        return fid in feature_offsets
 
-        with open(self.geometry_file, 'rb') as f:
-            while True:
-                current_pos = f.tell()
-
-                fid_data = f.read(8)
-                if len(fid_data) < 8:
-                    return False
-
-                current_fid = struct.unpack('Q', fid_data)[0]
-                if current_fid == fid:
-                    return True
-
-                # 手动解析记录结构
-                try:
-                    # 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
-                    f.seek(40, 1)
-
-                    # 读取坐标大小(4B)
-                    coord_size_data = f.read(4)
-                    if len(coord_size_data) < 4:
-                        return False
-                    coord_size = struct.unpack('I', coord_size_data)[0]
-
-                    # 跳过坐标数据
-                    f.seek(coord_size, 1)
-
-                except Exception as e:
-                    return False
+    def clear_cache(self):
+        """清除索引缓存"""
+        self._offset_index = None
+        self._index_built = False
 
 
 class AttributeStorage:

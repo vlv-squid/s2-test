@@ -60,6 +60,7 @@ if __name__ == "__main__":
                 print(f"  几何类型: {geometry_data.geometry_type}")
                 print(f"  边界框: {geometry_data.bbox}")
                 print(f"  坐标数量: {len(decoded_coords)}")
+                print(f"  坐标: {decoded_coords}")
 
                 # 读取属性数据
                 attribute_data = attribute_storage.read_attribute(fid)
