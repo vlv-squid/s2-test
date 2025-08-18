@@ -17,7 +17,7 @@ class ShapefileConverter:
     """Shapefile转换器"""
 
     def __init__(self, shapefile_path: str, output_dir: str):
-        from gissystem import GeometryStorage, AttributeStorage
+        from gisstorage.storage import GeometryStorage, AttributeStorage
 
         # 提取shapefile文件名（不含扩展名）作为前缀
         shapefile_name = os.path.splitext(os.path.basename(shapefile_path))[0]
