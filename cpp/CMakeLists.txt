@@ -17,13 +17,15 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 find_package(GTest REQUIRED)
 find_package(Boost REQUIRED COMPONENTS geometry)
 find_package(GDAL REQUIRED PATHS "${CMAKE_PREFIX_PATH}/lib64/cmake/gdal")
+find_package(nlohmann_json REQUIRED)
 
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_PREFIX_PATH}/include
 )
 
-add_executable(s2test 
+# s2index_test
+add_executable(s2index_test 
     test/s2index_test.cpp
     src/hybrid_index.cpp
     src/s2spatial_index.cpp
@@ -31,9 +33,21 @@ add_executable(s2test
     src/serialize_rtree.cpp
     src/serialize_s2.cpp
 )
-target_link_libraries(s2test PRIVATE
+target_link_libraries(s2index_test PRIVATE
     GDAL::GDAL
     Boost::geometry
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
     /usr/lib/x86_64-linux-gnu/libs2.so
+)
+
+# gis_storage_test
+add_executable(gis_storage_test
+    test/gis_storage_test.cpp
+    src/gis_storage.cpp
+)
+target_link_libraries(gis_storage_test PRIVATE
+    GDAL::GDAL
+    Boost::geometry
+    nlohmann_json::nlohmann_json
+    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )

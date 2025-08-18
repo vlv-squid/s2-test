@@ -16,6 +16,7 @@ from index.s2_index import S2SpatialIndex
 from gisstorage.gissystem import GisStorageSystem
 from gisstorage.storage import GeometryStorage, AttributeStorage
 
+
 def threaded_geometry_read(geometry_storage, fid, results, errors):
     """线程函数：读取几何数据"""
     try:
@@ -23,6 +24,7 @@ def threaded_geometry_read(geometry_storage, fid, results, errors):
         results.append((fid, geometry_data))
     except Exception as e:
         errors.append((fid, str(e)))
+
 
 def threaded_attribute_read(attribute_storage, fid, results, errors):
     """线程函数：读取属性数据"""
@@ -32,29 +34,38 @@ def threaded_attribute_read(attribute_storage, fid, results, errors):
     except Exception as e:
         errors.append((fid, str(e)))
 
+
 if __name__ == "__main__":
     # 1. 转换Shapefile
-    print("=== 转换Shapefile ===")
-    storage_system = GisStorageSystem("./output_data")
-    validfid_num = storage_system.convert_shapefile("./data/test.shp")
-    print(f"转换生成的有效FID数量: {len(validfid_num)}")
+    # print("=== 转换Shapefile ===")
+    # storage_system = GisStorageSystem("./output_data")
+    # validfid_num = storage_system.convert_shapefile(
+    #     "/home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp")
+    # print(f"转换生成的有效FID数量: {len(validfid_num)}")
 
     # 2. 使用S2索引进行空间查询
-    shapefile_name = os.path.splitext(os.path.basename("./data/test.shp"))[0]
-    index_file = f"./index_py/s2.pkl"
-    s2_index = S2SpatialIndex("./data/test.shp", index_file, resolution=15)
+    # shapefile_name = os.path.splitext(
+    #     os.path.basename(
+    #         "./home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp"))[0]
+    # index_file = f"./index_py/s2.pkl"
+    # s2_index = S2SpatialIndex(
+    #     "./home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp",
+    #     index_file,
+    #     resolution=15)
 
-    print("\n=== 空间查询 ===")
-    bbox = (103.2504, 26.4297, 103.3028, 26.4747)
-    candidate_fids = s2_index.query_by_bbox(bbox)
-    print(f"查询到 {len(candidate_fids)} 个候选要素")
+    # print("\n=== 空间查询 ===")
+    # bbox = (103.2504, 26.4297, 103.3028, 26.4747)
+    # candidate_fids = s2_index.query_by_bbox(bbox)
+    # print(f"查询到 {len(candidate_fids)} 个候选要素")
 
     # 3. 解析二进制文件测试
     print("\n=== 解析二进制文件测试 ===")
 
     # 初始化存储对象
-    geometry_storage = GeometryStorage("./output_data/test_geom.dat")
-    attribute_storage = AttributeStorage("./output_data/test_attr.dat")
+    geometry_storage = GeometryStorage(
+        "./output_data/dltb_532300_2020_geom.dat")
+    attribute_storage = AttributeStorage(
+        "./output_data/dltb_532300_2020_attr.dat")
 
     # 获取所有要素ID
     all_fids = geometry_storage.get_all_feature_ids()
@@ -96,9 +107,9 @@ if __name__ == "__main__":
 
     if all_fids:
         # 确保测试相同数量的要素
-        test_count = min(100000, len(all_fids)) 
+        test_count = min(10000000, len(all_fids))
         test_fids = all_fids[:test_count]
-        
+
         # 测试几何数据读取性能
         start_time = time.time()
         success_count_geom = 0
