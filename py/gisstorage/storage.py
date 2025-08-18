@@ -14,6 +14,23 @@ from gisstorage.models import GeometryData, AttributeData
 class GeometryStorage:
     """几何数据存储类"""
 
+    @staticmethod
+    def calculate_geometry_size(geometry: GeometryData) -> int:
+        """计算几何对象序列化后的大小"""
+        # feature_id(8) + geometry_type(1) + bbox(32) + coord_size(4) + coords
+        return 8 + 1 + 32 + 4 + len(geometry.coordinates)
+    
+    @staticmethod
+    def get_serialized_size_from_header(data: bytes) -> int:
+        """从数据头部获取完整序列化数据的大小"""
+        if len(data) < 48:  # 最小头部长度
+            return 0
+            
+        # 解析坐标数据长度
+        coord_size = struct.unpack('I', data[44:48])[0]
+        # 总大小 = 头部(48) + 坐标大小字段(4) + 坐标数据(coord_size)
+        return 48 + 4 + coord_size
+
     def __init__(self, geometry_file: str):
         self.geometry_file = geometry_file
         self._offset_index = None  # 缓存偏移索引
@@ -45,8 +62,25 @@ class GeometryStorage:
         offset = feature_offsets[feature_id]
         with open(self.geometry_file, 'rb') as f:
             f.seek(offset)
-            # 读取足够大的数据块（假设最大1MB）
-            geom_data = f.read(1024 * 1024)
+            # 先读取头部数据以确定需要读取的总大小
+            header_data = f.read(48)  # 读取头部信息
+            if len(header_data) < 48:
+                raise ValueError(f"几何数据不完整 for FID {feature_id}")
+            
+            # 获取坐标数据大小
+            coord_size_data = f.read(4)  # 读取坐标大小字段
+            if len(coord_size_data) < 4:
+                raise ValueError(f"几何数据不完整 for FID {feature_id}")
+                
+            coord_size = struct.unpack('I', coord_size_data)[0]
+            
+            # 读取坐标数据
+            coord_data = f.read(coord_size)
+            if len(coord_data) < coord_size:
+                raise ValueError(f"几何坐标数据不完整 for FID {feature_id}")
+            
+            # 组合所有数据进行反序列化
+            geom_data = header_data + coord_size_data + coord_data
             geometry, _ = GeometrySerializer.deserialize_geometry(geom_data)
             return geometry
 
@@ -116,6 +150,8 @@ class AttributeStorage:
 
     def __init__(self, attribute_file: str):
         self.attribute_file = attribute_file
+        self._offset_index = None  # 缓存偏移索引
+        self._index_built = False  # 标记索引是否已构建
         # 创建目录
         os.makedirs(os.path.dirname(attribute_file), exist_ok=True)
 
@@ -125,6 +161,9 @@ class AttributeStorage:
             offset = f.tell()
             attr_binary = AttributeSerializer.serialize_attributes(attribute)
             f.write(attr_binary)
+            # 写入后清除索引缓存，因为文件已改变
+            self._offset_index = None
+            self._index_built = False
             return offset
 
     def read_attribute(self, feature_id: int) -> AttributeData:
@@ -132,35 +171,78 @@ class AttributeStorage:
         if not os.path.exists(self.attribute_file):
             return None
 
-        with open(self.attribute_file, 'rb') as attr_file:
+        # 使用缓存的偏移索引
+        feature_offsets = self._get_offset_index()
+        if feature_id not in feature_offsets:
+            return None
+
+        offset = feature_offsets[feature_id]
+        with open(self.attribute_file, 'rb') as f:
+            f.seek(offset)
+            # 读取feature_id和json长度
+            header_data = f.read(12)
+            if len(header_data) < 12:
+                return None
+
+            fid, json_length = struct.unpack('QI', header_data)
+            if fid == feature_id:
+                # 读取属性数据
+                props_data = f.read(json_length)
+                props_json = props_data.decode('utf-8')
+                properties = json.loads(props_json)
+                return AttributeData(feature_id, properties)
+
+        return None
+
+    def _get_offset_index(self) -> Dict[int, int]:
+        """获取偏移索引，使用缓存机制"""
+        if self._offset_index is None or not self._index_built:
+            self._offset_index = self._build_offset_index()
+            self._index_built = True
+        return self._offset_index
+
+    def _build_offset_index(self) -> Dict[int, int]:
+        """构建属性数据的偏移索引"""
+        offsets = {}
+        if not os.path.exists(self.attribute_file):
+            return offsets
+
+        with open(self.attribute_file, 'rb') as f:
             # 跳过文件开头的字段信息
             try:
                 # 读取字段信息长度
-                field_info_length_data = attr_file.read(4)
+                field_info_length_data = f.read(4)
                 if len(field_info_length_data) >= 4:
-                    field_info_length = struct.unpack(
-                        'I', field_info_length_data)[0]
+                    field_info_length = struct.unpack('I', field_info_length_data)[0]
                     # 跳过字段信息
-                    attr_file.seek(field_info_length, 1)
+                    f.seek(field_info_length, 1)
             except:
                 # 如果读取字段信息失败，重置文件指针到开头
-                attr_file.seek(0)
+                f.seek(0)
 
             while True:
+                current_pos = f.tell()
+                
                 # 读取feature_id和json长度
-                header_data = attr_file.read(12)
+                header_data = f.read(12)
                 if len(header_data) < 12:
                     break
 
                 fid, json_length = struct.unpack('QI', header_data)
-                if fid == feature_id:
-                    # 读取属性数据
-                    props_data = attr_file.read(json_length)
-                    props_json = props_data.decode('utf-8')
-                    properties = json.loads(props_json)
-                    return AttributeData(feature_id, properties)
-                else:
-                    # 跳过属性数据
-                    attr_file.seek(json_length, 1)
+                offsets[fid] = current_pos
 
-        return None
+                # 跳过属性数据
+                f.seek(json_length, 1)
+
+        return offsets
+
+    def get_all_feature_ids(self) -> List[int]:
+        """获取所有要素ID"""
+        # 使用缓存的偏移索引
+        feature_offsets = self._get_offset_index()
+        return list(feature_offsets.keys())
+
+    def clear_cache(self):
+        """清除索引缓存"""
+        self._offset_index = None
+        self._index_built = False

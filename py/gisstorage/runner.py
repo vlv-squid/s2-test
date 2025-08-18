@@ -5,7 +5,8 @@
 
 import sys
 import os
-
+import time
+import threading
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -14,6 +15,22 @@ sys.path.append(str(project_root))
 from index.s2_index import S2SpatialIndex
 from gisstorage.gissystem import GisStorageSystem
 from gisstorage.storage import GeometryStorage, AttributeStorage
+
+def threaded_geometry_read(geometry_storage, fid, results, errors):
+    """线程函数：读取几何数据"""
+    try:
+        geometry_data = geometry_storage.read_geometry(fid)
+        results.append((fid, geometry_data))
+    except Exception as e:
+        errors.append((fid, str(e)))
+
+def threaded_attribute_read(attribute_storage, fid, results, errors):
+    """线程函数：读取属性数据"""
+    try:
+        attribute_data = attribute_storage.read_attribute(fid)
+        results.append((fid, attribute_data))
+    except Exception as e:
+        errors.append((fid, str(e)))
 
 if __name__ == "__main__":
     # 1. 转换Shapefile
@@ -75,39 +92,40 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"  解析失败: {str(e)}")
 
-    # 4. 性能测试
     print("\n=== 性能测试 ===")
 
     if all_fids:
-        import time
-
+        # 确保测试相同数量的要素
+        test_count = min(100000, len(all_fids)) 
+        test_fids = all_fids[:test_count]
+        
         # 测试几何数据读取性能
         start_time = time.time()
-        success_count = 0
-        for fid in all_fids[:100]:  # 测试前100个要素
+        success_count_geom = 0
+        for fid in test_fids:  # 使用相同的测试样本
             try:
                 geometry_data = geometry_storage.read_geometry(fid)
-                success_count += 1
+                success_count_geom += 1
             except:
                 pass
         geom_time = time.time() - start_time
         print(
-            f"几何数据读取性能: {success_count} 个要素/{geom_time:.3f}秒 = {success_count/geom_time:.1f} 要素/秒"
+            f"几何数据读取性能: {success_count_geom} 个要素/{geom_time:.3f}秒 = {success_count_geom/geom_time:.1f} 要素/秒"
         )
 
         # 测试属性数据读取性能
         start_time = time.time()
-        success_count = 0
-        for fid in all_fids[:100]:  # 测试前100个要素
+        success_count_attr = 0
+        for fid in test_fids:  # 使用相同的测试样本
             try:
                 attribute_data = attribute_storage.read_attribute(fid)
                 if attribute_data:
-                    success_count += 1
+                    success_count_attr += 1
             except:
                 pass
         attr_time = time.time() - start_time
         print(
-            f"属性数据读取性能: {success_count} 个要素/{attr_time:.3f}秒 = {success_count/attr_time:.1f} 要素/秒"
+            f"属性数据读取性能: {success_count_attr} 个要素/{attr_time:.3f}秒 = {success_count_attr/attr_time:.1f} 要素/秒"
         )
 
     # 5. 数据完整性验证
@@ -138,5 +156,3 @@ if __name__ == "__main__":
         print(
             f"有效属性数据: {valid_attribute}/{len(all_fids)} ({valid_attribute/len(all_fids)*100:.1f}%)"
         )
-
-    print("\n=== 测试完成 ===")
