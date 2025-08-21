@@ -13,11 +13,10 @@ namespace GisStorage {
     ShapefileConverter::ShapefileConverter(const std::string& shapefile_path, const std::string& output_dir)
         : shapefile_path_(shapefile_path)
         , output_dir_(output_dir) {
-        
         // 提取Shapefile名称
         std::filesystem::path path(shapefile_path);
         shapefile_name_ = path.stem().string();
-        
+
         // 初始化存储文件
         initializeStorageFiles();
     }
@@ -25,43 +24,43 @@ namespace GisStorage {
     void ShapefileConverter::initializeStorageFiles() {
         // 创建输出目录
         std::filesystem::create_directories(output_dir_);
-        
+
         // 初始化存储对象
         std::string geom_file = output_dir_ + "/" + shapefile_name_ + "_geom.dat";
         std::string attr_file = output_dir_ + "/" + shapefile_name_ + "_attr.dat";
         index_file_ = output_dir_ + "/" + shapefile_name_ + "_index.dat";
-        
+
         geometry_storage_ = std::make_unique<GeometryStorage>(geom_file);
         attribute_storage_ = std::make_unique<AttributeStorage>(attr_file);
     }
 
     std::vector<uint64_t> ShapefileConverter::convert() {
         std::cout << "开始转换Shapefile: " << shapefile_path_ << std::endl;
-        
+
         // 打开Shapefile
         GDALAllRegister();
         GDALDataset* dataset = static_cast<GDALDataset*>(GDALOpenEx(shapefile_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!dataset) {
             throw std::runtime_error("无法打开Shapefile: " + shapefile_path_);
         }
-        
+
         OGRLayer* layer = dataset->GetLayer(0);
         if (!layer) {
             GDALClose(dataset);
             throw std::runtime_error("无法获取图层");
         }
-        
+
         // 获取字段信息
         OGRFeatureDefn* feature_defn = layer->GetLayerDefn();
         int field_count = feature_defn->GetFieldCount();
-        
+
         // 构建字段信息JSON
         nlohmann::json field_info;
         for (int i = 0; i < field_count; ++i) {
             OGRFieldDefn* field_defn = feature_defn->GetFieldDefn(i);
             field_info[field_defn->GetNameRef()] = field_defn->GetType();
         }
-        
+
         // 写入字段信息到属性文件开头
         std::string field_info_str = field_info.dump();
         std::ofstream attr_file(attribute_storage_->getAttributeFilePath(), std::ios::binary);
@@ -71,25 +70,25 @@ namespace GisStorage {
             attr_file.write(field_info_str.c_str(), field_info_length);
             attr_file.close();
         }
-        
+
         // 初始化索引数据
         nlohmann::json index_data;
         index_data["version"] = 1;
         index_data["data"]["features"] = nlohmann::json::object();
-        
+
         std::vector<uint64_t> valid_fids;
         int total_features = layer->GetFeatureCount();
         std::cout << "共 " << total_features << " 个要素" << std::endl;
-        
+
         // 重置图层
         layer->ResetReading();
-        
+
         int processed_count = 0;
         OGRFeature* feature;
-        
+
         while ((feature = layer->GetNextFeature()) != nullptr) {
             uint64_t fid = feature->GetFID();
-            
+
             try {
                 // 提取几何数据
                 OGRGeometry* geometry = feature->GetGeometryRef();
@@ -97,19 +96,19 @@ namespace GisStorage {
                     OGRFeature::DestroyFeature(feature);
                     continue;
                 }
-                
+
                 std::vector<Coordinate> coordinates = extractGeometryCoordinates(geometry);
                 if (coordinates.empty()) {
                     OGRFeature::DestroyFeature(feature);
                     continue;
                 }
-                
+
                 // 计算边界框
                 BBox bbox = calculateBBox(coordinates);
-                
+
                 // 压缩坐标数据
                 std::vector<uint8_t> coord_data = encodeCoordinatesDeltaOptimized(coordinates);
-                
+
                 // 确定几何类型
                 GeometryType geom_type;
                 switch (geometry->getGeometryType()) {
@@ -141,19 +140,19 @@ namespace GisStorage {
                         geom_type = GeometryType::POINT;
                         break;
                 }
-                
+
                 // 创建几何数据对象
                 GeometryData geom_data(fid, geom_type, coord_data, bbox);
-                
+
                 // 写入几何数据
                 int64_t geom_offset = geometry_storage_->writeGeometry(geom_data);
-                
+
                 // 提取属性数据
                 std::map<std::string, std::string> properties;
                 for (int i = 0; i < field_count; ++i) {
                     OGRFieldDefn* field_defn = feature_defn->GetFieldDefn(i);
                     std::string field_name = field_defn->GetNameRef();
-                    
+
                     if (feature->IsFieldSetAndNotNull(i)) {
                         std::string field_value;
                         switch (field_defn->GetType()) {
@@ -181,43 +180,43 @@ namespace GisStorage {
                         properties[field_name] = field_value;
                     }
                 }
-                
+
                 // 创建属性数据对象
                 AttributeData attr_data(fid, properties);
-                
+
                 // 写入属性数据
                 int64_t attr_offset = attribute_storage_->writeAttribute(attr_data);
-                
+
                 // 添加到索引
                 std::string fid_str = std::to_string(fid);
                 index_data["data"]["features"][fid_str]["geom_offset"] = geom_offset;
                 index_data["data"]["features"][fid_str]["attr_offset"] = attr_offset;
-                
+
                 valid_fids.push_back(fid);
-                
+
             } catch (const std::exception& e) {
                 std::cerr << "处理要素 " << fid << " 时出错: " << e.what() << std::endl;
             }
-            
+
             OGRFeature::DestroyFeature(feature);
-            
+
             processed_count++;
-            if (processed_count % 1000 == 0) {
-                std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
-            }
+            // if (processed_count % 1000 == 0) {
+            //     std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
+            // }
         }
-        
+
         // 保存索引数据
         saveIndexData(index_data);
-        
+
         // 清理
         GDALClose(dataset);
-        
+
         std::cout << "转换完成，共处理 " << valid_fids.size() << " 个要素" << std::endl;
         std::cout << "- 几何数据: " << getGeometryFilePath() << std::endl;
         std::cout << "- 属性数据: " << getAttributeFilePath() << std::endl;
         std::cout << "- 索引数据: " << getIndexFilePath() << std::endl;
-        
+
         return valid_fids;
     }
 

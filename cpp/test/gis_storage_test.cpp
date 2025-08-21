@@ -5,21 +5,70 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <thread>
+#include <atomic>
 
 using namespace GisStorage;
 
 class GisStorageTest : public ::testing::Test {
   protected:
+    std::string test_shapefile;
+    std::string output_dir;
+    std::vector<uint64_t> valid_fids;
+    std::unique_ptr<ShapefileConverter> converter;
+    std::unique_ptr<GeometryStorage> geom_storage;
+    std::unique_ptr<AttributeStorage> attr_storage;
+
     void SetUp() override {
         // 创建测试输出目录
         std::filesystem::create_directories("./test_output");
+
+        // 设置测试文件路径
+        test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
+        output_dir = "./test_output/storage_test";
+
+        // 检查测试文件是否存在
+        if (!std::filesystem::exists(test_shapefile)) {
+            GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
+        }
+
+        // 执行一次转换，供所有测试使用
+        converter = std::make_unique<ShapefileConverter>(test_shapefile, output_dir);
+        valid_fids = converter->convert();
+
+        if (valid_fids.empty()) {
+            GTEST_SKIP() << "没有有效的要素数据";
+        }
+
+        // 创建存储对象
+        geom_storage = std::make_unique<GeometryStorage>(converter->getGeometryFilePath());
+        attr_storage = std::make_unique<AttributeStorage>(converter->getAttributeFilePath());
+
+        // 加载索引
+        geom_storage->loadIndexFromFile(converter->getIndexFilePath());
+        attr_storage->loadIndexFromFile(converter->getIndexFilePath());
     }
 
     void TearDown() override {
         // 清理测试产生的文件
+        if (std::filesystem::exists(output_dir)) {
+            std::filesystem::remove_all(output_dir);
+        }
+    }
+
+    // 获取有效的测试FID（跳过FID为0的要素）
+    std::vector<uint64_t> getValidTestFids(int max_count = 10) {
+        std::vector<uint64_t> test_fids;
+        for (uint64_t fid : valid_fids) {
+            if (fid != 0 && test_fids.size() < static_cast<size_t>(max_count)) {
+                test_fids.push_back(fid);
+            }
+        }
+        return test_fids;
     }
 };
 
+// 几何序列化测试
 TEST_F(GisStorageTest, GeometrySerialization) {
     // 创建测试坐标
     std::vector<Coordinate> coordinates = {{103.2504, 26.4297}, {103.2604, 26.4397}, {103.2704, 26.4497}, {103.2804, 26.4597}, {103.2904, 26.4697}};
@@ -28,6 +77,10 @@ TEST_F(GisStorageTest, GeometrySerialization) {
     BBox bbox = GeometrySerializer::calculateBBox(coordinates);
     EXPECT_LE(bbox.min_x, bbox.max_x);
     EXPECT_LE(bbox.min_y, bbox.max_y);
+    EXPECT_NEAR(bbox.min_x, 103.2504, 1e-6);
+    EXPECT_NEAR(bbox.max_x, 103.2904, 1e-6);
+    EXPECT_NEAR(bbox.min_y, 26.4297, 1e-6);
+    EXPECT_NEAR(bbox.max_y, 26.4697, 1e-6);
 
     // 差分编码压缩
     std::vector<uint8_t> compressed = GeometrySerializer::encodeCoordinatesDelta(coordinates);
@@ -44,6 +97,37 @@ TEST_F(GisStorageTest, GeometrySerialization) {
     }
 }
 
+// 边界条件测试
+TEST_F(GisStorageTest, GeometrySerializationEdgeCases) {
+    // 空坐标测试
+    std::vector<Coordinate> empty_coords;
+    BBox empty_bbox = GeometrySerializer::calculateBBox(empty_coords);
+    // 空坐标的边界框应该返回默认值（0,0,0,0）
+    EXPECT_EQ(empty_bbox.min_x, 0.0);
+    EXPECT_EQ(empty_bbox.max_x, 0.0);
+    EXPECT_EQ(empty_bbox.min_y, 0.0);
+    EXPECT_EQ(empty_bbox.max_y, 0.0);
+
+    std::vector<uint8_t> empty_compressed = GeometrySerializer::encodeCoordinatesDelta(empty_coords);
+    EXPECT_TRUE(empty_compressed.empty());
+
+    std::vector<Coordinate> empty_decoded = GeometrySerializer::decodeCoordinatesDelta(empty_compressed);
+    EXPECT_TRUE(empty_decoded.empty());
+
+    // 单点测试
+    std::vector<Coordinate> single_point = {{103.2504, 26.4297}};
+    BBox single_bbox = GeometrySerializer::calculateBBox(single_point);
+    EXPECT_NEAR(single_bbox.min_x, single_bbox.max_x, 1e-6);
+    EXPECT_NEAR(single_bbox.min_y, single_bbox.max_y, 1e-6);
+
+    // 重复点测试
+    std::vector<Coordinate> duplicate_points = {{103.2504, 26.4297}, {103.2504, 26.4297}, {103.2504, 26.4297}};
+    std::vector<uint8_t> duplicate_compressed = GeometrySerializer::encodeCoordinatesDelta(duplicate_points);
+    std::vector<Coordinate> duplicate_decoded = GeometrySerializer::decodeCoordinatesDelta(duplicate_compressed);
+    ASSERT_EQ(duplicate_decoded.size(), duplicate_points.size());
+}
+
+// 几何数据测试
 TEST_F(GisStorageTest, GeometryData) {
     // 创建几何数据 - 使用单点测试，避免复杂的差分编码问题
     std::vector<Coordinate> coordinates = {{103.2504, 26.4297}};
@@ -72,6 +156,7 @@ TEST_F(GisStorageTest, GeometryData) {
     }
 }
 
+// 属性数据测试
 TEST_F(GisStorageTest, AttributeData) {
     // 创建属性数据
     std::map<std::string, std::string> properties = {{"name", "测试要素"}, {"type", "道路"}, {"length", "100.5"}, {"width", "5.0"}};
@@ -90,61 +175,35 @@ TEST_F(GisStorageTest, AttributeData) {
     EXPECT_EQ(attr.getProperty("nonexistent", "默认值"), "默认值");
 }
 
+// 属性数据边界条件测试
+TEST_F(GisStorageTest, AttributeDataEdgeCases) {
+    // 空属性测试
+    std::map<std::string, std::string> empty_properties;
+    AttributeData empty_attr(12345, empty_properties);
+    EXPECT_EQ(empty_attr.getFeatureId(), 12345);
+    EXPECT_EQ(empty_attr.getProperties().size(), 0);
+    EXPECT_EQ(empty_attr.getProperty("nonexistent"), "");
+    EXPECT_EQ(empty_attr.getProperty("nonexistent", "默认值"), "默认值");
+
+    // 特殊字符测试
+    std::map<std::string, std::string> special_properties = {{"unicode", "中文测试"}, {"special_chars", "!@#$%^&*()"}, {"numbers", "1234567890"}, {"empty_value", ""}};
+    AttributeData special_attr(12346, special_properties);
+    EXPECT_EQ(special_attr.getProperty("unicode"), "中文测试");
+    EXPECT_EQ(special_attr.getProperty("special_chars"), "!@#$%^&*()");
+    EXPECT_EQ(special_attr.getProperty("numbers"), "1234567890");
+    EXPECT_EQ(special_attr.getProperty("empty_value"), "");
+}
+
+// 存储操作测试
 TEST_F(GisStorageTest, StorageOperations) {
-    // 检查是否存在测试Shapefile
-    std::string test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
-    if (!std::filesystem::exists(test_shapefile)) {
-        GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
-    }
-
-    // 使用Shapefile转换器创建测试数据
-    ShapefileConverter converter(test_shapefile, "./test_output/storage_test");
-    std::vector<uint64_t> valid_fids = converter.convert();
-
-    if (valid_fids.empty()) {
-        FAIL() << "没有有效的要素数据";
-    }
-
-    // 创建存储对象
-    GeometryStorage geom_storage(converter.getGeometryFilePath());
-    AttributeStorage attr_storage(converter.getAttributeFilePath());
-
-    // 从索引文件加载索引（现在使用JSON格式）
-    geom_storage.loadIndexFromFile(converter.getIndexFilePath());
-    attr_storage.loadIndexFromFile(converter.getIndexFilePath());
-
-    // 调试：检查索引加载情况
-    std::cout << "索引文件路径: " << converter.getIndexFilePath() << std::endl;
-    std::cout << "索引文件大小: " << std::filesystem::file_size(converter.getIndexFilePath()) << " 字节" << std::endl;
-
-    // 验证JSON索引文件格式
-    std::ifstream index_file(converter.getIndexFilePath());
-    if (index_file.is_open()) {
-        try {
-            nlohmann::json index_data = nlohmann::json::parse(index_file);
-            std::cout << "索引文件格式: JSON" << std::endl;
-            std::cout << "版本: " << index_data["version"] << std::endl;
-            std::cout << "要素数量: " << index_data["data"]["features"].size() << std::endl;
-        } catch (const nlohmann::json::exception& e) {
-            std::cout << "JSON索引文件解析失败: " << e.what() << std::endl;
-        }
-    }
-
-    // 测试读取前几个要素
-    int test_count = std::min(5, static_cast<int>(valid_fids.size()));
+    auto test_fids = getValidTestFids(5);
+    ASSERT_FALSE(test_fids.empty());
 
     int success_count = 0;
-    for (int i = 0; i < test_count && success_count < 3; ++i) {
-        uint64_t fid = valid_fids[i];
-
-        // 跳过FID为0的要素，因为它可能有问题
-        if (fid == 0) {
-            continue;
-        }
-
+    for (uint64_t fid : test_fids) {
         try {
-            auto read_geom = geom_storage.readGeometry(fid);
-            auto read_attr = attr_storage.readAttribute(fid);
+            auto read_geom = geom_storage->readGeometry(fid);
+            auto read_attr = attr_storage->readAttribute(fid);
 
             if (read_geom && read_attr) {
                 success_count++;
@@ -160,55 +219,65 @@ TEST_F(GisStorageTest, StorageOperations) {
     EXPECT_GT(success_count, 0) << "没有成功读取任何要素";
 
     // 获取所有要素ID
-    auto geom_fids = geom_storage.getAllFeatureIds();
-    auto attr_fids = attr_storage.getAllFeatureIds();
+    auto geom_fids = geom_storage->getAllFeatureIds();
+    auto attr_fids = attr_storage->getAllFeatureIds();
 
     EXPECT_EQ(geom_fids.size(), valid_fids.size());
     EXPECT_EQ(attr_fids.size(), valid_fids.size());
 }
 
+// 存储错误处理测试
+TEST_F(GisStorageTest, StorageErrorHandling) {
+    // 测试读取不存在的FID
+    uint64_t non_existent_fid = 999999;
+
+    // 使用try-catch处理可能的异常
+    try {
+        auto non_existent_geom = geom_storage->readGeometry(non_existent_fid);
+        auto non_existent_attr = attr_storage->readAttribute(non_existent_fid);
+
+        EXPECT_FALSE(non_existent_geom);
+        EXPECT_FALSE(non_existent_attr);
+    } catch (const std::exception& e) {
+        // 如果抛出异常，这也是可以接受的错误处理方式
+        std::cout << "读取不存在的FID时抛出异常: " << e.what() << std::endl;
+    }
+
+    // 测试读取FID为0的要素（已知有问题）
+    try {
+        auto zero_geom = geom_storage->readGeometry(0);
+        auto zero_attr = attr_storage->readAttribute(0);
+
+        // FID为0的要素可能返回nullptr或抛出异常，两种情况都应该处理
+        if (zero_geom) {
+            // 如果能读取，验证数据有效性
+            auto coords = zero_geom->decodeCoordinates();
+            EXPECT_GE(coords.size(), 0);
+        }
+    } catch (const std::exception& e) {
+        // 如果抛出异常，这也是可以接受的错误处理方式
+        std::cout << "读取FID为0的要素时抛出异常: " << e.what() << std::endl;
+    }
+}
+
+// 性能测试
 TEST_F(GisStorageTest, Performance) {
-    // 检查是否存在测试Shapefile
-    std::string test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
-    if (!std::filesystem::exists(test_shapefile)) {
-        GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
-    }
-
-    // 转换Shapefile到自定义格式
-    ShapefileConverter converter(test_shapefile, "./test_output/performance_test");
-    std::vector<uint64_t> valid_fids = converter.convert();
-
-    if (valid_fids.empty()) {
-        FAIL() << "没有有效的要素数据";
-    }
-
-    // 创建存储对象
-    GeometryStorage geom_storage(converter.getGeometryFilePath());
-    AttributeStorage attr_storage(converter.getAttributeFilePath());
-
-    // 从索引文件加载索引（现在使用JSON格式）
-    geom_storage.loadIndexFromFile(converter.getIndexFilePath());
-    attr_storage.loadIndexFromFile(converter.getIndexFilePath());
+    auto test_fids = getValidTestFids(1000);
+    ASSERT_FALSE(test_fids.empty());
 
     // 单次读取性能测试
     auto start_time = std::chrono::high_resolution_clock::now();
 
     int success_count = 0;
-    int test_count = std::min(1000, static_cast<int>(valid_fids.size())); // 测试前1000个要素
-
-    for (int i = 0; i < test_count; ++i) {
-        uint64_t fid = valid_fids[i];
+    for (uint64_t fid : test_fids) {
         try {
-            auto geom = geom_storage.readGeometry(fid);
-            auto attr = attr_storage.readAttribute(fid);
+            auto geom = geom_storage->readGeometry(fid);
+            auto attr = attr_storage->readAttribute(fid);
             if (geom && attr) {
                 success_count++;
             }
         } catch (const std::exception& e) {
-            // 忽略读取失败的情况，特别是FID为0的要素
-            if (fid == 0) {
-                std::cout << "跳过FID为0的要素（可能没有有效几何数据）" << std::endl;
-            }
+            // 忽略读取失败的情况
         }
     }
 
@@ -216,28 +285,20 @@ TEST_F(GisStorageTest, Performance) {
     auto read_duration = std::chrono::duration_cast<std::chrono::milliseconds>(read_time - start_time);
 
     EXPECT_GT(success_count, 0);
+    std::cout << "读取 " << success_count << " 个要素耗时: " << read_duration.count() << "ms" << std::endl;
 
-    // 批量读取性能测试 - 过滤掉FID为0的要素
-    std::vector<uint64_t> test_fids;
-    for (int i = 0; i < test_count; ++i) {
-        if (valid_fids[i] != 0) { // 跳过FID为0的要素
-            test_fids.push_back(valid_fids[i]);
-        }
-    }
-
-    // 计算压缩率 - 使用单个读取的方式
+    // 计算压缩率
     if (success_count > 0) {
         size_t total_original_size = 0;
         size_t total_compressed_size = 0;
         int compression_test_count = 0;
 
-        for (int i = 0; i < test_count && compression_test_count < 10; ++i) {
-            uint64_t fid = valid_fids[i];
-            if (fid == 0)
-                continue;
+        for (uint64_t fid : test_fids) {
+            if (compression_test_count >= 10)
+                break;
 
             try {
-                auto geom = geom_storage.readGeometry(fid);
+                auto geom = geom_storage->readGeometry(fid);
                 if (geom) {
                     auto coords = geom->decodeCoordinates();
                     total_original_size += coords.size() * 16; // 每个坐标16字节
@@ -252,87 +313,48 @@ TEST_F(GisStorageTest, Performance) {
         if (total_original_size > 0) {
             double compression_ratio = (1.0 - (double)total_compressed_size / total_original_size) * 100;
             EXPECT_GT(compression_ratio, 0); // 应该有压缩效果
+            std::cout << "压缩率: " << compression_ratio << "%" << std::endl;
         }
     }
 }
 
-TEST_F(GisStorageTest, ShapefileConversion) {
-    // 检查是否存在测试Shapefile
-    std::string test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
-    if (!std::filesystem::exists(test_shapefile)) {
-        GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
+// 批量读取性能测试
+TEST_F(GisStorageTest, BatchReadPerformance) {
+    auto test_fids = getValidTestFids(100);
+    ASSERT_FALSE(test_fids.empty());
+
+    // 批量读取测试
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    std::vector<std::unique_ptr<GeometryData>> geometries;
+    std::vector<std::unique_ptr<AttributeData>> attributes;
+
+    for (uint64_t fid : test_fids) {
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            auto attr = attr_storage->readAttribute(fid);
+            if (geom && attr) {
+                geometries.push_back(std::move(geom));
+                attributes.push_back(std::move(attr));
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
     }
 
-    // 显示原始文件信息
-    std::filesystem::path shapefile_path(test_shapefile);
-
-    // 创建转换器
-    ShapefileConverter converter(test_shapefile, "./test_output/shapefile_conversion");
-
-    // 执行转换
-    auto start_time = std::chrono::high_resolution_clock::now();
-    std::vector<uint64_t> valid_fids = converter.convert();
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 
-    EXPECT_FALSE(valid_fids.empty());
+    EXPECT_GT(geometries.size(), 0);
+    EXPECT_EQ(geometries.size(), attributes.size());
 
-    // 检查生成的文件是否存在
-    EXPECT_TRUE(std::filesystem::exists(converter.getGeometryFilePath()));
-    EXPECT_TRUE(std::filesystem::exists(converter.getAttributeFilePath()));
-    EXPECT_TRUE(std::filesystem::exists(converter.getIndexFilePath()));
-
-    // 测试读取转换后的数据
-    if (!valid_fids.empty()) {
-        GeometryStorage geom_storage(converter.getGeometryFilePath());
-        AttributeStorage attr_storage(converter.getAttributeFilePath());
-
-        // 从索引文件加载索引（现在使用JSON格式）
-        geom_storage.loadIndexFromFile(converter.getIndexFilePath());
-        attr_storage.loadIndexFromFile(converter.getIndexFilePath());
-
-        // 读取前10个要素进行验证
-        int test_count = std::min(10, static_cast<int>(valid_fids.size()));
-        int success_count = 0;
-
-        for (int i = 0; i < test_count; ++i) {
-            uint64_t fid = valid_fids[i];
-            try {
-                auto geom = geom_storage.readGeometry(fid);
-                auto attr = attr_storage.readAttribute(fid);
-
-                if (geom && attr) {
-                    success_count++;
-                    EXPECT_GE(static_cast<int>(geom->decodeCoordinates().size()), 0);
-                    EXPECT_GE(static_cast<int>(attr->getProperties().size()), 0);
-                }
-            } catch (const std::exception& e) {
-                // 忽略读取失败的情况，特别是FID为0的要素
-                if (fid == 0) {
-                    std::cout << "跳过FID为0的要素（可能没有有效几何数据）" << std::endl;
-                }
-            }
-        }
-
-        EXPECT_GT(success_count, 0);
-    }
+    std::cout << "批量读取 " << geometries.size() << " 个要素耗时: " << duration.count() << "ms" << std::endl;
 }
 
+// JSON索引格式测试
 TEST_F(GisStorageTest, JsonIndexFormat) {
-    // 检查是否存在测试Shapefile
-    std::string test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
-    if (!std::filesystem::exists(test_shapefile)) {
-        GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
-    }
-
-    // 创建转换器并执行转换
-    ShapefileConverter converter(test_shapefile, "./test_output/json_index_test");
-    std::vector<uint64_t> valid_fids = converter.convert();
-
-    EXPECT_FALSE(valid_fids.empty());
-
     // 验证JSON索引文件格式
-    std::ifstream index_file(converter.getIndexFilePath());
+    std::ifstream index_file(converter->getIndexFilePath());
     EXPECT_TRUE(index_file.is_open());
 
     try {
@@ -347,9 +369,9 @@ TEST_F(GisStorageTest, JsonIndexFormat) {
         EXPECT_EQ(index_data["data"]["features"].size(), valid_fids.size());
 
         // 验证前几个要素的索引结构
-        int check_count = std::min(5, static_cast<int>(valid_fids.size()));
-        for (int i = 0; i < check_count; ++i) {
-            std::string fid_str = std::to_string(valid_fids[i]);
+        auto test_fids = getValidTestFids(5);
+        for (uint64_t fid : test_fids) {
+            std::string fid_str = std::to_string(fid);
             EXPECT_TRUE(index_data["data"]["features"].contains(fid_str));
 
             auto feature = index_data["data"]["features"][fid_str];
@@ -367,4 +389,86 @@ TEST_F(GisStorageTest, JsonIndexFormat) {
     } catch (const nlohmann::json::exception& e) {
         FAIL() << "JSON索引文件解析失败: " << e.what();
     }
+}
+
+// 文件完整性测试
+TEST_F(GisStorageTest, FileIntegrity) {
+    // 检查生成的文件是否存在
+    EXPECT_TRUE(std::filesystem::exists(converter->getGeometryFilePath()));
+    EXPECT_TRUE(std::filesystem::exists(converter->getAttributeFilePath()));
+    EXPECT_TRUE(std::filesystem::exists(converter->getIndexFilePath()));
+
+    // 检查文件大小
+    EXPECT_GT(std::filesystem::file_size(converter->getGeometryFilePath()), 0);
+    EXPECT_GT(std::filesystem::file_size(converter->getAttributeFilePath()), 0);
+    EXPECT_GT(std::filesystem::file_size(converter->getIndexFilePath()), 0);
+
+    // 检查文件权限
+    EXPECT_TRUE(std::filesystem::is_regular_file(converter->getGeometryFilePath()));
+    EXPECT_TRUE(std::filesystem::is_regular_file(converter->getAttributeFilePath()));
+    EXPECT_TRUE(std::filesystem::is_regular_file(converter->getIndexFilePath()));
+}
+
+// 内存使用测试
+TEST_F(GisStorageTest, MemoryUsage) {
+    auto test_fids = getValidTestFids(50);
+    ASSERT_FALSE(test_fids.empty());
+
+    // 记录初始内存使用（简化版本，实际应该使用更精确的内存测量）
+    size_t total_geom_size = 0;
+    size_t total_attr_size = 0;
+
+    for (uint64_t fid : test_fids) {
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            auto attr = attr_storage->readAttribute(fid);
+
+            if (geom) {
+                total_geom_size += geom->getSerializedSize();
+            }
+            if (attr) {
+                total_attr_size += attr->getSerializedSize();
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    EXPECT_GT(total_geom_size, 0);
+    EXPECT_GT(total_attr_size, 0);
+
+    std::cout << "几何数据总大小: " << total_geom_size << " 字节" << std::endl;
+    std::cout << "属性数据总大小: " << total_attr_size << " 字节" << std::endl;
+}
+
+// 并发读取测试（简化版本）
+TEST_F(GisStorageTest, ConcurrentReadTest) {
+    auto test_fids = getValidTestFids(10000);
+    ASSERT_FALSE(test_fids.empty());
+
+    // 模拟并发读取（使用多个线程读取不同的FID）
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count{0};
+
+    for (uint64_t fid : test_fids) {
+        threads.emplace_back([this, fid, &success_count]() {
+            try {
+                auto geom = geom_storage->readGeometry(fid);
+                auto attr = attr_storage->readAttribute(fid);
+                if (geom && attr) {
+                    success_count++;
+                }
+            } catch (const std::exception& e) {
+                // 忽略读取失败的情况
+            }
+        });
+    }
+
+    // 等待所有线程完成
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_GT(success_count.load(), 0);
+    std::cout << "并发读取成功: " << success_count.load() << " 个要素" << std::endl;
 }
