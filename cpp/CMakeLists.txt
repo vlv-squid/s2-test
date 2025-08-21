@@ -43,7 +43,15 @@ target_link_libraries(s2index_test PRIVATE
 # gis_storage_test
 add_executable(gis_storage_test
     test/gis_storage_test.cpp
-    src/gis_storage.cpp
+    src/types.cpp
+    src/geometry_data.cpp
+    src/attribute_data.cpp
+    src/geometry_serializer.cpp
+    src/attribute_serializer.cpp
+    src/geometry_storage.cpp
+    src/attribute_storage.cpp
+    src/shapefile_converter.cpp
+    src/gis_storage_system.cpp
 )
 target_link_libraries(gis_storage_test PRIVATE
     GDAL::GDAL
@@ -55,7 +63,15 @@ target_link_libraries(gis_storage_test PRIVATE
 # compatibility_test
 add_executable(compatibility_test
     test/compatibility_test.cpp
-    src/gis_storage.cpp
+    src/types.cpp
+    src/geometry_data.cpp
+    src/attribute_data.cpp
+    src/geometry_serializer.cpp
+    src/attribute_serializer.cpp
+    src/geometry_storage.cpp
+    src/attribute_storage.cpp
+    src/shapefile_converter.cpp
+    src/gis_storage_system.cpp
 )
 target_link_libraries(compatibility_test PRIVATE
     GDAL::GDAL
