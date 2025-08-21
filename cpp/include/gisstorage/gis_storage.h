@@ -1,7 +1,10 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef GIS_STORAGE_H
 #define GIS_STORAGE_H
 
-// 包含所有拆分的头文件
 #include "types.h"
 #include "geometry_data.h"
 #include "attribute_data.h"

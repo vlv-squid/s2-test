@@ -1,7 +1,12 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef GEOMETRY_STORAGE_H
 #define GEOMETRY_STORAGE_H
 
 #include "geometry_data.h"
+
 #include <string>
 #include <vector>
 #include <memory>

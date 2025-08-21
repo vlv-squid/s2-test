@@ -1,7 +1,12 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef GEOMETRY_DATA_H
 #define GEOMETRY_DATA_H
 
 #include "types.h"
+
 #include <vector>
 #include <cstdint>
 

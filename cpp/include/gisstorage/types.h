@@ -1,3 +1,7 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef TYPES_H
 #define TYPES_H
 

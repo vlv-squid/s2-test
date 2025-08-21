@@ -1,3 +1,7 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef GIS_STORAGE_SYSTEM_H
 #define GIS_STORAGE_SYSTEM_H
 
@@ -5,6 +9,7 @@
 #include "attribute_data.h"
 #include "geometry_storage.h"
 #include "attribute_storage.h"
+
 #include <string>
 #include <vector>
 #include <map>

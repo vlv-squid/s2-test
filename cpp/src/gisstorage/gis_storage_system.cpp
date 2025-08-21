@@ -1,3 +1,7 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #include "gisstorage/gis_storage_system.h"
 #include "gisstorage/shapefile_converter.h"
 

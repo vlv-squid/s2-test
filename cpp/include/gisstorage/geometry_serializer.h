@@ -1,8 +1,13 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef GEOMETRY_SERIALIZER_H
 #define GEOMETRY_SERIALIZER_H
 
 #include "types.h"
 #include "geometry_data.h"
+
 #include <vector>
 #include <memory>
 

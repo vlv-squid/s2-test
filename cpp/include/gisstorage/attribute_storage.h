@@ -1,7 +1,12 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef ATTRIBUTE_STORAGE_H
 #define ATTRIBUTE_STORAGE_H
 
 #include "attribute_data.h"
+
 #include <string>
 #include <vector>
 #include <memory>

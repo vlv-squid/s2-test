@@ -1,7 +1,12 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef ATTRIBUTE_SERIALIZER_H
 #define ATTRIBUTE_SERIALIZER_H
 
 #include "attribute_data.h"
+
 #include <vector>
 #include <memory>
 

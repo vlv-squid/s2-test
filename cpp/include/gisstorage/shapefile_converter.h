@@ -1,9 +1,14 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef SHAPEFILE_CONVERTER_H
 #define SHAPEFILE_CONVERTER_H
 
 #include "types.h"
 #include "geometry_storage.h"
 #include "attribute_storage.h"
+
 #include <string>
 #include <vector>
 #include <memory>

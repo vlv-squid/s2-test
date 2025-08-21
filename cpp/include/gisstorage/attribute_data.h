@@ -1,3 +1,7 @@
+//
+//  Created by vlv-squid on 2025.08.21.
+//
+
 #ifndef ATTRIBUTE_DATA_H
 #define ATTRIBUTE_DATA_H
 
