@@ -51,3 +51,14 @@ target_link_libraries(gis_storage_test PRIVATE
     nlohmann_json::nlohmann_json
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
+
+# compatibility_test
+add_executable(compatibility_test
+    test/compatibility_test.cpp
+    src/gis_storage.cpp
+)
+target_link_libraries(compatibility_test PRIVATE
+    GDAL::GDAL
+    Boost::geometry
+    nlohmann_json::nlohmann_json
+)

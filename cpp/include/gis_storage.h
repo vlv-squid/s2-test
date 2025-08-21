@@ -248,7 +248,7 @@ namespace GisStorage {
         void initializeStorageFiles();
 
         // 保存索引数据
-        void saveIndexData(const std::map<uint64_t, std::pair<int64_t, int64_t>>& index_data);
+        void saveIndexData(const nlohmann::json& index_data);
     };
 
     // GIS存储系统主类
@@ -271,14 +271,14 @@ namespace GisStorage {
         // 批量读取属性数据
         std::map<uint64_t, std::unique_ptr<AttributeData>> readAttributes(const std::vector<uint64_t>& feature_ids);
 
+        // 初始化存储文件
+        void initializeStorageFiles(const std::string& shapefile_path);
+
       private:
         std::string output_dir_;
         std::string shapefile_name_;
         std::unique_ptr<GeometryStorage> geometry_storage_;
         std::unique_ptr<AttributeStorage> attribute_storage_;
-
-        // 初始化存储文件
-        void initializeStorageFiles(const std::string& shapefile_path);
     };
 
 } // namespace GisStorage

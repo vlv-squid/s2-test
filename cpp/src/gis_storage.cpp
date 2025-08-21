@@ -20,12 +20,74 @@ namespace GisStorage {
         , bbox_(bbox) {}
 
     std::vector<Coordinate> GeometryData::decodeCoordinates() const {
-        return GeometrySerializer::decodeCoordinatesDelta(coordinates_);
+        if (coordinates_.empty()) {
+            return {};
+        }
+
+        // 如果是单点情况
+        if (coordinates_.size() == 16) {
+            double x, y;
+            std::memcpy(&x, &coordinates_[0], sizeof(double));
+            std::memcpy(&y, &coordinates_[8], sizeof(double));
+            return {Coordinate(x, y)};
+        }
+
+        // 差分编码的情况
+        if (coordinates_.size() < 17) {
+            return {};
+        }
+
+        std::vector<Coordinate> coordinates;
+
+        // 读取第一个点的绝对坐标
+        double x, y;
+        std::memcpy(&x, &coordinates_[0], sizeof(double));
+        std::memcpy(&y, &coordinates_[8], sizeof(double));
+        coordinates.emplace_back(x, y);
+
+        if (coordinates_.size() <= 16) {
+            return coordinates;
+        }
+
+        // 读取数据类型标记
+        uint8_t type_flag = coordinates_[16];
+        size_t pos = 17;
+
+        if (type_flag == 0) { // short类型
+            while (pos + 4 <= coordinates_.size()) {
+                int16_t dx, dy;
+                std::memcpy(&dx, &coordinates_[pos], sizeof(int16_t));
+                std::memcpy(&dy, &coordinates_[pos + 2], sizeof(int16_t));
+                Coordinate prev = coordinates.back();
+                coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                pos += 4;
+            }
+        } else if (type_flag == 1) { // int类型
+            while (pos + 8 <= coordinates_.size()) {
+                int32_t dx, dy;
+                std::memcpy(&dx, &coordinates_[pos], sizeof(int32_t));
+                std::memcpy(&dy, &coordinates_[pos + 4], sizeof(int32_t));
+                Coordinate prev = coordinates.back();
+                coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                pos += 8;
+            }
+        } else if (type_flag == 2) { // float类型
+            while (pos + 8 <= coordinates_.size()) {
+                float dx, dy;
+                std::memcpy(&dx, &coordinates_[pos], sizeof(float));
+                std::memcpy(&dy, &coordinates_[pos + 4], sizeof(float));
+                Coordinate prev = coordinates.back();
+                coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                pos += 8;
+            }
+        }
+
+        return coordinates;
     }
 
     size_t GeometryData::getSerializedSize() const {
-        // feature_id(8) + geometry_type(1) + bbox(32) + coord_size(4) + coordinates
-        return 8 + 1 + 32 + 4 + coordinates_.size();
+        // feature_id(8) + geometry_type(1) + 7字节填充 + bbox(32) + coord_size(4) + coordinates
+        return 8 + 1 + 7 + 32 + 4 + coordinates_.size();
     }
 
     // AttributeData 实现
@@ -69,6 +131,10 @@ namespace GisStorage {
         uint8_t geom_type = static_cast<uint8_t>(geometry.getGeometryType());
         data.push_back(geom_type);
 
+        // 写入7字节填充（与Python版本保持一致）
+        std::vector<uint8_t> padding(7, 0);
+        data.insert(data.end(), padding.begin(), padding.end());
+
         // 写入bbox (32字节)
         const BBox& bbox = geometry.getBBox();
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.min_x), reinterpret_cast<const uint8_t*>(&bbox.min_x) + sizeof(double));
@@ -104,6 +170,9 @@ namespace GisStorage {
         std::memcpy(&geom_type_byte, &data[offset], sizeof(uint8_t));
         GeometryType geometry_type = static_cast<GeometryType>(geom_type_byte);
         offset += sizeof(uint8_t);
+
+        // 跳过7字节填充（与Python版本保持一致）
+        offset += 7;
 
         // 读取bbox
         BBox bbox;
@@ -361,28 +430,19 @@ namespace GisStorage {
 
         file.seekg(it->second);
 
-        // 按顺序读取各字段，避免对齐和填充造成的问题
-        uint64_t fid_read = 0;
-        if (!file.read(reinterpret_cast<char*>(&fid_read), sizeof(uint64_t))) {
+        // 先读取头部数据以确定需要读取的总大小（与Python版本保持一致）
+        std::vector<uint8_t> header_data(48);
+        if (!file.read(reinterpret_cast<char*>(header_data.data()), 48)) {
             throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
         }
 
-        uint8_t geom_type_byte = 0;
-        if (!file.read(reinterpret_cast<char*>(&geom_type_byte), sizeof(uint8_t))) {
-            throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
-        }
-
-        BBox bbox;
-        if (!file.read(reinterpret_cast<char*>(&bbox.min_x), sizeof(double)) || !file.read(reinterpret_cast<char*>(&bbox.min_y), sizeof(double)) || !file.read(reinterpret_cast<char*>(&bbox.max_x), sizeof(double)) ||
-            !file.read(reinterpret_cast<char*>(&bbox.max_y), sizeof(double))) {
-            throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
-        }
-
+        // 获取坐标数据大小
         uint32_t coord_size = 0;
         if (!file.read(reinterpret_cast<char*>(&coord_size), sizeof(uint32_t))) {
             throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
         }
 
+        // 读取坐标数据
         std::vector<uint8_t> coord_data(coord_size);
         if (coord_size > 0) {
             if (!file.read(reinterpret_cast<char*>(coord_data.data()), coord_size)) {
@@ -390,8 +450,12 @@ namespace GisStorage {
             }
         }
 
-        GeometryType geometry_type = static_cast<GeometryType>(geom_type_byte);
-        return std::make_unique<GeometryData>(fid_read, geometry_type, coord_data, bbox);
+        // 组合所有数据进行反序列化
+        std::vector<uint8_t> geom_data = header_data;
+        geom_data.insert(geom_data.end(), reinterpret_cast<uint8_t*>(&coord_size), reinterpret_cast<uint8_t*>(&coord_size) + sizeof(uint32_t));
+        geom_data.insert(geom_data.end(), coord_data.begin(), coord_data.end());
+
+        return GeometrySerializer::deserializeGeometry(geom_data);
     }
 
     std::vector<uint64_t> GeometryStorage::getAllFeatureIds() {
@@ -434,18 +498,25 @@ namespace GisStorage {
 
             offset_index_[fid] = current_pos;
 
-            // 跳过geometry_type(1B) + bbox(32B) = 33字节（无填充字节）
-            file.seekg(33, std::ios::cur);
+            // 手动解析记录结构（与Python版本保持一致）
+            try {
+                // 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
+                file.seekg(40, std::ios::cur);
 
-            // 读取坐标大小
-            uint32_t coord_size;
-            file.read(reinterpret_cast<char*>(&coord_size), sizeof(uint32_t));
-            if (file.gcount() < sizeof(uint32_t)) {
+                // 读取坐标大小(4B)
+                uint32_t coord_size;
+                file.read(reinterpret_cast<char*>(&coord_size), sizeof(uint32_t));
+                if (file.gcount() < sizeof(uint32_t)) {
+                    break;
+                }
+
+                // 跳过坐标数据
+                file.seekg(coord_size, std::ios::cur);
+
+            } catch (const std::exception& e) {
+                std::cerr << "解析几何记录失败 at FID " << fid << ": " << e.what() << std::endl;
                 break;
             }
-
-            // 跳过坐标数据
-            file.seekg(coord_size, std::ios::cur);
         }
     }
 
@@ -463,52 +534,97 @@ namespace GisStorage {
             return;
         }
 
-        std::ifstream file(index_file, std::ios::binary);
+        offset_index_.clear();
+
+        // 尝试读取JSON格式的索引文件
+        std::ifstream file(index_file);
         if (!file) {
             std::cout << "无法打开索引文件: " << index_file << std::endl;
             return;
         }
 
-        offset_index_.clear();
+        try {
+            nlohmann::json index_data = nlohmann::json::parse(file);
 
-        // 读取索引条目数量
-        uint32_t count;
-        file.read(reinterpret_cast<char*>(&count), sizeof(uint32_t));
-        if (file.gcount() < sizeof(uint32_t)) {
-            std::cout << "无法读取索引条目数量" << std::endl;
-            return;
+            // 验证JSON结构
+            if (!index_data.contains("version") || !index_data.contains("data") || !index_data["data"].contains("features")) {
+                std::cout << "索引文件格式不正确" << std::endl;
+                return;
+            }
+
+            std::cout << "索引文件格式: JSON" << std::endl;
+            std::cout << "版本: " << index_data["version"] << std::endl;
+            std::cout << "要素数量: " << index_data["data"]["features"].size() << std::endl;
+
+            // 读取每个索引条目
+            int count = 0;
+            for (const auto& feature : index_data["data"]["features"].items()) {
+                uint64_t fid = std::stoull(feature.key());
+                int64_t geom_offset = feature.value()["geom_offset"];
+                int64_t attr_offset = feature.value()["attr_offset"];
+
+                offset_index_[fid] = geom_offset;
+
+                if (count < 5) { // 只显示前5个条目
+                    std::cout << "索引条目 " << count << ": FID=" << fid << ", geom_offset=" << geom_offset << ", attr_offset=" << attr_offset << std::endl;
+                }
+                count++;
+            }
+
+            std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
+            index_built_ = true;
+
+        } catch (const nlohmann::json::exception& e) {
+            std::cout << "JSON索引文件解析失败: " << e.what() << std::endl;
+            std::cout << "尝试读取旧格式的二进制索引文件..." << std::endl;
+
+            // 如果JSON解析失败，尝试读取旧的二进制格式
+            file.close();
+            file.open(index_file, std::ios::binary);
+            if (!file) {
+                std::cout << "无法以二进制模式打开索引文件" << std::endl;
+                return;
+            }
+
+            // 读取索引条目数量
+            uint32_t count;
+            file.read(reinterpret_cast<char*>(&count), sizeof(uint32_t));
+            if (file.gcount() < sizeof(uint32_t)) {
+                std::cout << "无法读取索引条目数量" << std::endl;
+                return;
+            }
+
+            std::cout << "索引条目数量: " << count << std::endl;
+
+            // 读取每个索引条目：FID + 几何偏移 + 属性偏移
+            for (uint32_t i = 0; i < count; ++i) {
+                uint64_t fid = 0;
+                int64_t geom_offset = 0;
+                int64_t attr_offset = 0;
+
+                if (!file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t))) {
+                    std::cout << "读取索引条目 " << i << " 的FID失败" << std::endl;
+                    break;
+                }
+                if (!file.read(reinterpret_cast<char*>(&geom_offset), sizeof(int64_t))) {
+                    std::cout << "读取索引条目 " << i << " 的geom_offset失败" << std::endl;
+                    break;
+                }
+                if (!file.read(reinterpret_cast<char*>(&attr_offset), sizeof(int64_t))) {
+                    std::cout << "读取索引条目 " << i << " 的attr_offset失败" << std::endl;
+                    break;
+                }
+
+                offset_index_[fid] = geom_offset;
+
+                if (i < 5) { // 只显示前5个条目
+                    std::cout << "索引条目 " << i << ": FID=" << fid << ", geom_offset=" << geom_offset << ", attr_offset=" << attr_offset << std::endl;
+                }
+            }
+
+            std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
+            index_built_ = true;
         }
-
-        std::cout << "索引条目数量: " << count << std::endl;
-
-        // 读取每个索引条目：FID + 几何偏移 + 属性偏移
-        for (uint32_t i = 0; i < count; ++i) {
-            uint64_t fid = 0;
-            int64_t geom_offset = 0;
-            int64_t attr_offset = 0;
-
-            if (!file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t))) {
-                std::cout << "读取索引条目 " << i << " 的FID失败" << std::endl;
-                break;
-            }
-            if (!file.read(reinterpret_cast<char*>(&geom_offset), sizeof(int64_t))) {
-                std::cout << "读取索引条目 " << i << " 的geom_offset失败" << std::endl;
-                break;
-            }
-            if (!file.read(reinterpret_cast<char*>(&attr_offset), sizeof(int64_t))) {
-                std::cout << "读取索引条目 " << i << " 的attr_offset失败" << std::endl;
-                break;
-            }
-
-            offset_index_[fid] = geom_offset;
-
-            if (i < 5) { // 只显示前5个条目
-                std::cout << "索引条目 " << i << ": FID=" << fid << ", geom_offset=" << geom_offset << ", attr_offset=" << attr_offset << std::endl;
-            }
-        }
-
-        std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
-        index_built_ = true;
     }
 
     // AttributeStorage 实现
@@ -554,24 +670,25 @@ namespace GisStorage {
 
         file.seekg(it->second);
 
-        // 顺序读取feature_id和json长度
+        // 读取feature_id和json长度（与Python版本保持一致）
+        std::vector<uint8_t> header_data(12);
+        if (!file.read(reinterpret_cast<char*>(header_data.data()), 12)) {
+            return nullptr;
+        }
+
         uint64_t fid = 0;
         uint32_t json_length = 0;
-        if (!file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t))) {
-            return nullptr;
-        }
-        if (!file.read(reinterpret_cast<char*>(&json_length), sizeof(uint32_t))) {
-            return nullptr;
-        }
+        std::memcpy(&fid, &header_data[0], sizeof(uint64_t));
+        std::memcpy(&json_length, &header_data[8], sizeof(uint32_t));
 
         if (fid != feature_id) {
             return nullptr;
         }
 
-        // 读取JSON字符串
-        std::string json_str(json_length, '\0');
+        // 读取属性数据
+        std::vector<uint8_t> props_data(json_length);
         if (json_length > 0) {
-            if (!file.read(&json_str[0], json_length)) {
+            if (!file.read(reinterpret_cast<char*>(props_data.data()), json_length)) {
                 return nullptr;
             }
         }
@@ -579,8 +696,9 @@ namespace GisStorage {
         // 解析JSON
         std::map<std::string, std::string> properties;
         try {
-            if (!json_str.empty()) {
-                nlohmann::json j = nlohmann::json::parse(json_str);
+            if (!props_data.empty()) {
+                std::string props_json(props_data.begin(), props_data.end());
+                nlohmann::json j = nlohmann::json::parse(props_json);
                 for (auto itj = j.begin(); itj != j.end(); ++itj) {
                     properties[itj.key()] = itj.value().dump();
                 }
@@ -624,6 +742,20 @@ namespace GisStorage {
             return;
         }
 
+        // 跳过文件开头的字段信息（与Python版本保持一致）
+        try {
+            // 读取字段信息长度
+            uint32_t field_info_length;
+            file.read(reinterpret_cast<char*>(&field_info_length), sizeof(uint32_t));
+            if (file.gcount() >= sizeof(uint32_t)) {
+                // 跳过字段信息
+                file.seekg(field_info_length, std::ios::cur);
+            }
+        } catch (...) {
+            // 如果读取字段信息失败，重置文件指针到开头
+            file.seekg(0);
+        }
+
         while (true) {
             int64_t current_pos = file.tellg();
 
@@ -661,38 +793,66 @@ namespace GisStorage {
             return;
         }
 
-        std::ifstream file(index_file, std::ios::binary);
+        offset_index_.clear();
+
+        // 尝试读取JSON格式的索引文件
+        std::ifstream file(index_file);
         if (!file) {
             return;
         }
 
-        offset_index_.clear();
+        try {
+            nlohmann::json index_data = nlohmann::json::parse(file);
 
-        // 读取索引条目数量
-        uint32_t count;
-        file.read(reinterpret_cast<char*>(&count), sizeof(uint32_t));
-        if (file.gcount() < sizeof(uint32_t)) {
-            return;
-        }
-
-        // 读取每个索引条目：FID + 几何偏移 + 属性偏移
-        for (uint32_t i = 0; i < count; ++i) {
-            uint64_t fid;
-            int64_t geom_offset;
-            int64_t attr_offset;
-
-            file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t));
-            file.read(reinterpret_cast<char*>(&geom_offset), sizeof(int64_t));
-            file.read(reinterpret_cast<char*>(&attr_offset), sizeof(int64_t));
-
-            if (file.gcount() < sizeof(uint64_t) + 2 * sizeof(int64_t)) {
-                break;
+            // 验证JSON结构
+            if (!index_data.contains("version") || !index_data.contains("data") || !index_data["data"].contains("features")) {
+                return;
             }
 
-            offset_index_[fid] = attr_offset;
-        }
+            // 读取每个索引条目
+            for (const auto& feature : index_data["data"]["features"].items()) {
+                uint64_t fid = std::stoull(feature.key());
+                int64_t attr_offset = feature.value()["attr_offset"];
 
-        index_built_ = true;
+                offset_index_[fid] = attr_offset;
+            }
+
+            index_built_ = true;
+
+        } catch (const nlohmann::json::exception& e) {
+            // 如果JSON解析失败，尝试读取旧的二进制格式
+            file.close();
+            file.open(index_file, std::ios::binary);
+            if (!file) {
+                return;
+            }
+
+            // 读取索引条目数量
+            uint32_t count;
+            file.read(reinterpret_cast<char*>(&count), sizeof(uint32_t));
+            if (file.gcount() < sizeof(uint32_t)) {
+                return;
+            }
+
+            // 读取每个索引条目：FID + 几何偏移 + 属性偏移
+            for (uint32_t i = 0; i < count; ++i) {
+                uint64_t fid;
+                int64_t geom_offset;
+                int64_t attr_offset;
+
+                file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t));
+                file.read(reinterpret_cast<char*>(&geom_offset), sizeof(int64_t));
+                file.read(reinterpret_cast<char*>(&attr_offset), sizeof(int64_t));
+
+                if (file.gcount() < sizeof(uint64_t) + 2 * sizeof(int64_t)) {
+                    break;
+                }
+
+                offset_index_[fid] = attr_offset;
+            }
+
+            index_built_ = true;
+        }
     }
 
     // GisStorageSystem 实现
@@ -862,8 +1022,10 @@ namespace GisStorage {
         attr_file.write(reinterpret_cast<const char*>(field_info_bytes.data()), field_info_bytes.size());
         attr_file.close();
 
-        // 创建索引结构
-        std::map<uint64_t, std::pair<int64_t, int64_t>> index_data;
+        // 创建索引结构（与Python版本保持一致）
+        nlohmann::json index_data;
+        index_data["version"] = 1;
+        index_data["data"]["features"] = nlohmann::json::object();
         std::vector<uint64_t> valid_fids;
 
         int processed_count = 0;
@@ -961,9 +1123,9 @@ namespace GisStorage {
                 std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
             }
 
-            // 更新索引
+            // 更新索引（与Python版本保持一致的结构）
             if (geom_offset != -1 && attr_offset != -1) {
-                index_data[fid] = std::make_pair(geom_offset, attr_offset);
+                index_data["data"]["features"][std::to_string(fid)] = {{"geom_offset", geom_offset}, {"attr_offset", attr_offset}};
                 valid_fids.push_back(fid);
             } else {
                 std::cout << "FID " << fid << " 写入失败: geom_offset=" << geom_offset << ", attr_offset=" << attr_offset << std::endl;
@@ -1180,28 +1342,15 @@ namespace GisStorage {
         }
     }
 
-    void ShapefileConverter::saveIndexData(const std::map<uint64_t, std::pair<int64_t, int64_t>>& index_data) {
-        // 保存索引数据到二进制文件，与存储类的索引格式兼容
-        std::ofstream index_file(index_file_, std::ios::binary);
+    void ShapefileConverter::saveIndexData(const nlohmann::json& index_data) {
+        // 保存索引数据到JSON文件（与Python版本保持一致）
+        std::ofstream index_file(index_file_);
         if (!index_file.is_open()) {
             throw std::runtime_error("无法创建索引文件: " + index_file_);
         }
 
-        // 写入索引条目数量
-        uint32_t count = static_cast<uint32_t>(index_data.size());
-        index_file.write(reinterpret_cast<const char*>(&count), sizeof(uint32_t));
-
-        // 写入每个索引条目：FID + 几何偏移 + 属性偏移
-        for (const auto& pair : index_data) {
-            uint64_t fid = pair.first;
-            int64_t geom_offset = pair.second.first;
-            int64_t attr_offset = pair.second.second;
-
-            index_file.write(reinterpret_cast<const char*>(&fid), sizeof(uint64_t));
-            index_file.write(reinterpret_cast<const char*>(&geom_offset), sizeof(int64_t));
-            index_file.write(reinterpret_cast<const char*>(&attr_offset), sizeof(int64_t));
-        }
-
+        // 写入JSON格式的索引数据
+        index_file << index_data.dump(4); // 使用4空格缩进，便于阅读
         index_file.close();
     }
 
