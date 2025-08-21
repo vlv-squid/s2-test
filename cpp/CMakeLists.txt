@@ -24,14 +24,20 @@ include_directories(
     ${CMAKE_PREFIX_PATH}/include
 )
 
+# 使用file(GLOB)收集源文件
+file(GLOB GISSTORAGE_SOURCES "src/gisstorage/*.cpp")
+file(GLOB GISINDEX_SOURCES "src/gisindex/*.cpp")
+file(GLOB TEST_SOURCES "test/*.cpp")
+
+# 打印收集到的源文件（调试用）
+message(STATUS "GIS存储源文件: ${GISSTORAGE_SOURCES}")
+message(STATUS "GIS索引源文件: ${GISINDEX_SOURCES}")
+message(STATUS "测试源文件: ${TEST_SOURCES}")
+
 # s2index_test
 add_executable(s2index_test 
     test/s2index_test.cpp
-    src/gisindex/hybrid_index.cpp
-    src/gisindex/s2spatial_index.cpp
-    src/gisindex/rtree_spatial_index.cpp
-    src/gisindex/serialize_rtree.cpp
-    src/gisindex/serialize_s2.cpp
+    ${GISINDEX_SOURCES}
 )
 target_link_libraries(s2index_test PRIVATE
     GDAL::GDAL
@@ -43,15 +49,7 @@ target_link_libraries(s2index_test PRIVATE
 # gis_storage_test
 add_executable(gis_storage_test
     test/gis_storage_test.cpp
-    src/gisstorage/types.cpp
-    src/gisstorage/geometry_data.cpp
-    src/gisstorage/attribute_data.cpp
-    src/gisstorage/geometry_serializer.cpp
-    src/gisstorage/attribute_serializer.cpp
-    src/gisstorage/geometry_storage.cpp
-    src/gisstorage/attribute_storage.cpp
-    src/gisstorage/shapefile_converter.cpp
-    src/gisstorage/gis_storage_system.cpp
+    ${GISSTORAGE_SOURCES}
 )
 target_link_libraries(gis_storage_test PRIVATE
     GDAL::GDAL
@@ -63,15 +61,7 @@ target_link_libraries(gis_storage_test PRIVATE
 # compatibility_test
 add_executable(compatibility_test
     test/compatibility_test.cpp
-    src/gisstorage/types.cpp
-    src/gisstorage/geometry_data.cpp
-    src/gisstorage/attribute_data.cpp
-    src/gisstorage/geometry_serializer.cpp
-    src/gisstorage/attribute_serializer.cpp
-    src/gisstorage/geometry_storage.cpp
-    src/gisstorage/attribute_storage.cpp
-    src/gisstorage/shapefile_converter.cpp
-    src/gisstorage/gis_storage_system.cpp
+    ${GISSTORAGE_SOURCES}
 )
 target_link_libraries(compatibility_test PRIVATE
     GDAL::GDAL
