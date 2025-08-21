@@ -1,5 +1,6 @@
-#include "attribute_storage.h"
-#include "attribute_serializer.h"
+#include "gisstorage/attribute_storage.h"
+#include "gisstorage/attribute_serializer.h"
+
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -153,7 +154,7 @@ namespace GisStorage {
 
         try {
             nlohmann::json index_data = nlohmann::json::parse(file);
-            
+
             // 验证JSON结构
             if (!index_data.contains("version") || !index_data.contains("data") || !index_data["data"].contains("features")) {
                 return;

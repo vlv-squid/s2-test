@@ -2,8 +2,8 @@
 //  Created by vlv-squid on 2025.07.18.
 //
 
-#include "hybrid_index.h"
-#include "struct_dkbbox.h"
+#include "gisindex/hybrid_index.h"
+#include "gisindex/struct_dkbbox.h"
 
 #include <chrono>
 #include <iostream>

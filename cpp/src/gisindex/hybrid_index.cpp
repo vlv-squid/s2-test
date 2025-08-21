@@ -1,4 +1,4 @@
-#include "hybrid_index.h"
+#include "gisindex/hybrid_index.h"
 
 #include <iostream>
 #include <cmath>

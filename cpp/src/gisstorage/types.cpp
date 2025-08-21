@@ -1,4 +1,4 @@
-#include "types.h"
+#include "gisstorage/types.h"
 
 namespace GisStorage {
     // 基础类型的实现（如果需要的话）

@@ -1,4 +1,5 @@
-#include "attribute_data.h"
+#include "gisstorage/attribute_data.h"
+
 #include <sstream>
 
 namespace GisStorage {

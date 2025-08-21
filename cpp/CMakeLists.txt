@@ -27,11 +27,11 @@ include_directories(
 # s2index_test
 add_executable(s2index_test 
     test/s2index_test.cpp
-    src/hybrid_index.cpp
-    src/s2spatial_index.cpp
-    src/rtree_spatial_index.cpp
-    src/serialize_rtree.cpp
-    src/serialize_s2.cpp
+    src/gisindex/hybrid_index.cpp
+    src/gisindex/s2spatial_index.cpp
+    src/gisindex/rtree_spatial_index.cpp
+    src/gisindex/serialize_rtree.cpp
+    src/gisindex/serialize_s2.cpp
 )
 target_link_libraries(s2index_test PRIVATE
     GDAL::GDAL
@@ -43,15 +43,15 @@ target_link_libraries(s2index_test PRIVATE
 # gis_storage_test
 add_executable(gis_storage_test
     test/gis_storage_test.cpp
-    src/types.cpp
-    src/geometry_data.cpp
-    src/attribute_data.cpp
-    src/geometry_serializer.cpp
-    src/attribute_serializer.cpp
-    src/geometry_storage.cpp
-    src/attribute_storage.cpp
-    src/shapefile_converter.cpp
-    src/gis_storage_system.cpp
+    src/gisstorage/types.cpp
+    src/gisstorage/geometry_data.cpp
+    src/gisstorage/attribute_data.cpp
+    src/gisstorage/geometry_serializer.cpp
+    src/gisstorage/attribute_serializer.cpp
+    src/gisstorage/geometry_storage.cpp
+    src/gisstorage/attribute_storage.cpp
+    src/gisstorage/shapefile_converter.cpp
+    src/gisstorage/gis_storage_system.cpp
 )
 target_link_libraries(gis_storage_test PRIVATE
     GDAL::GDAL
@@ -63,18 +63,19 @@ target_link_libraries(gis_storage_test PRIVATE
 # compatibility_test
 add_executable(compatibility_test
     test/compatibility_test.cpp
-    src/types.cpp
-    src/geometry_data.cpp
-    src/attribute_data.cpp
-    src/geometry_serializer.cpp
-    src/attribute_serializer.cpp
-    src/geometry_storage.cpp
-    src/attribute_storage.cpp
-    src/shapefile_converter.cpp
-    src/gis_storage_system.cpp
+    src/gisstorage/types.cpp
+    src/gisstorage/geometry_data.cpp
+    src/gisstorage/attribute_data.cpp
+    src/gisstorage/geometry_serializer.cpp
+    src/gisstorage/attribute_serializer.cpp
+    src/gisstorage/geometry_storage.cpp
+    src/gisstorage/attribute_storage.cpp
+    src/gisstorage/shapefile_converter.cpp
+    src/gisstorage/gis_storage_system.cpp
 )
 target_link_libraries(compatibility_test PRIVATE
     GDAL::GDAL
     Boost::geometry
     nlohmann_json::nlohmann_json
+    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )

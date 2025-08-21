@@ -1,5 +1,6 @@
-#include "gis_storage_system.h"
-#include "shapefile_converter.h"
+#include "gisstorage/gis_storage_system.h"
+#include "gisstorage/shapefile_converter.h"
+
 #include <filesystem>
 #include <iostream>
 

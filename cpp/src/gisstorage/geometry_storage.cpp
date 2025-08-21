@@ -1,5 +1,6 @@
-#include "geometry_storage.h"
-#include "geometry_serializer.h"
+#include "gisstorage/geometry_storage.h"
+#include "gisstorage/geometry_serializer.h"
+
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -166,7 +167,7 @@ namespace GisStorage {
 
         try {
             nlohmann::json index_data = nlohmann::json::parse(file);
-            
+
             // 验证JSON结构
             if (!index_data.contains("version") || !index_data.contains("data") || !index_data["data"].contains("features")) {
                 std::cout << "索引文件格式不正确" << std::endl;
@@ -198,7 +199,7 @@ namespace GisStorage {
         } catch (const nlohmann::json::exception& e) {
             std::cout << "JSON索引文件解析失败: " << e.what() << std::endl;
             std::cout << "尝试读取旧格式的二进制索引文件..." << std::endl;
-            
+
             // 如果JSON解析失败，尝试读取旧的二进制格式
             file.close();
             file.open(index_file, std::ios::binary);

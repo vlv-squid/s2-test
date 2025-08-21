@@ -2,7 +2,8 @@
 //  Created by vlv-squid on 2025.07.23.
 //
 
-#include "serialize_s2.h"
+#include "gisindex/serialize_s2.h"
+
 #include <fstream>
 
 namespace helper {

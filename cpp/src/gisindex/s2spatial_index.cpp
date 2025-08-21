@@ -2,8 +2,8 @@
 //  Created by vlv-squid on 2025.07.18.
 //
 
-#include "s2spatial_index.h"
-#include "serialize_s2.h"
+#include "gisindex/s2spatial_index.h"
+#include "gisindex/serialize_s2.h"
 
 #include <iostream>
 #include <filesystem>
