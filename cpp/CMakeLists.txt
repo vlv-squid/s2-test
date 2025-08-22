@@ -69,3 +69,11 @@ target_link_libraries(compatibility_test PRIVATE
     nlohmann_json::nlohmann_json
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
+
+# file_io_performance_test
+add_executable(file_io_performance_test
+    test/file_io_performance_test.cpp
+)
+target_link_libraries(file_io_performance_test PRIVATE
+    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
+)
