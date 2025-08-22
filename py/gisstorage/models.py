@@ -12,8 +12,13 @@ from typing import List, Tuple, Dict, Any
 class GeometryData:
     """几何数据结构"""
 
-    def __init__(self, feature_id: int, geometry_type: int, coordinates: bytes,
-                 bbox: Tuple[float, float, float, float]):
+    def __init__(
+        self,
+        feature_id: int,
+        geometry_type: int,
+        coordinates: bytes,
+        bbox: Tuple[float, float, float, float],
+    ):
         self.feature_id = feature_id
         self.geometry_type = geometry_type  # 0=Point, 1=Line, 2=Polygon等
         self.coordinates = coordinates  # 压缩的坐标数据
@@ -26,7 +31,7 @@ class GeometryData:
 
         # 如果是单点情况
         if len(self.coordinates) == 16:
-            x, y = struct.unpack('dd', self.coordinates)
+            x, y = struct.unpack("dd", self.coordinates)
             return [(x, y)]
 
         # 差分编码的情况
@@ -36,7 +41,7 @@ class GeometryData:
         coordinates = []
 
         # 读取第一个点的绝对坐标
-        x, y = struct.unpack('dd', self.coordinates[:16])
+        x, y = struct.unpack("dd", self.coordinates[:16])
         coordinates.append((x, y))
 
         if len(self.coordinates) <= 16:
@@ -48,19 +53,19 @@ class GeometryData:
 
         if type_flag == 0:  # short类型
             while pos + 4 <= len(self.coordinates):
-                dx, dy = struct.unpack('hh', self.coordinates[pos:pos + 4])
+                dx, dy = struct.unpack("hh", self.coordinates[pos : pos + 4])
                 prev_x, prev_y = coordinates[-1]
                 coordinates.append((prev_x + dx, prev_y + dy))
                 pos += 4
         elif type_flag == 1:  # int类型
             while pos + 8 <= len(self.coordinates):
-                dx, dy = struct.unpack('ii', self.coordinates[pos:pos + 8])
+                dx, dy = struct.unpack("ii", self.coordinates[pos : pos + 8])
                 prev_x, prev_y = coordinates[-1]
                 coordinates.append((prev_x + dx, prev_y + dy))
                 pos += 8
         elif type_flag == 2:  # float类型
             while pos + 8 <= len(self.coordinates):
-                dx, dy = struct.unpack('ff', self.coordinates[pos:pos + 8])
+                dx, dy = struct.unpack("ff", self.coordinates[pos : pos + 8])
                 prev_x, prev_y = coordinates[-1]
                 coordinates.append((prev_x + dx, prev_y + dy))
                 pos += 8

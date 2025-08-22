@@ -15,10 +15,7 @@ from osgeo import ogr
 
 class S2SpatialIndex(SpatialIndex):
 
-    def __init__(self,
-                 data_path,
-                 index_file='./index_py/s2.pkl',
-                 resolution=15):
+    def __init__(self, data_path, index_file="./index_py/s2.pkl", resolution=15):
         super().__init__(data_path, index_file, resolution)
         self.s2_index = defaultdict(list)
         self.feature_bounds = {}  # 存储要素的外包矩形用于精确验证
@@ -106,7 +103,7 @@ class S2SpatialIndex(SpatialIndex):
 
     def load_index(self):
         """从pickle文件加载S2索引"""
-        with open(self.index_file, 'rb') as f:
+        with open(self.index_file, "rb") as f:
             loaded_data = pickle.load(f)
             if isinstance(loaded_data, dict):
                 self.s2_index = loaded_data
@@ -118,7 +115,7 @@ class S2SpatialIndex(SpatialIndex):
     def save_index(self):
         """将S2索引保存为pickle文件"""
         os.makedirs(os.path.dirname(self.index_file), exist_ok=True)
-        with open(self.index_file, 'wb') as f:
+        with open(self.index_file, "wb") as f:
             pickle.dump(dict(self.s2_index), f)
 
         print("S2索引保存完成")

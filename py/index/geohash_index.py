@@ -24,7 +24,7 @@ def bbox_to_geohashes(bbox, precision=6):
         9: 0.0001,
         10: 0.00005,
         11: 0.000025,
-        12: 0.00001
+        12: 0.00001,
     }.get(precision, 0.005)
 
     lat = min_lat
@@ -41,10 +41,7 @@ def bbox_to_geohashes(bbox, precision=6):
 
 class GeoHashSpatialIndex(SpatialIndex):
 
-    def __init__(self,
-                 data_path,
-                 index_file='./index_py/geohash.pkl',
-                 precision=6):
+    def __init__(self, data_path, index_file="./index_py/geohash.pkl", precision=6):
         super().__init__(data_path, index_file, precision)
         self.geohash_index = defaultdict(list)
         self.feature_bounds = {}  # 存储要素的外包矩形用于精确验证
@@ -115,7 +112,7 @@ class GeoHashSpatialIndex(SpatialIndex):
 
     def load_index(self):
         """从pickle文件加载GeoHash索引"""
-        with open(self.index_file, 'rb') as f:
+        with open(self.index_file, "rb") as f:
             loaded_data = pickle.load(f)
             if isinstance(loaded_data, dict):
                 self.geohash_index = loaded_data
@@ -127,7 +124,7 @@ class GeoHashSpatialIndex(SpatialIndex):
     def save_index(self):
         """将GeoHash索引保存为pickle文件"""
         os.makedirs(os.path.dirname(self.index_file), exist_ok=True)
-        with open(self.index_file, 'wb') as f:
+        with open(self.index_file, "wb") as f:
             pickle.dump(dict(self.geohash_index), f)
 
         print("GeoHash索引保存完成")

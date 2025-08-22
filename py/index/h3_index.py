@@ -16,10 +16,7 @@ from osgeo import ogr
 
 class H3SpatialIndex(SpatialIndex):
 
-    def __init__(self,
-                 data_path,
-                 index_file='./index_py/h3.pkl',
-                 resolution=9):
+    def __init__(self, data_path, index_file="./index_py/h3.pkl", resolution=9):
         super().__init__(data_path, index_file, resolution)
         self.h3_index = defaultdict(list)
         self.feature_bounds = {}  # 存储要素的外包矩形用于精确验证
@@ -96,7 +93,7 @@ class H3SpatialIndex(SpatialIndex):
 
     def load_index(self):
         """从pickle文件加载H3索引"""
-        with open(self.index_file, 'rb') as f:
+        with open(self.index_file, "rb") as f:
             loaded_data = pickle.load(f)
             if isinstance(loaded_data, dict):
                 self.h3_index = loaded_data
@@ -108,7 +105,7 @@ class H3SpatialIndex(SpatialIndex):
     def save_index(self):
         """将H3索引保存为pickle文件"""
         os.makedirs(os.path.dirname(self.index_file), exist_ok=True)
-        with open(self.index_file, 'wb') as f:
+        with open(self.index_file, "wb") as f:
             pickle.dump(dict(self.h3_index), f)
 
         print("H3索引保存完成")

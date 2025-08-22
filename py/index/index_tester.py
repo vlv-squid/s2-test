@@ -24,7 +24,6 @@ class IndexTester:
             duration = (time.time() - start_time) * 1000
             print(f"总耗时: {duration:.2f}ms, 结果数: {len(results)}")
             if visualize:
-                Visualizer.visualize_results(self.data_path, results,
-                                             self.bbox, name)
+                Visualizer.visualize_results(self.data_path, results, self.bbox, name)
 
         print("===== 性能测试结束 =====")

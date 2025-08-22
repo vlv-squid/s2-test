@@ -14,10 +14,7 @@ from osgeo import ogr
 
 class RtreeIndex(SpatialIndex):
 
-    def __init__(self,
-                 data_path,
-                 index_file='./index_py/rtree.pkl',
-                 resolution=None):
+    def __init__(self, data_path, index_file="./index_py/rtree.pkl", resolution=None):
         super().__init__(data_path, index_file, resolution)
         self.rtree_idx = None
         self.rtree_index_file = index_file
@@ -94,10 +91,10 @@ class RtreeIndex(SpatialIndex):
             print("R树索引pkl文件不存在")
             return
 
-        with open(pkl_file, 'rb') as f:
+        with open(pkl_file, "rb") as f:
             loaded_data = pickle.load(f)
-            all_entries = loaded_data['entries']
-            self.feature_bounds = loaded_data.get('feature_bounds', {})
+            all_entries = loaded_data["entries"]
+            self.feature_bounds = loaded_data.get("feature_bounds", {})
 
         # 创建新的R树索引
         rtree_properties = index.Property()
@@ -124,11 +121,9 @@ class RtreeIndex(SpatialIndex):
 
         # 保存到 .pkl 文件
         os.makedirs(os.path.dirname(self.index_file), exist_ok=True)
-        with open(self.index_file, 'wb') as f:
+        with open(self.index_file, "wb") as f:
             pickle.dump(
-                {
-                    'entries': all_entries,
-                    'feature_bounds': self.feature_bounds
-                }, f)
+                {"entries": all_entries, "feature_bounds": self.feature_bounds}, f
+            )
 
         print("R树索引保存完成")

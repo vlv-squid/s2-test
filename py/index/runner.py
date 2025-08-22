@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     # 检查并加载或构建索引
     for name, idx in indexers.items():
-        if hasattr(idx, 'index_file') and os.path.exists(idx.index_file):
+        if hasattr(idx, "index_file") and os.path.exists(idx.index_file):
             print(f"Loading existing {name} index...")
             idx.load_index()
         else:
