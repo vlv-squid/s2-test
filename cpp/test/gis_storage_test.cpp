@@ -12,6 +12,8 @@
 #include <fstream>
 #include <thread>
 #include <atomic>
+#include <set>
+#include <map>
 
 using namespace GisStorage;
 
@@ -449,4 +451,359 @@ TEST_F(GisStorageTest, MemoryUsage) {
 
     std::cout << "几何数据总大小: " << total_geom_size << " 字节" << std::endl;
     std::cout << "属性数据总大小: " << total_attr_size << " 字节" << std::endl;
+}
+
+// 全量几何数据解析测试
+TEST_F(GisStorageTest, FullGeometryParsing) {
+    // 获取所有要素ID
+    auto all_fids = geom_storage->getAllFeatureIds();
+    ASSERT_FALSE(all_fids.empty());
+
+    std::cout << "开始全量几何数据解析测试，总要素数: " << all_fids.size() << std::endl;
+
+    // 全量解析几何数据
+    std::vector<std::unique_ptr<GeometryData>> all_geometries;
+    std::vector<uint64_t> failed_fids;
+
+    for (uint64_t fid : all_fids) {
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            if (geom) {
+                all_geometries.push_back(std::move(geom));
+            } else {
+                failed_fids.push_back(fid);
+            }
+        } catch (const std::exception& e) {
+            failed_fids.push_back(fid);
+            std::cout << "解析FID " << fid << " 时发生异常: " << e.what() << std::endl;
+        }
+    }
+
+    // 验证解析结果
+    EXPECT_GT(all_geometries.size(), 0) << "没有成功解析任何几何数据";
+    EXPECT_LE(failed_fids.size(), all_fids.size() * 0.1) << "失败率超过10%";
+
+    std::cout << "成功解析几何数据: " << all_geometries.size() << " 个" << std::endl;
+    std::cout << "解析失败: " << failed_fids.size() << " 个" << std::endl;
+
+    // 验证几何数据的完整性
+    for (const auto& geom : all_geometries) {
+        EXPECT_GE(geom->getFeatureId(), 0); // 允许FID为0
+        EXPECT_GT(geom->getSerializedSize(), 0);
+
+        // 尝试解码坐标
+        try {
+            auto coords = geom->decodeCoordinates();
+            EXPECT_GE(coords.size(), 0);
+
+            // 验证边界框
+            auto bbox = geom->getBBox();
+            EXPECT_LE(bbox.min_x, bbox.max_x);
+            EXPECT_LE(bbox.min_y, bbox.max_y);
+        } catch (const std::exception& e) {
+            FAIL() << "解码几何坐标失败，FID: " << geom->getFeatureId() << ", 错误: " << e.what();
+        }
+    }
+
+    // 统计几何类型分布
+    std::map<GeometryType, int> type_distribution;
+    for (const auto& geom : all_geometries) {
+        type_distribution[geom->getGeometryType()]++;
+    }
+
+    std::cout << "几何类型分布:" << std::endl;
+    for (const auto& [type, count] : type_distribution) {
+        std::cout << "  类型 " << static_cast<int>(type) << ": " << count << " 个" << std::endl;
+    }
+}
+
+// 全量属性数据解析测试
+TEST_F(GisStorageTest, FullAttributeParsing) {
+    // 获取所有要素ID
+    auto all_fids = attr_storage->getAllFeatureIds();
+    ASSERT_FALSE(all_fids.empty());
+
+    std::cout << "开始全量属性数据解析测试，总要素数: " << all_fids.size() << std::endl;
+
+    // 全量解析属性数据
+    std::vector<std::unique_ptr<AttributeData>> all_attributes;
+    std::vector<uint64_t> failed_fids;
+
+    for (uint64_t fid : all_fids) {
+        try {
+            auto attr = attr_storage->readAttribute(fid);
+            if (attr) {
+                all_attributes.push_back(std::move(attr));
+            } else {
+                failed_fids.push_back(fid);
+            }
+        } catch (const std::exception& e) {
+            failed_fids.push_back(fid);
+            std::cout << "解析FID " << fid << " 时发生异常: " << e.what() << std::endl;
+        }
+    }
+
+    // 验证解析结果
+    EXPECT_GT(all_attributes.size(), 0) << "没有成功解析任何属性数据";
+    EXPECT_LE(failed_fids.size(), all_fids.size() * 0.1) << "失败率超过10%";
+
+    std::cout << "成功解析属性数据: " << all_attributes.size() << " 个" << std::endl;
+    std::cout << "解析失败: " << failed_fids.size() << " 个" << std::endl;
+
+    // 验证属性数据的完整性
+    for (const auto& attr : all_attributes) {
+        EXPECT_GE(attr->getFeatureId(), 0); // 允许FID为0
+        EXPECT_GT(attr->getSerializedSize(), 0);
+
+        // 验证属性字段
+        auto properties = attr->getProperties();
+        EXPECT_GE(properties.size(), 0);
+
+        // 检查是否有空属性
+        for (const auto& [key, value] : properties) {
+            EXPECT_FALSE(key.empty()) << "属性键不能为空";
+        }
+    }
+
+    // 统计属性字段分布
+    std::map<std::string, int> field_distribution;
+    for (const auto& attr : all_attributes) {
+        auto properties = attr->getProperties();
+        for (const auto& [key, value] : properties) {
+            field_distribution[key]++;
+        }
+    }
+
+    std::cout << "属性字段分布:" << std::endl;
+    for (const auto& [field, count] : field_distribution) {
+        std::cout << "  " << field << ": " << count << " 个要素包含此字段" << std::endl;
+    }
+}
+
+// 全量数据一致性验证测试
+TEST_F(GisStorageTest, FullDataConsistency) {
+    // 获取所有要素ID
+    auto geom_fids = geom_storage->getAllFeatureIds();
+    auto attr_fids = attr_storage->getAllFeatureIds();
+
+    ASSERT_FALSE(geom_fids.empty());
+    ASSERT_FALSE(attr_fids.empty());
+
+    // 验证几何和属性数据的FID一致性
+    EXPECT_EQ(geom_fids.size(), attr_fids.size()) << "几何和属性数据的要素数量不一致";
+
+    // 创建FID集合进行比较
+    std::set<uint64_t> geom_fid_set(geom_fids.begin(), geom_fids.end());
+    std::set<uint64_t> attr_fid_set(attr_fids.begin(), attr_fids.end());
+
+    EXPECT_EQ(geom_fid_set, attr_fid_set) << "几何和属性数据的FID集合不一致";
+
+    std::cout << "数据一致性验证通过，总要素数: " << geom_fids.size() << std::endl;
+
+    // 验证每个要素的几何和属性数据都能正常读取
+    std::vector<uint64_t> inconsistent_fids;
+    std::vector<uint64_t> missing_geom_fids;
+    std::vector<uint64_t> missing_attr_fids;
+
+    for (uint64_t fid : geom_fids) {
+        bool has_geom = false;
+        bool has_attr = false;
+
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            has_geom = (geom != nullptr);
+        } catch (const std::exception& e) {
+            // 几何数据读取失败
+        }
+
+        try {
+            auto attr = attr_storage->readAttribute(fid);
+            has_attr = (attr != nullptr);
+        } catch (const std::exception& e) {
+            // 属性数据读取失败
+        }
+
+        if (!has_geom && !has_attr) {
+            inconsistent_fids.push_back(fid);
+        } else if (!has_geom) {
+            missing_geom_fids.push_back(fid);
+        } else if (!has_attr) {
+            missing_attr_fids.push_back(fid);
+        }
+    }
+
+    // 验证一致性
+    EXPECT_LE(inconsistent_fids.size(), geom_fids.size() * 0.05) << "完全缺失数据的要素超过5%";
+    EXPECT_LE(missing_geom_fids.size(), geom_fids.size() * 0.05) << "缺失几何数据的要素超过5%";
+    EXPECT_LE(missing_attr_fids.size(), geom_fids.size() * 0.05) << "缺失属性数据的要素超过5%";
+
+    std::cout << "数据完整性统计:" << std::endl;
+    std::cout << "  完全缺失: " << inconsistent_fids.size() << " 个" << std::endl;
+    std::cout << "  缺失几何: " << missing_geom_fids.size() << " 个" << std::endl;
+    std::cout << "  缺失属性: " << missing_attr_fids.size() << " 个" << std::endl;
+}
+
+// 全量解析性能测试
+TEST_F(GisStorageTest, FullParsingPerformance) {
+    // 获取所有要素ID
+    auto all_fids = geom_storage->getAllFeatureIds();
+    ASSERT_FALSE(all_fids.empty());
+
+    std::cout << "开始全量解析性能测试，总要素数: " << all_fids.size() << std::endl;
+
+    // 测试几何数据全量解析性能
+    auto geom_start_time = std::chrono::high_resolution_clock::now();
+
+    std::vector<std::unique_ptr<GeometryData>> all_geometries;
+    for (uint64_t fid : all_fids) {
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            if (geom) {
+                all_geometries.push_back(std::move(geom));
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    auto geom_end_time = std::chrono::high_resolution_clock::now();
+    auto geom_duration = std::chrono::duration_cast<std::chrono::milliseconds>(geom_end_time - geom_start_time);
+
+    // 测试属性数据全量解析性能
+    auto attr_start_time = std::chrono::high_resolution_clock::now();
+
+    std::vector<std::unique_ptr<AttributeData>> all_attributes;
+    for (uint64_t fid : all_fids) {
+        try {
+            auto attr = attr_storage->readAttribute(fid);
+            if (attr) {
+                all_attributes.push_back(std::move(attr));
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    auto attr_end_time = std::chrono::high_resolution_clock::now();
+    auto attr_duration = std::chrono::duration_cast<std::chrono::milliseconds>(attr_end_time - attr_start_time);
+
+    // 测试混合解析性能（同时读取几何和属性）
+    auto mixed_start_time = std::chrono::high_resolution_clock::now();
+
+    std::vector<std::pair<std::unique_ptr<GeometryData>, std::unique_ptr<AttributeData>>> mixed_data;
+    for (uint64_t fid : all_fids) {
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            auto attr = attr_storage->readAttribute(fid);
+            if (geom && attr) {
+                mixed_data.emplace_back(std::move(geom), std::move(attr));
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    auto mixed_end_time = std::chrono::high_resolution_clock::now();
+    auto mixed_duration = std::chrono::duration_cast<std::chrono::milliseconds>(mixed_end_time - mixed_start_time);
+
+    // 输出性能结果
+    std::cout << "全量解析性能测试结果:" << std::endl;
+    std::cout << "  几何数据解析: " << geom_duration.count() << "ms, " << all_geometries.size() << " 个要素, " << (all_geometries.size() * 1000.0 / geom_duration.count()) << " 要素/秒" << std::endl;
+    std::cout << "  属性数据解析: " << attr_duration.count() << "ms, " << all_attributes.size() << " 个要素, " << (all_attributes.size() * 1000.0 / attr_duration.count()) << " 要素/秒" << std::endl;
+    std::cout << "  混合数据解析: " << mixed_duration.count() << "ms, " << mixed_data.size() << " 个要素, " << (mixed_data.size() * 1000.0 / mixed_duration.count()) << " 要素/秒" << std::endl;
+
+    // 验证性能要求
+    EXPECT_GT(all_geometries.size(), 0);
+    EXPECT_GT(all_attributes.size(), 0);
+    EXPECT_GT(mixed_data.size(), 0);
+
+    // 性能基准测试（每秒至少能解析100个要素）
+    double geom_rate = all_geometries.size() * 1000.0 / geom_duration.count();
+    double attr_rate = all_attributes.size() * 1000.0 / attr_duration.count();
+    double mixed_rate = mixed_data.size() * 1000.0 / mixed_duration.count();
+
+    EXPECT_GE(geom_rate, 100.0) << "几何数据解析速度低于100要素/秒";
+    EXPECT_GE(attr_rate, 100.0) << "属性数据解析速度低于100要素/秒";
+    EXPECT_GE(mixed_rate, 50.0) << "混合数据解析速度低于50要素/秒";
+}
+
+// 全量数据统计测试
+TEST_F(GisStorageTest, FullDataStatistics) {
+    // 获取所有要素ID
+    auto all_fids = geom_storage->getAllFeatureIds();
+    ASSERT_FALSE(all_fids.empty());
+
+    std::cout << "开始全量数据统计测试，总要素数: " << all_fids.size() << std::endl;
+
+    // 统计几何数据
+    size_t total_geom_size = 0;
+    size_t total_coord_count = 0;
+    std::map<GeometryType, int> geom_type_count;
+    std::map<GeometryType, size_t> geom_type_size;
+
+    for (uint64_t fid : all_fids) {
+        try {
+            auto geom = geom_storage->readGeometry(fid);
+            if (geom) {
+                total_geom_size += geom->getSerializedSize();
+                geom_type_count[geom->getGeometryType()]++;
+                geom_type_size[geom->getGeometryType()] += geom->getSerializedSize();
+
+                auto coords = geom->decodeCoordinates();
+                total_coord_count += coords.size();
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    // 统计属性数据
+    size_t total_attr_size = 0;
+    size_t total_field_count = 0;
+    std::map<std::string, int> field_count;
+    std::map<std::string, size_t> field_size;
+
+    for (uint64_t fid : all_fids) {
+        try {
+            auto attr = attr_storage->readAttribute(fid);
+            if (attr) {
+                total_attr_size += attr->getSerializedSize();
+                auto properties = attr->getProperties();
+                total_field_count += properties.size();
+
+                for (const auto& [key, value] : properties) {
+                    field_count[key]++;
+                    field_size[key] += value.size();
+                }
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    // 输出统计结果
+    std::cout << "全量数据统计结果:" << std::endl;
+    std::cout << "  总要素数: " << all_fids.size() << std::endl;
+    std::cout << "  几何数据总大小: " << total_geom_size << " 字节" << std::endl;
+    std::cout << "  属性数据总大小: " << total_attr_size << " 字节" << std::endl;
+    std::cout << "  总坐标点数: " << total_coord_count << std::endl;
+    std::cout << "  总属性字段数: " << total_field_count << std::endl;
+    std::cout << "  平均每个要素坐标点数: " << (total_coord_count * 1.0 / all_fids.size()) << std::endl;
+    std::cout << "  平均每个要素属性字段数: " << (total_field_count * 1.0 / all_fids.size()) << std::endl;
+
+    std::cout << "几何类型分布:" << std::endl;
+    for (const auto& [type, count] : geom_type_count) {
+        std::cout << "  类型 " << static_cast<int>(type) << ": " << count << " 个, " << (count * 100.0 / all_fids.size()) << "%, " << geom_type_size[type] << " 字节" << std::endl;
+    }
+
+    std::cout << "属性字段分布:" << std::endl;
+    for (const auto& [field, count] : field_count) {
+        std::cout << "  " << field << ": " << count << " 个要素, " << (count * 100.0 / all_fids.size()) << "%, " << field_size[field] << " 字节" << std::endl;
+    }
+
+    // 验证统计结果
+    EXPECT_GT(total_geom_size, 0);
+    EXPECT_GT(total_attr_size, 0);
+    EXPECT_GT(total_coord_count, 0);
+    EXPECT_GT(total_field_count, 0);
 }
