@@ -77,3 +77,15 @@ add_executable(file_io_performance_test
 target_link_libraries(file_io_performance_test PRIVATE
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
+
+# string_pool_optimization_test
+add_executable(string_pool_optimization_test
+    test/string_pool_optimization_test.cpp
+    ${GISSTORAGE_SOURCES}
+)
+target_link_libraries(string_pool_optimization_test PRIVATE
+    GDAL::GDAL
+    Boost::geometry
+    nlohmann_json::nlohmann_json
+    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
+)
