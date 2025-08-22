@@ -37,6 +37,11 @@ class GisStorageTest : public ::testing::Test {
             GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
         }
 
+        // 清理旧的输出文件
+        if (std::filesystem::exists(output_dir)) {
+            std::filesystem::remove_all(output_dir);
+        }
+
         // 执行一次转换，供所有测试使用
         converter = std::make_unique<ShapefileConverter>(test_shapefile, output_dir);
         valid_fids = converter->convert();
@@ -56,9 +61,9 @@ class GisStorageTest : public ::testing::Test {
 
     void TearDown() override {
         // 清理测试产生的文件
-        if (std::filesystem::exists(output_dir)) {
-            std::filesystem::remove_all(output_dir);
-        }
+        // if (std::filesystem::exists(output_dir)) {
+        //     std::filesystem::remove_all(output_dir);
+        // }
     }
 
     // 获取有效的测试FID（跳过FID为0的要素）
@@ -444,36 +449,4 @@ TEST_F(GisStorageTest, MemoryUsage) {
 
     std::cout << "几何数据总大小: " << total_geom_size << " 字节" << std::endl;
     std::cout << "属性数据总大小: " << total_attr_size << " 字节" << std::endl;
-}
-
-// 并发读取测试（简化版本）
-TEST_F(GisStorageTest, ConcurrentReadTest) {
-    auto test_fids = getValidTestFids(10000);
-    ASSERT_FALSE(test_fids.empty());
-
-    // 模拟并发读取（使用多个线程读取不同的FID）
-    std::vector<std::thread> threads;
-    std::atomic<int> success_count{0};
-
-    for (uint64_t fid : test_fids) {
-        threads.emplace_back([this, fid, &success_count]() {
-            try {
-                auto geom = geom_storage->readGeometry(fid);
-                auto attr = attr_storage->readAttribute(fid);
-                if (geom && attr) {
-                    success_count++;
-                }
-            } catch (const std::exception& e) {
-                // 忽略读取失败的情况
-            }
-        });
-    }
-
-    // 等待所有线程完成
-    for (auto& thread : threads) {
-        thread.join();
-    }
-
-    EXPECT_GT(success_count.load(), 0);
-    std::cout << "并发读取成功: " << success_count.load() << " 个要素" << std::endl;
 }

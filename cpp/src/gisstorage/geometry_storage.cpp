@@ -23,6 +23,7 @@ namespace GisStorage {
     }
 
     int64_t GeometryStorage::writeGeometry(const GeometryData& geometry) {
+        // 使用追加模式，因为文件在构造函数中已经被清理
         std::ofstream file(geometry_file_, std::ios::binary | std::ios::app);
         if (!file) {
             throw std::runtime_error("无法打开几何文件进行写入: " + geometry_file_);
@@ -33,6 +34,7 @@ namespace GisStorage {
 
         if (!geom_binary.empty()) {
             file.write(reinterpret_cast<const char*>(geom_binary.data()), geom_binary.size());
+            file.flush(); // 确保数据写入磁盘
             // 清除索引缓存
             offset_index_.clear();
             index_built_ = false;

@@ -217,11 +217,6 @@ namespace GisStorage {
         // 清理
         GDALClose(dataset);
 
-        std::cout << "转换完成，共处理 " << valid_fids.size() << " 个要素" << std::endl;
-        std::cout << "- 几何数据: " << getGeometryFilePath() << std::endl;
-        std::cout << "- 属性数据: " << getAttributeFilePath() << std::endl;
-        std::cout << "- 索引数据: " << getIndexFilePath() << std::endl;
-
         return valid_fids;
     }
 

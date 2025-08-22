@@ -23,6 +23,7 @@ namespace GisStorage {
     }
 
     int64_t AttributeStorage::writeAttribute(const AttributeData& attribute) {
+        // 使用追加模式，因为文件在构造函数中已经被清理
         std::ofstream file(attribute_file_, std::ios::binary | std::ios::app);
         if (!file) {
             throw std::runtime_error("无法打开属性文件进行写入: " + attribute_file_);
@@ -33,6 +34,7 @@ namespace GisStorage {
 
         if (!attr_binary.empty()) {
             file.write(reinterpret_cast<const char*>(attr_binary.data()), attr_binary.size());
+            file.flush(); // 确保数据写入磁盘
             // 清除索引缓存
             offset_index_.clear();
             index_built_ = false;
