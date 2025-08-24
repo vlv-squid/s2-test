@@ -39,7 +39,8 @@ class PerformanceComparison:
             f"{output_dir}/{self.shapefile_name}_geom.dat"
         )
         self.attribute_storage = AttributeStorage(
-            f"{output_dir}/{self.shapefile_name}_attr.dat"
+            f"{output_dir}/{self.shapefile_name}_attr.dat",
+            f"{output_dir}/{self.shapefile_name}_pool.dat",
         )
 
         # 初始化S2索引
@@ -57,8 +58,15 @@ class PerformanceComparison:
             print("转换Shapefile为自定义格式...")
             valid_fids = self.gis_system.convert_shapefile(self.shapefile_path)
             print(f"转换完成，有效要素数量: {len(valid_fids)}")
+
+            # 转换完成后，重新加载字符串池
+            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}_pool.dat"):
+                self.attribute_storage.load_string_pool()
         else:
             print("自定义格式文件已存在，跳过转换")
+            # 确保字符串池已加载
+            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}_pool.dat"):
+                self.attribute_storage.load_string_pool()
 
     def test_ogr_sequential_read(self, test_count: int = 1000) -> Dict:
         """测试OGR顺序读取性能"""
@@ -420,6 +428,32 @@ class PerformanceComparison:
                 f"耗时: {custom_result['query_time']*1000:.2f}ms, "
                 f"速率: {custom_result['query_rate']:.1f} 要素/秒"
             )
+
+        # 4. 显示压缩统计信息
+        print("\n" + "=" * 40)
+        print("4. 字符串池压缩统计")
+        print("=" * 40)
+
+        try:
+            # 获取压缩统计
+            compression_stats = self.attribute_storage.get_compression_stats()
+            storage_stats = self.attribute_storage.get_storage_stats()
+
+            print(f"字符串池统计:")
+            print(f"  唯一字符串数: {compression_stats['unique_strings']}")
+            print(f"  总字符串数: {compression_stats['total_strings']}")
+            print(f"  压缩率: {compression_stats['compression_ratio']:.2f}%")
+            print(
+                f"  节省空间: {compression_stats['original_size'] - compression_stats['compressed_size']} 字节"
+            )
+
+            print(f"存储统计:")
+            print(f"  总要素数: {storage_stats['total_features']}")
+            print(f"  字符串池大小: {storage_stats['string_pool_size']}")
+            print(f"  总节省空间: {storage_stats['string_pool_saved_bytes']} 字节")
+
+        except Exception as e:
+            print(f"获取压缩统计失败: {e}")
 
         print("\n" + "=" * 60)
         print("测试完成")

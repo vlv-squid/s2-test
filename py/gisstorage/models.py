@@ -3,29 +3,143 @@
 #   @author: vlv-squid
 #   @date: 2025-08-15
 
-from typing import List, Tuple, Dict, Any
-
 import struct
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
+from enum import IntEnum
+
+
+class GeometryType(IntEnum):
+    """几何数据类型枚举，与C++版本保持一致"""
+
+    POINT = 0
+    LINE = 1
+    POLYGON = 2
+    MULTIPOINT = 3
+    MULTILINE = 4
+    MULTIPOLYGON = 5
+
+
+class StringPool:
+    """字符串池类 - 用于减少重复字符串的存储，与C++版本兼容"""
+
+    def __init__(self):
+        self.string_to_id = {}  # 字符串到ID的映射
+        self.string_table = []  # ID到字符串的映射
+        self.total_size = 0
+
+    def get_string_id(self, string: str) -> int:
+        """获取字符串ID（如果不存在则添加）"""
+        if string in self.string_to_id:
+            return self.string_to_id[string]
+
+        # 新字符串，添加到池中
+        new_id = len(self.string_table)
+        self.string_to_id[string] = new_id
+        self.string_table.append(string)
+        self.total_size += self._calculate_string_size(string)
+
+        return new_id
+
+    def get_string(self, string_id: int) -> str:
+        """根据ID获取字符串"""
+        if 0 <= string_id < len(self.string_table):
+            return self.string_table[string_id]
+        return ""
+
+    def serialize(self) -> bytes:
+        """序列化字符串池"""
+        data = bytearray()
+
+        # 写入字符串数量
+        count = len(self.string_table)
+        data.extend(struct.pack("I", count))
+
+        # 写入每个字符串
+        for string in self.string_table:
+            try:
+                encoded_string = string.encode("utf-8")
+                length = len(encoded_string)
+                data.extend(struct.pack("I", length))
+                data.extend(encoded_string)
+            except UnicodeEncodeError as e:
+                print(f"警告: 字符串编码失败 '{string}': {e}")
+                # 跳过这个字符串
+                continue
+
+        return bytes(data)
+
+    def deserialize(self, data: bytes) -> None:
+        """反序列化字符串池"""
+        self.clear()
+
+        if len(data) < 4:
+            return
+
+        offset = 0
+
+        # 读取字符串数量
+        count = struct.unpack("I", data[offset : offset + 4])[0]
+        offset += 4
+
+        # 读取每个字符串
+        for i in range(count):
+            if offset + 4 > len(data):
+                break
+
+            length = struct.unpack("I", data[offset : offset + 4])[0]
+            offset += 4
+
+            if offset + length > len(data):
+                break
+
+            try:
+                string = data[offset : offset + length].decode("utf-8")
+                self.string_to_id[string] = i
+                self.string_table.append(string)
+                self.total_size += self._calculate_string_size(string)
+            except UnicodeDecodeError as e:
+                print(f"警告: 字符串解码失败 (位置 {offset}, 长度 {length}): {e}")
+                # 跳过这个字符串，继续处理下一个
+                pass
+
+            offset += length
+
+    def clear(self) -> None:
+        """清空池"""
+        self.string_to_id.clear()
+        self.string_table.clear()
+        self.total_size = 0
+
+    def get_pool_size(self) -> int:
+        """获取池中唯一字符串数量"""
+        return len(self.string_table)
+
+    def get_total_size(self) -> int:
+        """获取总大小"""
+        return self.total_size
+
+    def _calculate_string_size(self, string: str) -> int:
+        """计算字符串在池中的存储大小"""
+        return len(string.encode("utf-8"))
 
 
 class GeometryData:
-    """几何数据结构"""
+    """几何数据结构，与C++版本兼容"""
 
     def __init__(
         self,
         feature_id: int,
-        geometry_type: int,
+        geometry_type: GeometryType,
         coordinates: bytes,
         bbox: Tuple[float, float, float, float],
     ):
         self.feature_id = feature_id
-        self.geometry_type = geometry_type  # 0=Point, 1=Line, 2=Polygon等
+        self.geometry_type = geometry_type
         self.coordinates = coordinates  # 压缩的坐标数据
         self.bbox = bbox
 
     def decode_coordinates(self) -> List[Tuple[float, float]]:
-        """解码压缩的坐标数据"""
+        """解码压缩的坐标数据，与C++版本兼容"""
         if not self.coordinates:
             return []
 
@@ -74,8 +188,8 @@ class GeometryData:
 
 
 class AttributeData:
-    """属性数据结构"""
+    """属性数据结构，与C++版本兼容"""
 
-    def __init__(self, feature_id: int, properties: Dict[str, Any]):
+    def __init__(self, feature_id: int, properties: Dict[str, str]):
         self.feature_id = feature_id
         self.properties = properties

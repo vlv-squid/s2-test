@@ -62,8 +62,13 @@ if __name__ == "__main__":
     print("\n=== 解析二进制文件测试 ===")
 
     # 初始化存储对象
-    geometry_storage = GeometryStorage("./output_data/dltb_532300_2020_geom.dat")
-    attribute_storage = AttributeStorage("./output_data/dltb_532300_2020_attr.dat")
+    geometry_storage = GeometryStorage("./output_data/test_geom.dat")
+    attribute_storage = AttributeStorage(
+        "./output_data/test_attr.dat", "./output_data/test_pool.dat"
+    )
+
+    # 加载字符串池
+    attribute_storage.load_string_pool()
 
     # 获取所有要素ID
     all_fids = geometry_storage.get_all_feature_ids()

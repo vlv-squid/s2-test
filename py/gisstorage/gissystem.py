@@ -16,12 +16,15 @@ class GisStorageSystem:
         self.data_dir = data_dir
         self.geometry_file = os.path.join(data_dir, "geom.dat")
         self.attribute_file = os.path.join(data_dir, "attr.dat")
+        self.string_pool_file = os.path.join(data_dir, "pool.dat")
 
         # 初始化存储管理器
         self.geometry_storage = GeometryStorage(self.geometry_file)
-        self.attribute_storage = AttributeStorage(self.attribute_file)
+        self.attribute_storage = AttributeStorage(
+            self.attribute_file, self.string_pool_file
+        )
 
-    def convert_shapefile(self, shapefile_path: str, s2_resolution: int = 15):
+    def convert_shapefile(self, shapefile_path: str):
         """转换Shapefile"""
         converter = ShapefileConverter(shapefile_path, self.data_dir)
-        return converter.convert(s2_resolution)
+        return converter.convert()

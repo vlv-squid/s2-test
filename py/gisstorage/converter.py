@@ -4,17 +4,17 @@
 #   @date: 2025-08-15
 
 import os
-import pickle
+import json
 import struct
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 from osgeo import ogr
 
-from gisstorage.models import GeometryData, AttributeData
+from gisstorage.models import GeometryData, AttributeData, GeometryType
 from gisstorage.serializers import GeometrySerializer
 
 
 class ShapefileConverter:
-    """Shapefile转换器"""
+    """Shapefile转换器，与C++版本兼容"""
 
     def __init__(self, shapefile_path: str, output_dir: str):
         from gisstorage.storage import GeometryStorage, AttributeStorage
@@ -28,335 +28,281 @@ class ShapefileConverter:
         # 构造文件路径
         geom_file_path = os.path.join(output_dir, f"{shapefile_name}_geom.dat")
         attr_file_path = os.path.join(output_dir, f"{shapefile_name}_attr.dat")
+        pool_file_path = os.path.join(output_dir, f"{shapefile_name}_pool.dat")
         self.index_file = os.path.join(output_dir, f"{shapefile_name}_index.dat")
-
-        # 清空现有文件（如果存在）
-        open(geom_file_path, "wb").close()
-        open(attr_file_path, "wb").close()
-        open(self.index_file, "wb").close()
-
-        # 使用shapefile名称作为前缀初始化存储管理器
-        self.geometry_storage = GeometryStorage(geom_file_path)
-        self.attribute_storage = AttributeStorage(attr_file_path)
 
         # 保存shapefile路径和名称
         self.shapefile_path = shapefile_path
         self.shapefile_name = shapefile_name
 
-    def _calculate_bbox(
-        self, coordinates: List[Tuple[float, float]]
-    ) -> Tuple[float, float, float, float]:
-        """计算边界框"""
-        if not coordinates:
-            return (0, 0, 0, 0)
+        # 初始化存储管理器
+        self.geometry_storage = GeometryStorage(geom_file_path)
+        self.attribute_storage = AttributeStorage(attr_file_path, pool_file_path)
 
-        min_x = min(coord[0] for coord in coordinates)
-        max_x = max(coord[0] for coord in coordinates)
-        min_y = min(coord[1] for coord in coordinates)
-        max_y = max(coord[1] for coord in coordinates)
-        return (min_x, min_y, max_x, max_y)
+        # 统计信息
+        self.stats = {
+            "total_features": 0,
+            "valid_features": 0,
+            "geometry_size": 0,
+            "attribute_original_size": 0,
+            "attribute_compressed_size": 0,
+            "compression_ratio": 0.0,
+            "string_pool_size": 0,
+            "string_pool_saved_bytes": 0,
+            "conversion_time_seconds": 0.0,
+        }
 
-    def _encode_coordinates_delta(
-        self, coordinates: List[Tuple[float, float]]
-    ) -> bytes:
-        """
-        使用差分编码压缩坐标数据
-        第一个点存储绝对坐标，后续点存储相对于前一个点的偏移量
-        """
-        if not coordinates:
-            return b""
-
-        # 第一个点存储绝对坐标（double精度）
-        encoded_data = struct.pack("dd", coordinates[0][0], coordinates[0][1])
-
-        # 后续点存储相对于前一个点的偏移量
-        for i in range(1, len(coordinates)):
-            dx = coordinates[i][0] - coordinates[i - 1][0]
-            dy = coordinates[i][1] - coordinates[i - 1][1]
-            # 使用float存储偏移量（节省空间，通常足够精度）
-            encoded_data += struct.pack("ff", dx, dy)
-
-        return encoded_data
-
-    def _decode_coordinates_delta(self, data: bytes) -> List[Tuple[float, float]]:
-        """
-        解码差分编码的坐标数据
-        """
-        if not data:
-            return []
-
-        coordinates = []
-
-        # 读取第一个点的绝对坐标（16字节）
-        if len(data) >= 16:
-            x, y = struct.unpack("dd", data[:16])
-            coordinates.append((x, y))
-
-            # 读取后续点的偏移量（每8字节）
-            offset_pos = 16
-            while offset_pos < len(data):
-                if len(data) >= offset_pos + 8:
-                    dx, dy = struct.unpack("ff", data[offset_pos : offset_pos + 8])
-                    # 重构绝对坐标
-                    prev_x, prev_y = coordinates[-1]
-                    coordinates.append((prev_x + dx, prev_y + dy))
-                    offset_pos += 8
-                else:
-                    break
-
-        return coordinates
-
-    def _encode_coordinates_delta_optimized(
-        self, coordinates: List[Tuple[float, float]]
-    ) -> bytes:
-        """
-        优化的差分编码，根据数据特点选择存储策略
-        """
-        if not coordinates:
-            return b""
-
-        if len(coordinates) == 1:
-            # 单点情况，直接存储绝对坐标
-            return struct.pack("dd", coordinates[0][0], coordinates[0][1])
-
-        # 计算偏移量范围，决定使用哪种数据类型
-        max_delta = 0
-        deltas = []
-        for i in range(1, len(coordinates)):
-            dx = coordinates[i][0] - coordinates[i - 1][0]
-            dy = coordinates[i][1] - coordinates[i - 1][1]
-            deltas.append((dx, dy))
-            max_delta = max(max_delta, abs(dx), abs(dy))
-
-        # 存储第一个点的绝对坐标
-        encoded_data = struct.pack("dd", coordinates[0][0], coordinates[0][1])
-
-        # 根据偏移量范围选择合适的存储格式
-        if max_delta < 32767:  # short类型范围
-            # 使用short类型存储偏移量（2字节/坐标）
-            encoded_data += b"\x00"  # 标记使用short类型
-            for dx, dy in deltas:
-                encoded_data += struct.pack("hh", int(dx), int(dy))
-        elif max_delta < 2147483647:  # int类型范围
-            # 使用int类型存储偏移量（4字节/坐标）
-            encoded_data += b"\x01"  # 标记使用int类型
-            for dx, dy in deltas:
-                encoded_data += struct.pack("ii", int(dx), int(dy))
+    def _get_geometry_type(self, ogr_geometry_type: int) -> GeometryType:
+        """将OGR几何类型转换为内部几何类型枚举"""
+        if ogr_geometry_type in [ogr.wkbPoint, ogr.wkbPoint25D]:
+            return GeometryType.POINT
+        elif ogr_geometry_type in [ogr.wkbLineString, ogr.wkbLineString25D]:
+            return GeometryType.LINE
+        elif ogr_geometry_type in [ogr.wkbPolygon, ogr.wkbPolygon25D]:
+            return GeometryType.POLYGON
+        elif ogr_geometry_type in [ogr.wkbMultiPoint, ogr.wkbMultiPoint25D]:
+            return GeometryType.MULTIPOINT
+        elif ogr_geometry_type in [ogr.wkbMultiLineString, ogr.wkbMultiLineString25D]:
+            return GeometryType.MULTILINE
+        elif ogr_geometry_type in [ogr.wkbMultiPolygon, ogr.wkbMultiPolygon25D]:
+            return GeometryType.MULTIPOLYGON
         else:
-            # 使用float类型存储偏移量（4字节/坐标）
-            encoded_data += b"\x02"  # 标记使用float类型
-            for dx, dy in deltas:
-                encoded_data += struct.pack("ff", dx, dy)
+            return GeometryType.POINT  # 默认类型
 
-        return encoded_data
-
-    def _decode_coordinates_delta_optimized(
-        self, data: bytes
-    ) -> List[Tuple[float, float]]:
-        """
-        解码优化的差分编码坐标数据
-        """
-        if not data or len(data) < 16:
+    def _extract_coordinates(self, geometry) -> List[Tuple[float, float]]:
+        """提取几何坐标，与C++版本兼容"""
+        if not geometry:
             return []
 
         coordinates = []
+        geom_type = geometry.GetGeometryType()
 
-        # 读取第一个点的绝对坐标
-        x, y = struct.unpack("dd", data[:16])
-        coordinates.append((x, y))
-
-        if len(data) <= 16:
-            return coordinates
-
-        # 读取数据类型标记
-        type_flag = data[16]
-        pos = 17
-
-        if type_flag == 0:  # short类型
-            while pos + 4 <= len(data):
-                dx, dy = struct.unpack("hh", data[pos : pos + 4])
-                prev_x, prev_y = coordinates[-1]
-                coordinates.append((prev_x + dx, prev_y + dy))
-                pos += 4
-        elif type_flag == 1:  # int类型
-            while pos + 8 <= len(data):
-                dx, dy = struct.unpack("ii", data[pos : pos + 8])
-                prev_x, prev_y = coordinates[-1]
-                coordinates.append((prev_x + dx, prev_y + dy))
-                pos += 8
-        elif type_flag == 2:  # float类型
-            while pos + 8 <= len(data):
-                dx, dy = struct.unpack("ff", data[pos : pos + 8])
-                prev_x, prev_y = coordinates[-1]
-                coordinates.append((prev_x + dx, prev_y + dy))
-                pos += 8
+        if geom_type in [ogr.wkbPoint, ogr.wkbPoint25D]:
+            point = geometry.GetPoint(0)
+            coordinates.append((point[0], point[1]))
+        elif geom_type in [ogr.wkbLineString, ogr.wkbLineString25D]:
+            line = geometry
+            try:
+                # 使用更安全的方法获取坐标
+                for i in range(line.GetPointCount()):
+                    point = line.GetPoint(i)
+                    if len(point) >= 2:
+                        coordinates.append((point[0], point[1]))
+                    else:
+                        print(f"警告: 点 {i} 坐标不足")
+            except Exception as e:
+                print(f"警告: 获取线坐标失败: {e}")
+                # 尝试备用方法
+                try:
+                    point = line.GetPoint(0)
+                    if len(point) >= 2:
+                        coordinates.append((point[0], point[1]))
+                except:
+                    pass
+        elif geom_type in [ogr.wkbPolygon, ogr.wkbPolygon25D]:
+            polygon = geometry
+            ring = polygon.GetGeometryRef(0)  # 外环
+            if ring:
+                for i in range(ring.GetPointCount()):
+                    point = ring.GetPoint(i)
+                    coordinates.append((point[0], point[1]))
+        elif geom_type in [
+            ogr.wkbMultiPoint,
+            ogr.wkbMultiPoint25D,
+            ogr.wkbMultiLineString,
+            ogr.wkbMultiLineString25D,
+            ogr.wkbMultiPolygon,
+            ogr.wkbMultiPolygon25D,
+        ]:
+            # 处理复合几何
+            for i in range(geometry.GetGeometryCount()):
+                sub_geom = geometry.GetGeometryRef(i)
+                sub_coords = self._extract_coordinates(sub_geom)
+                coordinates.extend(sub_coords)
 
         return coordinates
 
-    def convert(self, s2_resolution: int = 15):
-        """将Shapefile转换为自定义二进制格式"""
-        print(f"开始转换Shapefile: {self.shapefile_path}")
+    def convert(self) -> List[int]:
+        """转换Shapefile，与C++版本兼容"""
+        import time
+
+        start_time = time.time()
+
+        print(f"开始转换Shapefile（优化版本）: {self.shapefile_path}")
 
         # 打开Shapefile
-        datasource = ogr.Open(self.shapefile_path)
-        if not datasource:
+        dataset = ogr.Open(self.shapefile_path)
+        if not dataset:
             raise ValueError(f"无法打开Shapefile: {self.shapefile_path}")
 
-        layer = datasource.GetLayer()
+        layer = dataset.GetLayer(0)
         if not layer:
-            raise ValueError(f"无法获取图层")
+            dataset.Close()
+            raise ValueError("无法获取图层")
 
-        feature_count = layer.GetFeatureCount()
-        print(f"共 {feature_count} 个要素")
+        # 获取字段信息
+        feature_defn = layer.GetLayerDefn()
+        field_count = feature_defn.GetFieldCount()
 
-        # 获取字段定义
-        layer_defn = layer.GetLayerDefn()
-        field_names = []
-        field_types = []  # 存储字段类型信息
-        for i in range(layer_defn.GetFieldCount()):
-            field_defn = layer_defn.GetFieldDefn(i)
-            field_names.append(field_defn.GetName())
-            field_types.append(field_defn.GetType())
+        # 构建字段信息
+        field_info = {}
+        for i in range(field_count):
+            field_defn = feature_defn.GetFieldDefn(i)
+            field_info[field_defn.GetName()] = field_defn.GetType()
 
-        # 创建字段信息字典并序列化存储
-        field_info = {"names": field_names, "types": field_types}
+        # 初始化索引数据
+        index_data = {"version": 1, "data": {"features": {}}}
 
-        # 将字段信息写入属性存储的开头（使用'wb'模式覆盖旧文件）
-        field_info_bytes = pickle.dumps(field_info)
-        with open(self.attribute_storage.attribute_file, "wb") as f:
-            # 先写入字段信息长度和字段信息
-            f.write(struct.pack("I", len(field_info_bytes)))
-            f.write(field_info_bytes)
-
-        # 创建索引结构（仅存储要素偏移量）
-        index_data = {"features": {}}
         valid_fids = []
+        total_features = layer.GetFeatureCount()
+        self.stats["total_features"] = total_features
+        print(f"共 {total_features} 个要素")
+
+        # 重置图层
+        layer.ResetReading()
 
         processed_count = 0
-        for feature in layer:
+        feature = layer.GetNextFeature()
+
+        while feature:
             fid = feature.GetFID()
-            geom = feature.GetGeometryRef()
-            if not geom:
-                continue
 
-            # 处理几何数据
-            coords = []
-            geom_type = -1
-
-            # 使用OGR几何类型常量替代数字
-            geom_type_code = geom.GetGeometryType()
-
-            # 点类型（包括2D和3D点，普通点和多点）
-            if geom_type_code in (
-                ogr.wkbPoint,
-                ogr.wkbPoint25D,
-                ogr.wkbMultiPoint,
-                ogr.wkbMultiPoint25D,
-            ):
-                # 对于MultiPoint，需要提取所有点
-                if geom_type_code in (ogr.wkbMultiPoint, ogr.wkbMultiPoint25D):
-                    for i in range(geom.GetGeometryCount()):
-                        sub_point = geom.GetGeometryRef(i)
-                        coords.append((sub_point.GetX(), sub_point.GetY()))
-                else:
-                    coords = [(geom.GetX(), geom.GetY())]
-                geom_type = 0
-
-            # 线类型（包括LineString和MultiLineString）
-            elif geom_type_code in (
-                ogr.wkbLineString,
-                ogr.wkbLineString25D,
-                ogr.wkbMultiLineString,
-                ogr.wkbMultiLineString25D,
-            ):
-                # 递归提取所有坐标点
-                def extract_line_coordinates(geometry, coord_list):
-                    if geometry.GetGeometryCount() > 0:
-                        for i in range(geometry.GetGeometryCount()):
-                            sub_geom = geometry.GetGeometryRef(i)
-                            extract_line_coordinates(sub_geom, coord_list)
-                    else:
-                        for i in range(geometry.GetPointCount()):
-                            coord_list.append((geometry.GetX(i), geometry.GetY(i)))
-
-                extract_line_coordinates(geom, coords)
-                geom_type = 1
-
-            # 面类型（包括Polygon和MultiPolygon）
-            elif geom_type_code in (
-                ogr.wkbPolygon,
-                ogr.wkbPolygon25D,
-                ogr.wkbMultiPolygon,
-                ogr.wkbMultiPolygon25D,
-            ):
-                # 递归提取所有坐标点
-                def extract_polygon_coordinates(geometry, coord_list):
-                    if geometry.GetGeometryCount() > 0:
-                        for i in range(geometry.GetGeometryCount()):
-                            sub_geom = geometry.GetGeometryRef(i)
-                            extract_polygon_coordinates(sub_geom, coord_list)
-                    else:
-                        for i in range(geometry.GetPointCount()):
-                            coord_list.append((geometry.GetX(i), geometry.GetY(i)))
-
-                extract_polygon_coordinates(geom, coords)
-                geom_type = 2
-
-            else:
-                print(f"跳过不支持的几何类型: {geom_type_code}")
-                continue
-
-            # 计算边界框
-            bbox = self._calculate_bbox(coords)
-
-            # 使用优化的差分编码压缩坐标数据
-            coord_data = self._encode_coordinates_delta_optimized(coords)
-
-            # 创建几何数据对象（不包含S2单元格信息）
-            geom_data = GeometryData(fid, geom_type, coord_data, bbox)
-
-            # 写入几何文件并记录偏移位置（使用'ab'模式追加写入）
             try:
+                # 提取几何数据
+                geometry = feature.GetGeometryRef()
+                if not geometry or geometry.IsEmpty():
+                    feature = layer.GetNextFeature()
+                    continue
+
+                coordinates = self._extract_coordinates(geometry)
+                if not coordinates:
+                    feature = layer.GetNextFeature()
+                    continue
+
+                # 计算边界框
+                bbox = GeometrySerializer.calculate_bbox(coordinates)
+
+                # 压缩坐标数据
+                coord_data = GeometrySerializer.encode_coordinates_delta(coordinates)
+
+                # 确定几何类型
+                geom_type = self._get_geometry_type(geometry.GetGeometryType())
+
+                # 创建几何数据对象
+                geom_data = GeometryData(fid, geom_type, coord_data, bbox)
+
+                # 写入几何数据
                 geom_offset = self.geometry_storage.write_geometry(geom_data)
-            except Exception as e:
-                print(f"几何数据写入失败 for FID {fid}: {str(e)}")
-                geom_offset = None
 
-            # 处理属性数据
-            props = {}
-            for field_name in field_names:
-                try:
-                    props[field_name] = feature.GetField(field_name)
-                except:
-                    props[field_name] = None
+                # 提取属性数据
+                properties = {}
+                for i in range(field_count):
+                    field_defn = feature_defn.GetFieldDefn(i)
+                    field_name = field_defn.GetName()
 
-            attr_data = AttributeData(fid, props)
-            # 使用AttributeStorage的写入方法
-            try:
+                    if feature.IsFieldSetAndNotNull(i):
+                        field_value = ""
+                        field_type = field_defn.GetType()
+
+                        if field_type == ogr.OFTInteger:
+                            field_value = str(feature.GetFieldAsInteger(i))
+                        elif field_type == ogr.OFTInteger64:
+                            field_value = str(feature.GetFieldAsInteger64(i))
+                        elif field_type == ogr.OFTReal:
+                            field_value = str(feature.GetFieldAsDouble(i))
+                        elif field_type == ogr.OFTString:
+                            field_value = feature.GetFieldAsString(i)
+                        elif field_type in [ogr.OFTDate, ogr.OFTTime, ogr.OFTDateTime]:
+                            field_value = feature.GetFieldAsString(i)
+                        else:
+                            field_value = feature.GetFieldAsString(i)
+
+                        properties[field_name] = field_value
+
+                # 创建属性数据对象
+                attr_data = AttributeData(fid, properties)
+
+                # 写入属性数据（使用字符串池优化）
                 attr_offset = self.attribute_storage.write_attribute(attr_data)
-            except Exception as e:
-                print(f"属性数据写入失败 for FID {fid}: {str(e)}")
-                attr_offset = None
 
-            processed_count += 1
-            if processed_count % 1000 == 0:
-                print(f"已处理 {processed_count} 个要素")
-
-            # 更新索引（仅存储偏移量）
-            if geom_offset is not None and attr_offset is not None:
-                index_data["features"][fid] = {
+                # 添加到索引
+                index_data["data"]["features"][str(fid)] = {
                     "geom_offset": geom_offset,
                     "attr_offset": attr_offset,
                 }
+
                 valid_fids.append(fid)
 
-        # 保存索引数据（使用'wb'模式覆盖旧索引文件）
-        with open(self.index_file, "wb") as f:
-            pickle.dump({"version": 1, "data": index_data}, f)
+            except Exception as e:
+                print(f"处理要素 {fid} 时出错: {str(e)}")
 
-        print(f"转换完成，共处理 {processed_count} 个要素")
-        print(f"- 几何数据: {self.geometry_storage.geometry_file}")
-        print(f"- 属性数据: {self.attribute_storage.attribute_file}")
-        print(f"- 索引数据: {self.index_file}")
+            feature = layer.GetNextFeature()
+            processed_count += 1
+
+        # 保存索引数据
+        self._save_index_data(index_data)
+
+        # 保存字符串池
+        self.attribute_storage.save_string_pool()
+
+        # 更新统计信息
+        self.stats["valid_features"] = len(valid_fids)
+        compression_stats = self.attribute_storage.get_compression_stats()
+        self.stats["string_pool_size"] = compression_stats["unique_strings"]
+        self.stats["string_pool_saved_bytes"] = (
+            compression_stats["original_size"] - compression_stats["compressed_size"]
+        )
+        self.stats["compression_ratio"] = compression_stats["compression_ratio"]
+
+        # 计算转换时间
+        end_time = time.time()
+        self.stats["conversion_time_seconds"] = end_time - start_time
+
+        # 输出统计信息
+        print("转换完成！")
+        print(
+            f"  有效要素: {self.stats['valid_features']}/{self.stats['total_features']}"
+        )
+        print(f"  字符串池大小: {self.stats['string_pool_size']} 个唯一字符串")
+        print(f"  压缩率: {self.stats['compression_ratio']:.2f}%")
+        print(f"  节省空间: {self.stats['string_pool_saved_bytes']} 字节")
+        print(f"  转换时间: {self.stats['conversion_time_seconds']:.2f} 秒")
+
+        # 清理
+        try:
+            dataset.Close()
+        except AttributeError:
+            # 新版本GDAL中DataSource没有Close方法
+            pass
 
         return valid_fids
+
+    def _save_index_data(self, index_data: Dict) -> None:
+        """保存索引数据"""
+        with open(self.index_file, "w", encoding="utf-8") as f:
+            json.dump(index_data, f, indent=4, ensure_ascii=False)
+        print(f"索引文件已保存: {self.index_file}")
+
+    def get_geometry_file_path(self) -> str:
+        """获取几何文件路径"""
+        return self.geometry_storage.get_geometry_file_path()
+
+    def get_attribute_file_path(self) -> str:
+        """获取属性文件路径"""
+        return self.attribute_storage.get_attribute_file_path()
+
+    def get_string_pool_file_path(self) -> str:
+        """获取字符串池文件路径"""
+        return self.attribute_storage.get_string_pool_file_path()
+
+    def get_index_file_path(self) -> str:
+        """获取索引文件路径"""
+        return self.index_file
+
+    def get_compression_stats(self) -> Dict:
+        """获取压缩统计信息"""
+        return self.attribute_storage.get_compression_stats()
+
+    def get_conversion_stats(self) -> Dict:
+        """获取转换统计信息"""
+        return self.stats.copy()

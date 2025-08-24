@@ -17,7 +17,7 @@ from collections import defaultdict
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from performance_comparison import PerformanceComparison
+from performance.performance_comparison import PerformanceComparison
 
 
 class DetailedPerformanceAnalysis:
@@ -251,9 +251,19 @@ class DetailedPerformanceAnalysis:
         ax1 = axes[0, 0]
         sizes = list(sequential_results["ogr"].keys())
         ogr_rates = [sequential_results["ogr"][s]["total_rate"]["mean"] for s in sizes]
-        custom_rates = [
-            sequential_results["custom"][s]["total_rate"]["mean"] for s in sizes
-        ]
+
+        # 安全检查：确保custom结果存在
+        custom_rates = []
+        for s in sizes:
+            if (
+                s in sequential_results.get("custom", {})
+                and "total_rate" in sequential_results["custom"][s]
+            ):
+                custom_rates.append(
+                    sequential_results["custom"][s]["total_rate"]["mean"]
+                )
+            else:
+                custom_rates.append(0)  # 如果没有数据，设为0
 
         x = np.arange(len(sizes))
         width = 0.35
@@ -271,9 +281,17 @@ class DetailedPerformanceAnalysis:
         # 随机读取 - 总速率
         ax2 = axes[0, 1]
         ogr_rates = [random_results["ogr"][s]["total_rate"]["mean"] for s in sizes]
-        custom_rates = [
-            random_results["custom"][s]["total_rate"]["mean"] for s in sizes
-        ]
+
+        # 安全检查：确保custom结果存在
+        custom_rates = []
+        for s in sizes:
+            if (
+                s in random_results.get("custom", {})
+                and "total_rate" in random_results["custom"][s]
+            ):
+                custom_rates.append(random_results["custom"][s]["total_rate"]["mean"])
+            else:
+                custom_rates.append(0)  # 如果没有数据，设为0
 
         ax2.bar(x - width / 2, ogr_rates, width, label="OGR", alpha=0.8)
         ax2.bar(x + width / 2, custom_rates, width, label="自定义格式", alpha=0.8)
@@ -321,10 +339,19 @@ class DetailedPerformanceAnalysis:
         ogr_times = [
             spatial_results["ogr"][b]["query_time"]["mean"] * 1000 for b in bbox_names
         ]
-        custom_times = [
-            spatial_results["custom"][b]["query_time"]["mean"] * 1000
-            for b in bbox_names
-        ]
+
+        # 安全检查：确保custom结果存在
+        custom_times = []
+        for b in bbox_names:
+            if (
+                b in spatial_results.get("custom", {})
+                and "query_time" in spatial_results["custom"][b]
+            ):
+                custom_times.append(
+                    spatial_results["custom"][b]["query_time"]["mean"] * 1000
+                )
+            else:
+                custom_times.append(0)  # 如果没有数据，设为0
 
         x_bbox = np.arange(len(bbox_names))
         ax4.bar(x_bbox - width / 2, ogr_times, width, label="OGR", alpha=0.8)

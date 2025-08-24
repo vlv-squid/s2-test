@@ -11,8 +11,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from performance_comparison import PerformanceComparison
-from detailed_performance_analysis import DetailedPerformanceAnalysis
+from performance.performance_comparison import PerformanceComparison
+from performance.detailed_performance_analysis import DetailedPerformanceAnalysis
 
 
 def run_basic_test(shapefile_path: str):
