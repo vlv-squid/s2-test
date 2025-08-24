@@ -12,12 +12,12 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from typing import Dict
-from index.index_base import SpatialIndex
-from index.index_tester import IndexTester
-from index.rtree_index import RtreeIndex
-from index.geohash_index import GeoHashSpatialIndex
-from index.s2_index import S2SpatialIndex
-from index.h3_index import H3SpatialIndex
+from gisindex.index_base import SpatialIndex
+from gisindex.index_tester import IndexTester
+from gisindex.rtree_index import RtreeIndex
+from gisindex.geohash_index import GeoHashSpatialIndex
+from gisindex.s2_index import S2SpatialIndex
+from gisindex.h3_index import H3SpatialIndex
 
 import os
 

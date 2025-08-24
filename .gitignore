@@ -4,7 +4,7 @@
 build/
 data/
 png/
-py/index/__pycache__/
+py/gisindex/__pycache__/
 py/gisstorage/__pycache__/
 py/performance/__pycache__/
 index/

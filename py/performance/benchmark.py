@@ -22,7 +22,7 @@ sys.path.append(str(project_root))
 from osgeo import ogr, osr
 from gisstorage.gissystem import GisStorageSystem
 from gisstorage.storage import GeometryStorage, AttributeStorage
-from index.s2_index import S2SpatialIndex
+from gisindex.s2_index import S2SpatialIndex
 
 
 class GISBenchmark:

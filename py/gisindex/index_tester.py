@@ -5,7 +5,7 @@
 #
 
 import time
-from index.visualization import Visualizer
+from gisindex.visualization import Visualizer
 
 
 class IndexTester:
