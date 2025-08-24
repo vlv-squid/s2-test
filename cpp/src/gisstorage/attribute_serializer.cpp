@@ -8,42 +8,57 @@
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 #include <iostream>
+#include <cstring>
 
 namespace GisStorage {
 
-    // AttributeSerializer 实现
+    AttributeSerializer::AttributeSerializer() {
+        stats_.original_size = 0;
+        stats_.compressed_size = 0;
+        stats_.compression_ratio = 0.0;
+        stats_.unique_strings = 0;
+        stats_.total_strings = 0;
+    }
+
     std::vector<uint8_t> AttributeSerializer::serializeAttributes(const AttributeData& attribute) {
         std::vector<uint8_t> data;
-
-        // 构建JSON字符串
-        std::ostringstream oss;
-        oss << "{";
-        bool first = true;
-        for (const auto& prop : attribute.getProperties()) {
-            if (!first)
-                oss << ",";
-            oss << "\"" << prop.first << "\":\"" << prop.second << "\"";
-            first = false;
-        }
-        oss << "}";
-        std::string json_str = oss.str();
 
         // 写入feature_id
         uint64_t feature_id = attribute.getFeatureId();
         data.insert(data.end(), reinterpret_cast<uint8_t*>(&feature_id), reinterpret_cast<uint8_t*>(&feature_id) + sizeof(uint64_t));
 
-        // 写入JSON长度
-        uint32_t json_length = static_cast<uint32_t>(json_str.length());
-        data.insert(data.end(), reinterpret_cast<uint8_t*>(&json_length), reinterpret_cast<uint8_t*>(&json_length) + sizeof(uint32_t));
+        // 获取属性
+        auto properties = attribute.getProperties();
 
-        // 写入JSON数据
-        data.insert(data.end(), json_str.begin(), json_str.end());
+        // 写入属性数量
+        uint32_t prop_count = static_cast<uint32_t>(properties.size());
+        data.insert(data.end(), reinterpret_cast<uint8_t*>(&prop_count), reinterpret_cast<uint8_t*>(&prop_count) + sizeof(uint32_t));
+
+        // 计算原始大小（用于统计）
+        size_t original_size = sizeof(uint64_t) + sizeof(uint32_t); // feature_id + prop_count
+
+        // 序列化每个属性对
+        for (const auto& [key, value] : properties) {
+            // 获取字符串ID（如果不存在则添加到池中）
+            uint32_t key_id = string_pool_.getStringId(key);
+            uint32_t value_id = string_pool_.getStringId(value);
+
+            // 写入key_id和value_id
+            data.insert(data.end(), reinterpret_cast<uint8_t*>(&key_id), reinterpret_cast<uint8_t*>(&key_id) + sizeof(uint32_t));
+            data.insert(data.end(), reinterpret_cast<uint8_t*>(&value_id), reinterpret_cast<uint8_t*>(&value_id) + sizeof(uint32_t));
+
+            // 计算原始大小
+            original_size += key.length() + value.length() + 2; // 字符串长度 + 引号
+        }
+
+        // 更新统计信息
+        updateStats(original_size, data.size());
 
         return data;
     }
 
     std::unique_ptr<AttributeData> AttributeSerializer::deserializeAttributes(const std::vector<uint8_t>& data) {
-        if (data.size() < 12) {
+        if (data.size() < sizeof(uint64_t) + sizeof(uint32_t)) {
             throw std::runtime_error("属性数据长度不足");
         }
 
@@ -54,30 +69,60 @@ namespace GisStorage {
         std::memcpy(&feature_id, &data[offset], sizeof(uint64_t));
         offset += sizeof(uint64_t);
 
-        // 读取JSON长度
-        uint32_t json_length;
-        std::memcpy(&json_length, &data[offset], sizeof(uint32_t));
+        // 读取属性数量
+        uint32_t prop_count;
+        std::memcpy(&prop_count, &data[offset], sizeof(uint32_t));
         offset += sizeof(uint32_t);
 
-        if (offset + json_length > data.size()) {
-            throw std::runtime_error("JSON数据不完整");
-        }
-
-        // 读取JSON字符串
-        std::string json_str(data.begin() + offset, data.begin() + offset + json_length);
-
-        // 使用nlohmann/json解析JSON
+        // 重建属性映射
         std::map<std::string, std::string> properties;
-        try {
-            nlohmann::json j = nlohmann::json::parse(json_str);
-            for (auto it = j.begin(); it != j.end(); ++it) {
-                properties[it.key()] = it.value().dump();
+        for (uint32_t i = 0; i < prop_count; ++i) {
+            if (offset + sizeof(uint32_t) * 2 > data.size()) {
+                throw std::runtime_error("属性数据不完整");
             }
-        } catch (const nlohmann::json::exception& e) {
-            std::cerr << "JSON解析失败: " << e.what() << std::endl;
+
+            // 读取key_id和value_id
+            uint32_t key_id, value_id;
+            std::memcpy(&key_id, &data[offset], sizeof(uint32_t));
+            offset += sizeof(uint32_t);
+            std::memcpy(&value_id, &data[offset], sizeof(uint32_t));
+            offset += sizeof(uint32_t);
+
+            // 从字符串池中获取字符串
+            std::string key = string_pool_.getString(key_id);
+            std::string value = string_pool_.getString(value_id);
+
+            if (key.empty() || value.empty()) {
+                throw std::runtime_error("字符串池中找不到对应的字符串");
+            }
+
+            properties[key] = value;
         }
 
         return std::make_unique<AttributeData>(feature_id, properties);
+    }
+
+    std::vector<uint8_t> AttributeSerializer::serializeStringPool() const {
+        return string_pool_.serialize();
+    }
+
+    void AttributeSerializer::deserializeStringPool(const std::vector<uint8_t>& data) {
+        string_pool_.deserialize(data);
+    }
+
+    AttributeSerializer::CompressionStats AttributeSerializer::getCompressionStats() const {
+        stats_.unique_strings = string_pool_.getPoolSize();
+        stats_.total_strings = string_pool_.getTotalSize();
+        return stats_;
+    }
+
+    void AttributeSerializer::updateStats(size_t original_size, size_t compressed_size) {
+        stats_.original_size += original_size;
+        stats_.compressed_size += compressed_size;
+
+        if (stats_.original_size > 0) {
+            stats_.compression_ratio = (1.0 - (double)stats_.compressed_size / stats_.original_size) * 100.0;
+        }
     }
 
 } // namespace GisStorage

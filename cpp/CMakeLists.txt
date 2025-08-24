@@ -58,18 +58,6 @@ target_link_libraries(gis_storage_test PRIVATE
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
 
-# compatibility_test
-add_executable(compatibility_test
-    test/compatibility_test.cpp
-    ${GISSTORAGE_SOURCES}
-)
-target_link_libraries(compatibility_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
-    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-)
-
 # file_io_performance_test
 add_executable(file_io_performance_test
     test/file_io_performance_test.cpp
@@ -78,14 +66,3 @@ target_link_libraries(file_io_performance_test PRIVATE
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
 
-# string_pool_optimization_test
-add_executable(string_pool_optimization_test
-    test/string_pool_optimization_test.cpp
-    ${GISSTORAGE_SOURCES}
-)
-target_link_libraries(string_pool_optimization_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
-    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-)

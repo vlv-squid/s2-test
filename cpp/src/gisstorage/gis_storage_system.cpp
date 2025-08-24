@@ -88,10 +88,11 @@ namespace GisStorage {
         // 初始化存储对象
         std::string geom_file = output_dir_ + "/" + shapefile_name_ + "_geom.dat";
         std::string attr_file = output_dir_ + "/" + shapefile_name_ + "_attr.dat";
+        std::string pool_file = output_dir_ + "/" + shapefile_name_ + "_pool.dat";
         std::string index_file = output_dir_ + "/" + shapefile_name_ + "_index.dat";
 
         geometry_storage_ = std::make_unique<GeometryStorage>(geom_file);
-        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file);
+        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
 
         // 加载索引
         if (std::filesystem::exists(index_file)) {

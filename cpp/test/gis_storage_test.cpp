@@ -3,6 +3,9 @@
 //
 
 #include "gisstorage/gis_storage.h"
+#include "gisstorage/shapefile_converter.h"
+#include "gisstorage/attribute_storage.h"
+#include "gisstorage/string_pool.h"
 
 #include <gtest/gtest.h>
 #include <chrono>
@@ -54,7 +57,7 @@ class GisStorageTest : public ::testing::Test {
 
         // 创建存储对象
         geom_storage = std::make_unique<GeometryStorage>(converter->getGeometryFilePath());
-        attr_storage = std::make_unique<AttributeStorage>(converter->getAttributeFilePath());
+        attr_storage = std::make_unique<AttributeStorage>(converter->getAttributeFilePath(), converter->getStringPoolFilePath());
 
         // 加载索引
         geom_storage->loadIndexFromFile(converter->getIndexFilePath());
@@ -806,4 +809,180 @@ TEST_F(GisStorageTest, FullDataStatistics) {
     EXPECT_GT(total_attr_size, 0);
     EXPECT_GT(total_coord_count, 0);
     EXPECT_GT(total_field_count, 0);
+}
+
+// ==================== 字符串池优化测试 ====================
+
+// 字符串池基本功能测试
+TEST_F(GisStorageTest, StringPoolBasicFunctionality) {
+    StringPool pool;
+
+    // 测试添加字符串
+    uint32_t id1 = pool.getStringId("test");
+    uint32_t id2 = pool.getStringId("test");
+    uint32_t id3 = pool.getStringId("another");
+
+    EXPECT_EQ(id1, id2); // 相同字符串应该返回相同ID
+    EXPECT_NE(id1, id3); // 不同字符串应该返回不同ID
+
+    // 测试获取字符串
+    EXPECT_EQ(pool.getString(id1), "test");
+    EXPECT_EQ(pool.getString(id3), "another");
+    EXPECT_EQ(pool.getString(999), ""); // 不存在的ID应该返回空字符串
+
+    // 测试统计信息
+    EXPECT_EQ(pool.getPoolSize(), 2); // 应该有2个唯一字符串
+    EXPECT_GT(pool.getTotalSize(), 0);
+}
+
+// 字符串池序列化测试
+TEST_F(GisStorageTest, StringPoolSerialization) {
+    StringPool pool;
+
+    // 添加一些测试字符串
+    pool.getStringId("field1");
+    pool.getStringId("field2");
+    pool.getStringId("value1");
+    pool.getStringId("value2");
+    pool.getStringId("value1"); // 重复字符串
+
+    // 序列化
+    auto serialized = pool.serialize();
+    EXPECT_GT(serialized.size(), 0);
+
+    // 反序列化到新的池
+    StringPool new_pool;
+    new_pool.deserialize(serialized);
+
+    // 验证数据完整性
+    EXPECT_EQ(new_pool.getPoolSize(), pool.getPoolSize());
+    EXPECT_EQ(new_pool.getString(0), "field1");
+    EXPECT_EQ(new_pool.getString(1), "field2");
+    EXPECT_EQ(new_pool.getString(2), "value1");
+    EXPECT_EQ(new_pool.getString(3), "value2");
+}
+
+// 优化的属性序列化器测试
+TEST_F(GisStorageTest, OptimizedAttributeSerializer) {
+    AttributeSerializer serializer;
+
+    // 创建测试属性数据
+    std::map<std::string, std::string> properties = {
+      {"name", "测试要素"},
+      {"type", "道路"},
+      {"length", "100.5"},
+      {"width", "5.0"},
+      {"name", "测试要素"}, // 重复值
+      {"type", "道路"}      // 重复值
+    };
+
+    AttributeData attr(12345, properties);
+
+    // 序列化
+    auto serialized = serializer.serializeAttributes(attr);
+    EXPECT_GT(serialized.size(), 0);
+
+    // 反序列化
+    auto deserialized = serializer.deserializeAttributes(serialized);
+    EXPECT_EQ(deserialized->getFeatureId(), 12345);
+    EXPECT_EQ(deserialized->getProperties().size(), 4); // 去重后应该是4个属性
+
+    // 验证压缩统计
+    auto stats = serializer.getCompressionStats();
+    EXPECT_GT(stats.unique_strings, 0);
+    EXPECT_GT(stats.compression_ratio, 0.0);
+
+    std::cout << "字符串池统计:" << std::endl;
+    std::cout << "  唯一字符串数: " << stats.unique_strings << std::endl;
+    std::cout << "  压缩率: " << stats.compression_ratio << "%" << std::endl;
+}
+
+// 字符串池压缩效果测试
+TEST_F(GisStorageTest, StringPoolCompressionEffect) {
+    // 获取转换统计信息
+    auto conversion_stats = converter->getConversionStats();
+    auto compression_stats = converter->getCompressionStats();
+
+    // 输出压缩效果
+    std::cout << "\n=== 字符串池压缩效果 ===" << std::endl;
+    std::cout << "要素数量: " << conversion_stats.valid_features << "/" << conversion_stats.total_features << std::endl;
+    std::cout << "字符串池大小: " << conversion_stats.string_pool_size << " 个唯一字符串" << std::endl;
+    std::cout << "压缩率: " << conversion_stats.compression_ratio << "%" << std::endl;
+    std::cout << "节省空间: " << conversion_stats.string_pool_saved_bytes << " 字节" << std::endl;
+    std::cout << "转换时间: " << conversion_stats.conversion_time_seconds << " 秒" << std::endl;
+
+    // 验证压缩效果
+    EXPECT_GT(conversion_stats.compression_ratio, 0.0) << "应该有压缩效果";
+    EXPECT_GT(compression_stats.compression_ratio, 0.0) << "应该有压缩效果";
+    EXPECT_GT(compression_stats.unique_strings, 0) << "应该有唯一字符串";
+}
+
+// 优化存储读取测试
+TEST_F(GisStorageTest, OptimizedStorageReadTest) {
+    // 测试读取一些要素
+    auto test_fids = getValidTestFids(10);
+
+    int success_count = 0;
+    for (uint64_t fid : test_fids) {
+        try {
+            auto attr = attr_storage->readAttribute(fid);
+            if (attr) {
+                success_count++;
+                EXPECT_EQ(attr->getFeatureId(), fid);
+                EXPECT_GT(attr->getProperties().size(), 0);
+            }
+        } catch (const std::exception& e) {
+            std::cout << "读取FID " << fid << " 时发生异常: " << e.what() << std::endl;
+        }
+    }
+
+    EXPECT_GT(success_count, 0) << "应该能成功读取一些要素";
+
+    // 获取存储统计信息
+    auto storage_stats = attr_storage->getStorageStats();
+    auto compression_stats = attr_storage->getCompressionStats();
+
+    std::cout << "\n=== 优化存储读取测试 ===" << std::endl;
+    std::cout << "成功读取要素数: " << success_count << "/" << test_fids.size() << std::endl;
+    std::cout << "总要素数: " << storage_stats.total_features << std::endl;
+    std::cout << "压缩率: " << storage_stats.compression_ratio << "%" << std::endl;
+    std::cout << "字符串池大小: " << storage_stats.string_pool_size << std::endl;
+    std::cout << "节省空间: " << storage_stats.string_pool_saved_bytes << " 字节" << std::endl;
+}
+
+// 字符串池性能测试
+TEST_F(GisStorageTest, StringPoolPerformanceTest) {
+    // 性能测试 - 读取所有要素
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    int success_count = 0;
+    for (uint64_t fid : valid_fids) {
+        try {
+            auto attr = attr_storage->readAttribute(fid);
+            if (attr) {
+                success_count++;
+            }
+        } catch (const std::exception& e) {
+            // 忽略读取失败的情况
+        }
+    }
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
+    double read_rate = success_count * 1000.0 / duration.count();
+
+    std::cout << "\n=== 字符串池性能测试结果 ===" << std::endl;
+    std::cout << "读取要素数: " << success_count << "/" << valid_fids.size() << std::endl;
+    std::cout << "读取时间: " << duration.count() << "ms" << std::endl;
+    std::cout << "读取速度: " << read_rate << " 要素/秒" << std::endl;
+
+    // 验证性能要求
+    EXPECT_GT(success_count, 0);
+    EXPECT_GE(read_rate, 1000.0) << "读取速度应该至少1000要素/秒";
+}
+
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

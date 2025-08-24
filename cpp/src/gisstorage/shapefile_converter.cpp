@@ -11,6 +11,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <chrono>
 
 namespace GisStorage {
 
@@ -21,6 +22,17 @@ namespace GisStorage {
         // 提取Shapefile名称
         std::filesystem::path path(shapefile_path);
         shapefile_name_ = path.stem().string();
+
+        // 初始化统计信息
+        stats_.total_features = 0;
+        stats_.valid_features = 0;
+        stats_.geometry_size = 0;
+        stats_.attribute_original_size = 0;
+        stats_.attribute_compressed_size = 0;
+        stats_.compression_ratio = 0.0;
+        stats_.string_pool_size = 0;
+        stats_.string_pool_saved_bytes = 0;
+        stats_.conversion_time_seconds = 0.0;
 
         // 初始化存储文件
         initializeStorageFiles();
@@ -33,14 +45,17 @@ namespace GisStorage {
         // 初始化存储对象
         std::string geom_file = output_dir_ + "/" + shapefile_name_ + "_geom.dat";
         std::string attr_file = output_dir_ + "/" + shapefile_name_ + "_attr.dat";
+        std::string pool_file = output_dir_ + "/" + shapefile_name_ + "_pool.dat";
         index_file_ = output_dir_ + "/" + shapefile_name_ + "_index.dat";
 
         geometry_storage_ = std::make_unique<GeometryStorage>(geom_file);
-        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file);
+        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
     }
 
     std::vector<uint64_t> ShapefileConverter::convert() {
-        std::cout << "开始转换Shapefile: " << shapefile_path_ << std::endl;
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        std::cout << "开始转换Shapefile（优化版本）: " << shapefile_path_ << std::endl;
 
         // 打开Shapefile
         GDALAllRegister();
@@ -66,16 +81,6 @@ namespace GisStorage {
             field_info[field_defn->GetNameRef()] = field_defn->GetType();
         }
 
-        // 写入字段信息到属性文件开头
-        std::string field_info_str = field_info.dump();
-        std::ofstream attr_file(attribute_storage_->getAttributeFilePath(), std::ios::binary);
-        if (attr_file.is_open()) {
-            uint32_t field_info_length = static_cast<uint32_t>(field_info_str.length());
-            attr_file.write(reinterpret_cast<const char*>(&field_info_length), sizeof(uint32_t));
-            attr_file.write(field_info_str.c_str(), field_info_length);
-            attr_file.close();
-        }
-
         // 初始化索引数据
         nlohmann::json index_data;
         index_data["version"] = 1;
@@ -83,6 +88,7 @@ namespace GisStorage {
 
         std::vector<uint64_t> valid_fids;
         int total_features = layer->GetFeatureCount();
+        stats_.total_features = total_features;
         std::cout << "共 " << total_features << " 个要素" << std::endl;
 
         // 重置图层
@@ -189,7 +195,7 @@ namespace GisStorage {
                 // 创建属性数据对象
                 AttributeData attr_data(fid, properties);
 
-                // 写入属性数据
+                // 写入属性数据（使用字符串池优化）
                 int64_t attr_offset = attribute_storage_->writeAttribute(attr_data);
 
                 // 添加到索引
@@ -214,6 +220,29 @@ namespace GisStorage {
         // 保存索引数据
         saveIndexData(index_data);
 
+        // 保存字符串池
+        saveStringPool();
+
+        // 更新统计信息
+        stats_.valid_features = valid_fids.size();
+        auto compression_stats = attribute_storage_->getCompressionStats();
+        stats_.string_pool_size = compression_stats.unique_strings;
+        stats_.string_pool_saved_bytes = compression_stats.original_size - compression_stats.compressed_size;
+        stats_.compression_ratio = compression_stats.compression_ratio;
+
+        // 计算转换时间
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        stats_.conversion_time_seconds = duration.count() / 1000.0;
+
+        // 输出统计信息
+        std::cout << "转换完成！" << std::endl;
+        std::cout << "  有效要素: " << stats_.valid_features << "/" << stats_.total_features << std::endl;
+        std::cout << "  字符串池大小: " << stats_.string_pool_size << " 个唯一字符串" << std::endl;
+        std::cout << "  压缩率: " << stats_.compression_ratio << "%" << std::endl;
+        std::cout << "  节省空间: " << stats_.string_pool_saved_bytes << " 字节" << std::endl;
+        std::cout << "  转换时间: " << stats_.conversion_time_seconds << " 秒" << std::endl;
+
         // 清理
         GDALClose(dataset);
 
@@ -230,6 +259,18 @@ namespace GisStorage {
 
     std::string ShapefileConverter::getIndexFilePath() const {
         return index_file_;
+    }
+
+    std::string ShapefileConverter::getStringPoolFilePath() const {
+        return attribute_storage_->getStringPoolFilePath();
+    }
+
+    AttributeSerializer::CompressionStats ShapefileConverter::getCompressionStats() const {
+        return attribute_storage_->getCompressionStats();
+    }
+
+    ShapefileConverter::ConversionStats ShapefileConverter::getConversionStats() const {
+        return stats_;
     }
 
     BBox ShapefileConverter::calculateBBox(const std::vector<Coordinate>& coordinates) {
@@ -300,7 +341,7 @@ namespace GisStorage {
     }
 
     std::vector<Coordinate> ShapefileConverter::extractGeometryCoordinates(OGRGeometry* geometry) {
-        if (!geometry || geometry->IsEmpty()) {
+        if (!geometry) {
             return {};
         }
 
@@ -310,38 +351,49 @@ namespace GisStorage {
     }
 
     std::vector<Coordinate> ShapefileConverter::extractPointCoordinates(OGRGeometry* geometry) {
-        std::vector<Coordinate> coordinates;
-        if (geometry->getGeometryType() == wkbPoint || geometry->getGeometryType() == wkbPoint25D) {
-            OGRPoint* point = static_cast<OGRPoint*>(geometry);
-            coordinates.emplace_back(point->getX(), point->getY());
+        if (!geometry || geometry->getGeometryType() != wkbPoint) {
+            return {};
         }
-        return coordinates;
+
+        OGRPoint* point = static_cast<OGRPoint*>(geometry);
+        return {{point->getX(), point->getY()}};
     }
 
     std::vector<Coordinate> ShapefileConverter::extractLineCoordinates(OGRGeometry* geometry) {
-        std::vector<Coordinate> coordinates;
-        if (geometry->getGeometryType() == wkbLineString || geometry->getGeometryType() == wkbLineString25D) {
-            OGRLineString* line = static_cast<OGRLineString*>(geometry);
-            int num_points = line->getNumPoints();
-            for (int i = 0; i < num_points; ++i) {
-                coordinates.emplace_back(line->getX(i), line->getY(i));
-            }
+        if (!geometry || geometry->getGeometryType() != wkbLineString) {
+            return {};
         }
+
+        OGRLineString* line = static_cast<OGRLineString*>(geometry);
+        std::vector<Coordinate> coordinates;
+        coordinates.reserve(line->getNumPoints());
+
+        for (int i = 0; i < line->getNumPoints(); ++i) {
+            coordinates.push_back({line->getX(i), line->getY(i)});
+        }
+
         return coordinates;
     }
 
     std::vector<Coordinate> ShapefileConverter::extractPolygonCoordinates(OGRGeometry* geometry) {
-        std::vector<Coordinate> coordinates;
-        if (geometry->getGeometryType() == wkbPolygon || geometry->getGeometryType() == wkbPolygon25D) {
-            OGRPolygon* polygon = static_cast<OGRPolygon*>(geometry);
-            OGRLinearRing* ring = polygon->getExteriorRing();
-            if (ring) {
-                int num_points = ring->getNumPoints();
-                for (int i = 0; i < num_points; ++i) {
-                    coordinates.emplace_back(ring->getX(i), ring->getY(i));
-                }
-            }
+        if (!geometry || geometry->getGeometryType() != wkbPolygon) {
+            return {};
         }
+
+        OGRPolygon* polygon = static_cast<OGRPolygon*>(geometry);
+        OGRLinearRing* ring = polygon->getExteriorRing();
+
+        if (!ring) {
+            return {};
+        }
+
+        std::vector<Coordinate> coordinates;
+        coordinates.reserve(ring->getNumPoints());
+
+        for (int i = 0; i < ring->getNumPoints(); ++i) {
+            coordinates.push_back({ring->getX(i), ring->getY(i)});
+        }
+
         return coordinates;
     }
 
@@ -350,7 +402,9 @@ namespace GisStorage {
             return;
         }
 
-        switch (geometry->getGeometryType()) {
+        OGRwkbGeometryType geom_type = geometry->getGeometryType();
+
+        switch (geom_type) {
             case wkbPoint:
             case wkbPoint25D: {
                 auto point_coords = extractPointCoordinates(geometry);
@@ -387,13 +441,24 @@ namespace GisStorage {
     }
 
     void ShapefileConverter::saveIndexData(const nlohmann::json& index_data) {
-        std::ofstream index_file(index_file_);
-        if (index_file.is_open()) {
-            index_file << index_data.dump(4);
-            index_file.close();
+        std::ofstream file(index_file_);
+        if (file.is_open()) {
+            file << index_data.dump(4);
+            file.close();
+            std::cout << "索引文件已保存: " << index_file_ << std::endl;
         } else {
-            throw std::runtime_error("无法创建索引文件: " + index_file_);
+            std::cerr << "无法保存索引文件: " << index_file_ << std::endl;
         }
+    }
+
+    void ShapefileConverter::saveStringPool() {
+        attribute_storage_->saveStringPool();
+    }
+
+    void ShapefileConverter::updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size) {
+        stats_.geometry_size += geom_size;
+        stats_.attribute_original_size += attr_original_size;
+        stats_.attribute_compressed_size += attr_compressed_size;
     }
 
 } // namespace GisStorage
