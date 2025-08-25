@@ -66,3 +66,13 @@ target_link_libraries(file_io_performance_test PRIVATE
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
 
+# spatial_index_benchmark
+add_executable(spatial_index_benchmark
+    src/performance/spatial_index_benchmark.cpp
+)
+target_link_libraries(spatial_index_benchmark PRIVATE
+    GDAL::GDAL
+    Boost::geometry
+    /usr/lib/x86_64-linux-gnu/libs2.so
+)
+
