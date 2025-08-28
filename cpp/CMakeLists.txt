@@ -18,6 +18,7 @@ find_package(GTest REQUIRED)
 find_package(Boost REQUIRED COMPONENTS geometry)
 find_package(GDAL REQUIRED PATHS "${CMAKE_PREFIX_PATH}/lib64/cmake/gdal")
 find_package(nlohmann_json REQUIRED)
+find_package(s2 REQUIRED)
 
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
@@ -43,7 +44,7 @@ target_link_libraries(s2index_test PRIVATE
     GDAL::GDAL
     Boost::geometry
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    /usr/lib/x86_64-linux-gnu/libs2.so
+    s2::s2
 )
 
 # gis_storage_test
@@ -73,6 +74,6 @@ add_executable(spatial_index_benchmark
 target_link_libraries(spatial_index_benchmark PRIVATE
     GDAL::GDAL
     Boost::geometry
-    /usr/lib/x86_64-linux-gnu/libs2.so
+    s2::s2
 )
 
