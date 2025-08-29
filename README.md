@@ -127,7 +127,7 @@ s2-test/
 - **编译器**: GCC 7.0+ 或 Clang 5.0+
 
 ### 核心包
-- **S2相关**: s2==0.1.9, s2-py==0.11.0, s2geometry==0.9.0
+- **S2相关**: s2sphere==0.1.9
 - **GIS核心**: GDAL=3.3.2, Fiona=1.8.20, Geopandas=1.0.1
 - **空间索引**: Rtree, H3==4.3.0
 - **数据处理**: NumPy=1.26.4, Pandas=1.4.2, SciPy

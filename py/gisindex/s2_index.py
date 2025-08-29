@@ -4,7 +4,7 @@
 #   @date: 2025-07-23
 #
 
-import s2geometry as s2
+import s2sphere as s2
 from gisindex.index_base import SpatialIndex
 import pickle
 import os
@@ -55,16 +55,16 @@ class S2SpatialIndex(SpatialIndex):
             feature_bounds.append((fid, bounds))
 
             # 构建 S2 单元格
-            rect = s2.S2LatLngRect(
-                s2.S2LatLng.FromDegrees(min_lat, min_lon),
-                s2.S2LatLng.FromDegrees(max_lat, max_lon)
+            rect = s2.LatLngRect(
+                s2.LatLng.from_degrees(min_lat, min_lon),
+                s2.LatLng.from_degrees(max_lat, max_lon)
             )
 
-            coverer = s2.S2RegionCoverer()
+            coverer = s2.RegionCoverer()
             coverer.min_level = self.resolution
             coverer.max_level = self.resolution
 
-            cell_ids = coverer.GetCovering(rect)
+            cell_ids = coverer.get_covering(rect)
             for cell in cell_ids:
                 self.s2_index[cell.id()].append(fid)
 
@@ -80,14 +80,14 @@ class S2SpatialIndex(SpatialIndex):
         min_lon, min_lat, max_lon, max_lat = bbox
 
         # 构建查询区域的 S2 单元格
-        query_rect = s2.S2LatLngRect(
-            s2.S2LatLng.FromDegrees(min_lat, min_lon),
-            s2.S2LatLng.FromDegrees(max_lat, max_lon)
+        query_rect = s2.LatLngRect(
+            s2.LatLng.from_degrees(min_lat, min_lon),
+            s2.LatLng.from_degrees(max_lat, max_lon)
         )
 
-        coverer = s2.S2RegionCoverer()
+        coverer = s2.RegionCoverer()
         coverer.min_level = self.resolution
-        query_cells = coverer.GetCovering(query_rect)
+        query_cells = coverer.get_covering(query_rect)
 
         # 获取候选要素
         candidate_fids = set()

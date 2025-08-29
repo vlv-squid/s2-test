@@ -173,8 +173,6 @@ dependencies:
       - h3==4.3.0
       - pyogrio==0.11.1
       - pyproj==3.6.1
-      - s2==0.1.9
-      - s2-py==0.11.0
-      - s2geometry==0.9.0
+      - s2sphere==0.1.9
       - shapely==2.0.7
 prefix: /home/chenming/Anaconda3/envs/gis-dev
