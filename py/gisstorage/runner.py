@@ -12,7 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from index.s2_index import S2SpatialIndex
+from gisindex.s2_index import S2SpatialIndex
 from gisstorage.gissystem import GisStorageSystem
 from gisstorage.storage import GeometryStorage, AttributeStorage
 
