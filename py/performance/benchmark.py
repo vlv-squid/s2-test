@@ -515,9 +515,9 @@ class GISBenchmark:
 
         # 使用S2索引进行空间查询
         try:
-            candidate_fids = self.s2_index.query_bbox(bbox)
+            candidate_fids = self.s2_index.query_by_bbox(bbox)
         except AttributeError:
-            # 如果S2索引没有query_bbox方法，使用备用方法
+            # 如果S2索引没有query_by_bbox方法，使用备用方法
             print("S2索引方法不可用，使用备用查询方法")
             candidate_fids = self._backup_spatial_query(bbox)
 

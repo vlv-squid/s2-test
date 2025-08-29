@@ -10,7 +10,7 @@ import math
 import pickle
 from collections import defaultdict
 from osgeo import ogr, osr
-import s2sphere
+import s2
 import matplotlib.pyplot as plt
 from rtree import index
 
@@ -126,11 +126,12 @@ class S2SpatialIndexFileBased:
             feature_bounds.append((fid, bounds))
 
             # 构建 S2 单元
-            p1 = s2sphere.LatLng.from_degrees(min_lat, min_lon)
-            p2 = s2sphere.LatLng.from_degrees(max_lat, max_lon)
-            rect = s2sphere.LatLngRect.from_point_pair(p1, p2)
+            rect = s2.LatLngRect(
+                s2.LatLng.from_degrees(min_lat, min_lon),
+                s2.LatLng.from_degrees(max_lat, max_lon)
+            )
 
-            coverer = s2sphere.RegionCoverer()
+            coverer = s2.RegionCoverer()
             coverer.min_level = self.s2_level
             coverer.max_level = self.s2_level
             coverer.max_cells = 8
@@ -166,11 +167,12 @@ class S2SpatialIndexFileBased:
         use_level = min(self.s2_level, auto_level)
 
         # 构建查询区域的 S2 单元
-        p1 = s2sphere.LatLng.from_degrees(min_lat, min_lon)
-        p2 = s2sphere.LatLng.from_degrees(max_lat, max_lon)
-        query_rect = s2sphere.LatLngRect.from_point_pair(p1, p2)
+        query_rect = s2.LatLngRect(
+            s2.LatLng.from_degrees(min_lat, min_lon),
+            s2.LatLng.from_degrees(max_lat, max_lon)
+        )
 
-        coverer = s2sphere.RegionCoverer()
+        coverer = s2.RegionCoverer()
         coverer.min_level = use_level
         query_cells = coverer.get_covering(query_rect)
 

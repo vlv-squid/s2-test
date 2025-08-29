@@ -3,7 +3,7 @@ import struct
 import os
 import json
 from typing import List, Dict, Tuple, Any
-from s2sphere import LatLng, LatLngRect, RegionCoverer
+import s2
 import pickle
 from collections import defaultdict
 
