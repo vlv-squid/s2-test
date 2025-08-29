@@ -2,7 +2,7 @@
 # created by:
 #   @author: vlv-squid
 #   @date: 2025-07-21
-#   @modified: 保持与C++版本一致的逻辑
+#   @modified: 使用s2-py替换s2sphere，并保持与C++版本一致的逻辑
 #
 
 import os
@@ -11,7 +11,7 @@ import math
 import pickle
 from collections import defaultdict
 from osgeo import ogr, osr
-import s2sphere as s2
+import s2geometry as s2
 import matplotlib.pyplot as plt
 from rtree import index
 
@@ -20,8 +20,8 @@ class S2SpatialIndexFileBased:
 
     def __init__(self,
                  data_path,
-                 s2_index_file='./index_py/s2_index.pkl',
-                 rtree_index_file='./index_py/rtree_index',
+                 s2_index_file='./index_py/s2_index_s2py.pkl',
+                 rtree_index_file='./index_py/rtree_index_s2py',
                  s2_level=15):
         self.data_path = data_path
         self.s2_index_file = s2_index_file
@@ -126,18 +126,18 @@ class S2SpatialIndexFileBased:
             self.feature_bounds[fid] = bounds
             feature_bounds.append((fid, bounds))
 
-            # 构建 S2 单元 - 与C++版本保持一致
-            p1 = s2.LatLng.from_degrees(min_lat, min_lon)
-            p2 = s2.LatLng.from_degrees(max_lat, max_lon)
-            rect = s2.LatLngRect(p1, p2)
+            # 构建 S2 单元 - 使用s2-py API，与C++版本保持一致
+            p1 = s2.S2LatLng.FromDegrees(min_lat, min_lon)
+            p2 = s2.S2LatLng.FromDegrees(max_lat, max_lon)
+            rect = s2.S2LatLngRect(p1, p2)
 
             # 使用与C++版本相同的参数
-            coverer = s2.RegionCoverer()
+            coverer = s2.S2RegionCoverer()
             coverer.min_level = self.s2_level
             coverer.max_level = self.s2_level
             coverer.max_cells = 8
 
-            cell_ids = coverer.get_covering(rect)
+            cell_ids = coverer.GetCovering(rect)
             for cell in cell_ids:
                 self.s2_index[cell.id()].append(fid)
 
@@ -168,16 +168,16 @@ class S2SpatialIndexFileBased:
         use_level = min(self.s2_level, auto_level)
 
         # 构建查询区域的 S2 单元 - 与C++版本保持一致
-        p1 = s2.LatLng.from_degrees(min_lat, min_lon)
-        p2 = s2.LatLng.from_degrees(max_lat, max_lon)
-        query_rect = s2.LatLngRect(p1, p2)
+        p1 = s2.S2LatLng.FromDegrees(min_lat, min_lon)
+        p2 = s2.S2LatLng.FromDegrees(max_lat, max_lon)
+        query_rect = s2.S2LatLngRect(p1, p2)
 
         # 使用与C++版本相同的查询参数
-        coverer = s2.RegionCoverer()
+        coverer = s2.S2RegionCoverer()
         coverer.min_level = use_level
         coverer.max_level = use_level
         coverer.max_cells = 8
-        query_cells = coverer.get_covering(query_rect)
+        query_cells = coverer.GetCovering(query_rect)
 
         # 获取候选要素
         candidate_fids = set()
@@ -292,40 +292,40 @@ def run_performance_test(data_path, bbox, indexer):
     # layer.SetSpatialFilterRect(min_lon, min_lat, max_lon, max_lat)
     # results.extend([feat.GetFID() for feat in layer])
     # print(f"耗时: {(time.time() - start_time)*1000:.2f}ms, 结果数: {len(results)}")
-    # query_name = "纯GDAL顺序扫描索引"
-    # visualize_results(data_path, results, sample_bbox, query_name)
+    # query_name = "纯GDAL顺序扫描索引_s2py"
+    # visualize_results(data_path, results, bbox, query_name)
 
     # 测试2: 纯S2索引 (无精确验证) - 与C++版本保持一致
     print("\n[测试2] 纯S2索引 (无精确验证):")
     start_time = time.time()
     results = indexer.query_by_bbox(bbox, use_rtree=False, exact_check=False)
     print(f"总耗时: {(time.time() - start_time)*1000:.2f}ms")
-    query_name = "纯S2索引"
-    visualize_results(data_path, results, sample_bbox, query_name)
+    query_name = "纯S2索引_s2py"
+    visualize_results(data_path, results, bbox, query_name)
 
-    # # 测试3: S2索引 + 矩形精确验证
+    # 测试3: S2索引 + 矩形精确验证
     # print("\n[测试3] S2 + 矩形精确验证:")
     # start_time = time.time()
     # results = indexer.query_by_bbox(bbox, use_rtree=False, exact_check=True)
     # print(f"总耗时: {(time.time() - start_time)*1000:.2f}ms")
-    # query_name = "S2 + 矩形索引"
-    # visualize_results(data_path, results, sample_bbox, query_name)
+    # query_name = "S2 + 矩形索引_s2py"
+    # visualize_results(data_path, results, bbox, query_name)
 
-    # # 测试4: S2索引 + R树验证
+    # 测试4: S2索引 + R树验证
     # print("\n[测试4] S2 + R树验证:")
     # start_time = time.time()
     # results = indexer.query_by_bbox(bbox, use_rtree=True, exact_check=False)
     # print(f"总耗时: {(time.time() - start_time)*1000:.2f}ms")
-    # query_name = "S2 + R树索引"
-    # visualize_results(data_path, results, sample_bbox, query_name)
+    # query_name = "S2 + R树索引_s2py"
+    # visualize_results(data_path, results, bbox, query_name)
 
-    # # 测试5: S2索引 + R树优化 + 矩形精确验证
+    # 测试5: S2索引 + R树优化 + 矩形精确验证
     # print("\n[测试5] S2 + R树 + 矩形精确验证:")
     # start_time = time.time()
     # results = indexer.query_by_bbox(bbox, use_rtree=True, exact_check=True)
     # print(f"总耗时: {(time.time() - start_time)*1000:.2f}ms")
-    # query_name = "S2 + R树 + 矩形索引"
-    # visualize_results(data_path, results, sample_bbox, query_name)
+    # query_name = "S2 + R树 + 矩形索引_s2py"
+    # visualize_results(data_path, results, bbox, query_name)
 
     print("===== 性能测试结束 =====")
 
