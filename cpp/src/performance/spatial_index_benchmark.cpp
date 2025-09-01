@@ -5,11 +5,8 @@
 #include <string>
 #include <fstream>
 #include <random>
-#include <memory>
-#include <thread>
 #include <algorithm>
 #include <iomanip>
-#include <sstream>
 #include <cmath>
 #include <sys/resource.h>
 
@@ -81,6 +78,7 @@ class SpatialIndexBenchmark {
     std::vector<S2Point> s2_points_;
     std::vector<S2CellId> s2_cells_;
     std::map<std::string, std::vector<int>> s2_index_;
+    std::vector<long long> ogr_fids_all_;
 
     // 测试配置 - 扩展到千万级别测试规模
     std::vector<int> test_sizes_ = {100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 10000000};
@@ -182,6 +180,10 @@ class SpatialIndexBenchmark {
                     S2Point s2_point = latlng.ToPoint();
                     s2_points_.push_back(s2_point);
 
+                    // 记录FID以便后续随机读取（与第 i 条要素位置对齐）
+                    long long fid = static_cast<long long>(feature->GetFID());
+                    ogr_fids_all_.push_back(fid);
+
                     // 获取S2 Cell ID
                     S2RegionCoverer::Options options;
                     options.set_min_level(10);
@@ -236,9 +238,42 @@ class SpatialIndexBenchmark {
         return processed > 0;
     }
 
-    void buildS2Index() {
-        // S2索引已经在loadData中构建
-        std::cout << "Built S2 index with " << s2_cells_.size() << " cells" << std::endl;
+    void clearS2Structures() {
+        s2_cells_.clear();
+        s2_index_.clear();
+    }
+
+    void rebuildS2IndexForSize(int n) {
+        clearS2Structures();
+
+        int build_size = std::min(n, static_cast<int>(s2_points_.size()));
+
+        S2RegionCoverer::Options options;
+        options.set_min_level(10);
+        options.set_max_level(10);
+        options.set_max_cells(1);
+        S2RegionCoverer coverer(options);
+
+        for (int i = 0; i < build_size; ++i) {
+            S2LatLng latlng = S2LatLng(s2_points_[i]);
+            double center_lat = latlng.lat().degrees();
+            double center_lng = latlng.lng().degrees();
+
+            S2LatLng p1 = S2LatLng::FromDegrees(center_lat - 0.0001, center_lng - 0.0001);
+            S2LatLng p2 = S2LatLng::FromDegrees(center_lat + 0.0001, center_lng + 0.0001);
+            S2LatLngRect rect(p1, p2);
+
+            std::vector<S2CellId> cellIds;
+            coverer.GetCovering(rect, &cellIds);
+            if (!cellIds.empty()) {
+                S2CellId cell_id = cellIds[0];
+                s2_cells_.push_back(cell_id);
+                std::string cell_key = std::to_string(cell_id.id());
+                s2_index_[cell_key].push_back(i);
+            }
+        }
+
+        std::cout << "Built S2 index with " << s2_cells_.size() << " cells for size=" << build_size << std::endl;
     }
 
     std::vector<int> queryS2Index(const QueryBBox& bbox) {
@@ -302,6 +337,61 @@ class SpatialIndexBenchmark {
         return results;
     }
 
+    // 顺序读取（OGR）：读取前 n 条要素
+    int sequentialReadOGR(int n) {
+        GDALDataset* dataset = (GDALDataset*)GDALOpenEx(data_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+        if (!dataset) {
+            return 0;
+        }
+        OGRLayer* layer = dataset->GetLayer(0);
+        if (!layer) {
+            GDALClose(dataset);
+            return 0;
+        }
+        layer->ResetReading();
+        OGRFeature* feature;
+        int count = 0;
+        while (count < n && (feature = layer->GetNextFeature()) != nullptr) {
+            ++count;
+            OGRFeature::DestroyFeature(feature);
+        }
+        GDALClose(dataset);
+        return count;
+    }
+
+    // 随机读取（OGR）：在前 n 条FID中随机挑选 k 次单条读取
+    int randomReadOGR(int n, int k) {
+        if (ogr_fids_all_.empty())
+            return 0;
+        int limit = std::min(n, static_cast<int>(ogr_fids_all_.size()));
+        if (limit <= 0)
+            return 0;
+
+        GDALDataset* dataset = (GDALDataset*)GDALOpenEx(data_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+        if (!dataset) {
+            return 0;
+        }
+        OGRLayer* layer = dataset->GetLayer(0);
+        if (!layer) {
+            GDALClose(dataset);
+            return 0;
+        }
+
+        std::uniform_int_distribution<int> dist(0, limit - 1);
+        int read_count = 0;
+        for (int i = 0; i < k; ++i) {
+            int idx = dist(rng_);
+            long long fid = ogr_fids_all_[idx];
+            OGRFeature* feature = layer->GetFeature(static_cast<GIntBig>(fid));
+            if (feature) {
+                ++read_count;
+                OGRFeature::DestroyFeature(feature);
+            }
+        }
+        GDALClose(dataset);
+        return read_count;
+    }
+
     double measureMemoryUsage() {
         double total_memory = 0.0;
 
@@ -353,21 +443,51 @@ class SpatialIndexBenchmark {
 
             if (operation == "build") {
                 if (index_type == "s2") {
-                    buildS2Index();
+                    rebuildS2IndexForSize(actual_size);
                 }
-            } else if (operation == "query") {
-                // 使用随机查询边界框
+            } else if (operation == "spatial_query") {
                 std::uniform_int_distribution<int> dist(0, test_bboxes_.size() - 1);
                 const QueryBBox& bbox = test_bboxes_[dist(rng_)];
-
                 std::vector<int> results;
                 if (index_type == "s2") {
                     results = queryS2Index(bbox);
                 } else if (index_type == "ogr") {
                     results = queryOGR(bbox);
                 }
-
-                result_counts.push_back(results.size());
+                result_counts.push_back(static_cast<int>(results.size()));
+            } else if (operation == "seq_read") {
+                int count = 0;
+                if (index_type == "ogr") {
+                    count = sequentialReadOGR(actual_size);
+                } else if (index_type == "s2") {
+                    // 在内存中顺序访问前 actual_size 条点位
+                    count = actual_size;
+                    volatile double sink = 0.0;
+                    for (int k = 0; k < actual_size; ++k) {
+                        // 访问数据以防止被优化
+                        sink += s2_points_[k].x();
+                    }
+                    (void)sink;
+                }
+                result_counts.push_back(count);
+            } else if (operation == "rand_read") {
+                int count = 0;
+                int reads = std::min(actual_size, 1000); // 限制单次迭代的随机读取次数
+                if (reads <= 0)
+                    reads = actual_size;
+                if (index_type == "ogr") {
+                    count = randomReadOGR(actual_size, reads);
+                } else if (index_type == "s2") {
+                    std::uniform_int_distribution<int> dist_idx(0, actual_size - 1);
+                    volatile double sink = 0.0;
+                    for (int r = 0; r < reads; ++r) {
+                        int idx = dist_idx(rng_);
+                        sink += s2_points_[idx].y();
+                    }
+                    (void)sink;
+                    count = reads;
+                }
+                result_counts.push_back(count);
             }
 
             auto end = std::chrono::high_resolution_clock::now();
@@ -387,11 +507,16 @@ class SpatialIndexBenchmark {
         result.max_time_ms = *std::max_element(times.begin(), times.end());
         result.std_dev_ms = sqrt((sum_sq / test_iterations_) - (result.avg_time_ms * result.avg_time_ms));
 
-        if (operation == "query" && !result_counts.empty()) {
+        if ((operation == "spatial_query" || operation == "seq_read" || operation == "rand_read") && !result_counts.empty()) {
             result.result_count = std::accumulate(result_counts.begin(), result_counts.end(), 0) / result_counts.size();
         }
 
-        result.memory_usage_mb = measureMemoryUsage();
+        // 仅对 S2 构建报告索引内存，其它操作报告进程内存
+        if (index_type == "s2") {
+            result.memory_usage_mb = measureMemoryUsage();
+        } else {
+            result.memory_usage_mb = static_cast<double>(getCurrentMemoryUsage());
+        }
 
         return result;
     }
@@ -399,16 +524,34 @@ class SpatialIndexBenchmark {
     std::vector<JsonValue> runFullBenchmark() {
         std::vector<JsonValue> results;
 
-        std::vector<std::string> index_types = {"s2", "ogr"};
-        std::vector<std::string> operations = {"build", "query"};
-
         for (const auto& size : test_sizes_) {
-            for (const auto& index_type : index_types) {
-                for (const auto& operation : operations) {
-                    std::cout << "Running benchmark: " << index_type << " " << operation << " scale=" << size << std::endl;
+            // 1) 仅对 S2 进行索引构建基准
+            {
+                std::string index_type = "s2";
+                std::string operation = "build";
+                std::cout << "Running benchmark: " << index_type << " " << operation << " scale=" << size << std::endl;
+                BenchmarkResult result = runBenchmark(index_type, operation, size);
+                JsonValue result_json("result");
+                result_json.addChild(JsonValue("index_type", "\"" + result.index_type + "\""));
+                result_json.addChild(JsonValue("operation", "\"" + result.operation + "\""));
+                result_json.addChild(JsonValue("data_size", std::to_string(result.data_size)));
+                result_json.addChild(JsonValue("avg_time_ms", std::to_string(result.avg_time_ms)));
+                result_json.addChild(JsonValue("min_time_ms", std::to_string(result.min_time_ms)));
+                result_json.addChild(JsonValue("max_time_ms", std::to_string(result.max_time_ms)));
+                result_json.addChild(JsonValue("std_dev_ms", std::to_string(result.std_dev_ms)));
+                result_json.addChild(JsonValue("result_count", std::to_string(result.result_count)));
+                result_json.addChild(JsonValue("memory_usage_mb", std::to_string(result.memory_usage_mb)));
+                result_json.addChild(JsonValue("iterations", std::to_string(result.iterations)));
+                results.push_back(result_json);
+            }
 
-                    BenchmarkResult result = runBenchmark(index_type, operation, size);
-
+            // 2) 空间过滤、顺序读取、随机读取：对 S2 与 OGR 分别测量
+            std::vector<std::string> query_ops = {"spatial_query", "seq_read", "rand_read"};
+            std::vector<std::string> index_types = {"s2", "ogr"};
+            for (const auto& op : query_ops) {
+                for (const auto& idx_type : index_types) {
+                    std::cout << "Running benchmark: " << idx_type << " " << op << " scale=" << size << std::endl;
+                    BenchmarkResult result = runBenchmark(idx_type, op, size);
                     JsonValue result_json("result");
                     result_json.addChild(JsonValue("index_type", "\"" + result.index_type + "\""));
                     result_json.addChild(JsonValue("operation", "\"" + result.operation + "\""));
@@ -420,7 +563,6 @@ class SpatialIndexBenchmark {
                     result_json.addChild(JsonValue("result_count", std::to_string(result.result_count)));
                     result_json.addChild(JsonValue("memory_usage_mb", std::to_string(result.memory_usage_mb)));
                     result_json.addChild(JsonValue("iterations", std::to_string(result.iterations)));
-
                     results.push_back(result_json);
                 }
             }
