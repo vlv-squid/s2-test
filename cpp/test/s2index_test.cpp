@@ -15,7 +15,7 @@
 #include <gtest/gtest.h>
 #include <s2/s2latlng.h>
 #include <s2/s2cell_id.h>
-#include <iomanip> // Added for std::fixed and std::setprecision
+#include <iomanip>
 
 using namespace S2Main;
 using Point = bg::model::point<double, 2, bg::cs::cartesian>;
@@ -252,36 +252,62 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
     }
 }
 
-TEST_F(S2IndexTest, MultiThreadedQueryConsistencyTest) {
-    std::cout << "\n[测试6] 多线程索引空间查询一致性测试:" << std::endl;
+TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
+    std::cout << "\n[测试6] 多线程综合测试（一致性验证 + 性能对比）:" << std::endl;
 
-    // 复用测试5已经构建好的索引文件，避免重复构建
-    std::cout << "加载已构建的索引文件..." << std::endl;
+    // 测试1：单线程构建
+    std::cout << "开始单线程构建测试..." << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
 
-    // 加载单线程索引
-    S2SpatialIndex singleThreadIndex("./test_output/single_thread_test.idx", s2level);
-    if (!singleThreadIndex.exists()) {
-        std::cout << "单线程索引文件不存在，请先运行测试5构建索引" << std::endl;
+    S2SpatialIndex singleThreadIndex("./test_output/single_thread_comprehensive.idx", s2level);
+    bool single_success = singleThreadIndex.buildFromDataset(gis_dataset_path, 50000);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto singleThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    if (!single_success) {
+        std::cout << "单线程构建失败，跳过综合测试" << std::endl;
         return;
     }
-    singleThreadIndex.load();
 
-    // 加载多线程索引
-    S2SpatialIndex multiThreadIndex("./test_output/multi_thread_test.idx", s2level);
-    if (!multiThreadIndex.exists()) {
-        std::cout << "多线程索引文件不存在，请先运行测试5构建索引" << std::endl;
+    // 测试2：多线程构建（8线程）
+    std::cout << "\n开始多线程构建测试（8线程）..." << std::endl;
+    start = std::chrono::high_resolution_clock::now();
+
+    S2SpatialIndex multiThreadIndex("./test_output/multi_thread_comprehensive.idx", s2level);
+    bool multi_success = multiThreadIndex.buildFromDatasetMultiThreaded(gis_dataset_path, 50000, 8);
+
+    end = std::chrono::high_resolution_clock::now();
+    auto multiThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    if (!multi_success) {
+        std::cout << "多线程构建失败，跳过综合测试" << std::endl;
         return;
     }
-    multiThreadIndex.load();
 
-    // 验证两个索引的要素数量一致
+    // 性能对比分析
+    std::cout << "\n=== 性能对比结果 ===" << std::endl;
+    std::cout << "单线程构建时间: " << singleThreadTime << "ms" << std::endl;
+    std::cout << "多线程(8线程)时间: " << multiThreadTime << "ms" << std::endl;
+
+    // 计算加速比
+    if (singleThreadTime > 0 && multiThreadTime > 0) {
+        double speedup = static_cast<double>(singleThreadTime) / multiThreadTime;
+        std::cout << "多线程(8线程)加速比: " << std::fixed << std::setprecision(2) << speedup << "x" << std::endl;
+    }
+
+    // 验证索引完整性
     size_t single_size = singleThreadIndex.getIndexSize();
     size_t multi_size = multiThreadIndex.getIndexSize();
+
+    std::cout << "\n=== 索引完整性验证 ===" << std::endl;
+    std::cout << "单线程索引要素数量: " << single_size << std::endl;
+    std::cout << "多线程索引要素数量: " << multi_size << std::endl;
+
     EXPECT_EQ(single_size, multi_size) << "单线程和多线程索引要素数量应该一致";
 
-    std::cout << "两个索引的要素数量: " << single_size << std::endl;
-
-    // 使用测试2中的实际经纬度范围
+    // 使用多种查询范围验证查询结果一致性
+    std::cout << "\n=== 查询结果一致性验证 ===" << std::endl;
     std::vector<std::pair<std::string, S2LatLngRect>> test_queries = {{"小范围查询", S2LatLngRect(S2LatLng::FromDegrees(26.45, 103.26), S2LatLng::FromDegrees(26.46, 103.27))},
                                                                       {"中等范围查询", S2LatLngRect(S2LatLng::FromDegrees(26.43, 103.25), S2LatLng::FromDegrees(26.47, 103.30))},
                                                                       {"大范围查询", S2LatLngRect(S2LatLng::FromDegrees(26.40, 103.20), S2LatLng::FromDegrees(26.50, 103.35))},
@@ -324,10 +350,9 @@ TEST_F(S2IndexTest, MultiThreadedQueryConsistencyTest) {
 
                 // 输出前几个不同的结果用于调试
                 size_t max_diff = std::min(single_results.size(), multi_results.size());
-                for (size_t i = 0; i < max_diff; ++i) {
+                for (size_t i = 0; i < max_diff && i < 5; ++i) {
                     if (single_results[i] != multi_results[i]) {
-                        std::cout << "    第一个差异位置 " << i << ": 单线程=" << single_results[i] << ", 多线程=" << multi_results[i] << std::endl;
-                        break;
+                        std::cout << "    差异位置 " << i << ": 单线程=" << single_results[i] << ", 多线程=" << multi_results[i] << std::endl;
                     }
                 }
             }
@@ -340,7 +365,7 @@ TEST_F(S2IndexTest, MultiThreadedQueryConsistencyTest) {
         }
     }
 
-    std::cout << "\n多线程索引空间查询一致性测试完成！" << std::endl;
+    std::cout << "\n多线程综合测试完成！" << std::endl;
 }
 
 int main(int argc, char** argv) {
