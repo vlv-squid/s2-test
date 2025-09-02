@@ -13,6 +13,7 @@
 #include <cpl_conv.h>
 #include <set>
 #include <thread>
+#include <tbb/tbb.h>
 
 namespace S2Main {
 
@@ -378,6 +379,171 @@ namespace S2Main {
 
         GDALClose(poDS);
         std::cout << "多线程S2索引构建完成，总处理要素: " << valid_fids.size() << ", 总索引条目: " << total_entries << std::endl;
+        return true;
+    }
+
+    // 使用TBB的优化多线程构建S2索引
+    bool S2SpatialIndex::buildFromDatasetMultiThreadedTBB(const std::string& dataset_path, int batch_size, int num_threads) {
+        // 设置TBB线程数
+        tbb::global_control global_limit(tbb::global_control::max_allowed_parallelism, num_threads);
+
+        std::cout << "开始TBB优化多线程构建S2索引，总要素数量: 16511241, 线程数: " << num_threads << std::endl;
+
+        // 创建输出目录
+        std::filesystem::path index_path(filePath_);
+        std::filesystem::create_directories(index_path.parent_path());
+
+        // 第一步：快速收集所有要素ID（使用TBB并行）
+        std::cout << "使用TBB并行收集要素ID..." << std::endl;
+
+        GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        if (!poDS) {
+            std::cerr << "无法打开数据集: " << dataset_path << std::endl;
+            return false;
+        }
+
+        OGRLayer* poLayer = poDS->GetLayer(0);
+        if (!poLayer) {
+            std::cerr << "无法获取图层" << std::endl;
+            GDALClose(poDS);
+            return false;
+        }
+
+        // 获取总要素数量
+        int64_t total_features = poLayer->GetFeatureCount();
+
+        // 使用TBB并行收集要素ID
+        std::vector<int> valid_fids;
+        valid_fids.reserve(total_features);
+
+        // 使用TBB的并行算法处理要素
+        tbb::parallel_for(tbb::blocked_range<int64_t>(0, total_features), [&](const tbb::blocked_range<int64_t>& range) {
+            // 为每个线程创建独立的数据集访问器
+            GDALDataset* threadDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+            if (!threadDS)
+                return;
+
+            OGRLayer* threadLayer = threadDS->GetLayer(0);
+            if (!threadLayer) {
+                GDALClose(threadDS);
+                return;
+            }
+
+            std::vector<int> local_fids;
+            local_fids.reserve(range.size());
+
+            // 设置图层读取位置
+            threadLayer->ResetReading();
+            for (int64_t i = 0; i < range.begin(); ++i) {
+                OGRFeature* skipFeature = threadLayer->GetNextFeature();
+                if (skipFeature) {
+                    OGRFeature::DestroyFeature(skipFeature);
+                }
+            }
+
+            for (int64_t i = range.begin(); i < range.end(); ++i) {
+                OGRFeature* poFeature = threadLayer->GetNextFeature();
+                if (!poFeature)
+                    break;
+
+                OGRGeometry* poGeometry = poFeature->GetGeometryRef();
+                if (poGeometry && !poGeometry->IsEmpty()) {
+                    local_fids.push_back(poFeature->GetFID());
+                }
+
+                OGRFeature::DestroyFeature(poFeature);
+            }
+
+            GDALClose(threadDS);
+
+            // 线程安全地合并结果
+            {
+                std::lock_guard<std::mutex> lock(valid_fids_mutex_);
+                valid_fids.insert(valid_fids.end(), local_fids.begin(), local_fids.end());
+            }
+        });
+
+        std::cout << "TBB并行收集完成，有效要素数量: " << valid_fids.size() << std::endl;
+        GDALClose(poDS);
+
+        // 第二步：使用TBB并行处理要素ID
+        std::cout << "使用TBB并行处理要素..." << std::endl;
+
+        // 使用TBB的concurrent_unordered_map存储结果
+        tbb::concurrent_unordered_map<int64_t, std::vector<int>> concurrent_index_map;
+
+        // 并行处理要素
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, valid_fids.size()), [&](const tbb::blocked_range<size_t>& range) {
+            // 为每个线程创建独立的数据集访问器
+            GDALDataset* threadDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+            if (!threadDS)
+                return;
+
+            OGRLayer* threadLayer = threadDS->GetLayer(0);
+            if (!threadLayer) {
+                GDALClose(threadDS);
+                return;
+            }
+
+            for (size_t i = range.begin(); i < range.end(); ++i) {
+                int fid = valid_fids[i];
+
+                // 通过FID获取要素
+                OGRFeature* poFeature = threadLayer->GetFeature(fid);
+                if (!poFeature)
+                    continue;
+
+                OGRGeometry* poGeometry = poFeature->GetGeometryRef();
+                if (poGeometry && !poGeometry->IsEmpty()) {
+                    try {
+                        OGRPoint center;
+                        if (poGeometry->Centroid(&center) == OGRERR_NONE) {
+                            // 计算S2 Cell ID
+                            S2LatLng latlng = S2LatLng::FromDegrees(center.getY(), center.getX());
+
+                            S2RegionCoverer::Options options;
+                            options.set_min_level(level_);
+                            options.set_max_level(level_);
+                            options.set_max_cells(1);
+                            S2RegionCoverer coverer(options);
+
+                            S2LatLng p1 = S2LatLng::FromDegrees(center.getY() - 0.0001, center.getX() - 0.0001);
+                            S2LatLng p2 = S2LatLng::FromDegrees(center.getY() + 0.0001, center.getX() + 0.0001);
+                            S2LatLngRect rect(p1, p2);
+
+                            std::vector<S2CellId> cellIds;
+                            coverer.GetCovering(rect, &cellIds);
+
+                            if (!cellIds.empty()) {
+                                int64_t cell_id = cellIds[0].id();
+                                // 线程安全地添加到concurrent map
+                                concurrent_index_map[cell_id].push_back(fid);
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        // 忽略几何错误，继续处理下一个要素
+                        continue;
+                    }
+                }
+
+                OGRFeature::DestroyFeature(poFeature);
+            }
+
+            GDALClose(threadDS);
+        });
+
+        // 第三步：将TBB结果转换为标准索引格式
+        std::cout << "转换TBB结果到标准索引格式..." << std::endl;
+        indexMap_.clear();
+
+        for (const auto& [cell_id, fids] : concurrent_index_map) {
+            indexMap_[cell_id] = fids;
+        }
+
+        // 保存索引
+        save();
+
+        std::cout << "TBB优化多线程S2索引构建完成，总处理要素: " << valid_fids.size() << ", 总索引条目: " << indexMap_.size() << std::endl;
         return true;
     }
 

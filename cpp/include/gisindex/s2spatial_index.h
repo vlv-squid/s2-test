@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <filesystem>
+#include <mutex>
 
 #include <s2/s2latlng.h>
 #include <s2/s2latlng_rect.h>
@@ -37,6 +37,8 @@ namespace S2Main {
         // 多线程构建方法
         bool buildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size = 50000, int num_threads = 4);
 
+        bool buildFromDatasetMultiThreadedTBB(const std::string& dataset_path, int batch_size = 50000, int num_threads = 4);
+
         // 索引完整性验证
         bool isIndexComplete(const std::string& dataset_path) const;
         int64_t getDatasetFeatureCount(const std::string& dataset_path) const;
@@ -49,6 +51,7 @@ namespace S2Main {
         std::string filePath_;
         int level_;
         std::unordered_map<int64_t, std::vector<int>> indexMap_;
+        mutable std::mutex valid_fids_mutex_; // 用于TBB线程安全
     };
 
 }; // namespace S2Main

@@ -218,8 +218,8 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
         return;
     }
 
-    // 测试多线程构建（4线程）
-    std::cout << "\n开始多线程构建测试（4线程）..." << std::endl;
+    // 测试多线程构建（8线程）
+    std::cout << "\n开始多线程构建测试（8线程）..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
     // 创建新的索引实例进行多线程构建
@@ -270,8 +270,8 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
         return;
     }
 
-    // 测试2：多线程构建（8线程）
-    std::cout << "\n开始多线程构建测试（8线程）..." << std::endl;
+    // 测试2：标准多线程构建（8线程）
+    std::cout << "\n开始标准多线程构建测试（8线程）..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
     S2SpatialIndex multiThreadIndex("./test_output/multi_thread_comprehensive.idx", s2level);
@@ -281,30 +281,59 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     auto multiThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
     if (!multi_success) {
-        std::cout << "多线程构建失败，跳过综合测试" << std::endl;
+        std::cout << "标准多线程构建失败，跳过综合测试" << std::endl;
+        return;
+    }
+
+    // 测试3：TBB优化多线程构建（8线程）
+    std::cout << "\n开始TBB优化多线程构建测试（8线程）..." << std::endl;
+    start = std::chrono::high_resolution_clock::now();
+
+    S2SpatialIndex tbbThreadIndex("./test_output/tbb_thread_comprehensive.idx", s2level);
+    bool tbb_success = tbbThreadIndex.buildFromDatasetMultiThreadedTBB(gis_dataset_path, 50000, 8);
+
+    end = std::chrono::high_resolution_clock::now();
+    auto tbbThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    if (!tbb_success) {
+        std::cout << "TBB多线程构建失败，跳过综合测试" << std::endl;
         return;
     }
 
     // 性能对比分析
     std::cout << "\n=== 性能对比结果 ===" << std::endl;
     std::cout << "单线程构建时间: " << singleThreadTime << "ms" << std::endl;
-    std::cout << "多线程(8线程)时间: " << multiThreadTime << "ms" << std::endl;
+    std::cout << "标准多线程(8线程)时间: " << multiThreadTime << "ms" << std::endl;
+    std::cout << "TBB多线程(8线程)时间: " << tbbThreadTime << "ms" << std::endl;
 
     // 计算加速比
     if (singleThreadTime > 0 && multiThreadTime > 0) {
-        double speedup = static_cast<double>(singleThreadTime) / multiThreadTime;
-        std::cout << "多线程(8线程)加速比: " << std::fixed << std::setprecision(2) << speedup << "x" << std::endl;
+        double speedup_std = static_cast<double>(singleThreadTime) / multiThreadTime;
+        std::cout << "标准多线程(8线程)加速比: " << std::fixed << std::setprecision(2) << speedup_std << "x" << std::endl;
+    }
+
+    if (singleThreadTime > 0 && tbbThreadTime > 0) {
+        double speedup_tbb = static_cast<double>(singleThreadTime) / tbbThreadTime;
+        std::cout << "TBB多线程(8线程)加速比: " << std::fixed << std::setprecision(2) << speedup_tbb << "x" << std::endl;
+    }
+
+    if (multiThreadTime > 0 && tbbThreadTime > 0) {
+        double improvement = static_cast<double>(multiThreadTime) / tbbThreadTime;
+        std::cout << "TBB相对于标准多线程的改进: " << std::fixed << std::setprecision(2) << improvement << "x" << std::endl;
     }
 
     // 验证索引完整性
     size_t single_size = singleThreadIndex.getIndexSize();
     size_t multi_size = multiThreadIndex.getIndexSize();
+    size_t tbb_size = tbbThreadIndex.getIndexSize();
 
     std::cout << "\n=== 索引完整性验证 ===" << std::endl;
     std::cout << "单线程索引要素数量: " << single_size << std::endl;
-    std::cout << "多线程索引要素数量: " << multi_size << std::endl;
+    std::cout << "标准多线程索引要素数量: " << multi_size << std::endl;
+    std::cout << "TBB多线程索引要素数量: " << tbb_size << std::endl;
 
-    EXPECT_EQ(single_size, multi_size) << "单线程和多线程索引要素数量应该一致";
+    EXPECT_EQ(single_size, multi_size) << "单线程和标准多线程索引要素数量应该一致";
+    EXPECT_EQ(single_size, tbb_size) << "单线程和TBB多线程索引要素数量应该一致";
 
     // 使用多种查询范围验证查询结果一致性
     std::cout << "\n=== 查询结果一致性验证 ===" << std::endl;
@@ -322,46 +351,66 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
         auto single_end = std::chrono::high_resolution_clock::now();
         auto single_time = std::chrono::duration_cast<std::chrono::microseconds>(single_end - single_start).count();
 
-        // 多线程索引查询
+        // 标准多线程索引查询
         auto multi_start = std::chrono::high_resolution_clock::now();
         auto multi_results = multiThreadIndex.query(query_rect, s2level);
         auto multi_end = std::chrono::high_resolution_clock::now();
         auto multi_time = std::chrono::duration_cast<std::chrono::microseconds>(multi_end - multi_start).count();
 
+        // TBB多线程索引查询
+        auto tbb_start = std::chrono::high_resolution_clock::now();
+        auto tbb_results = tbbThreadIndex.query(query_rect, s2level);
+        auto tbb_end = std::chrono::high_resolution_clock::now();
+        auto tbb_time = std::chrono::duration_cast<std::chrono::microseconds>(tbb_end - tbb_start).count();
+
         std::cout << query_name << " 结果对比:" << std::endl;
         std::cout << "  单线程索引: " << single_results.size() << " 个要素, " << single_time << "μs" << std::endl;
-        std::cout << "  多线程索引: " << multi_results.size() << " 个要素, " << multi_time << "μs" << std::endl;
+        std::cout << "  标准多线程索引: " << multi_results.size() << " 个要素, " << multi_time << "μs" << std::endl;
+        std::cout << "  TBB多线程索引: " << tbb_results.size() << " 个要素, " << tbb_time << "μs" << std::endl;
 
         // 验证结果数量一致
-        EXPECT_EQ(single_results.size(), multi_results.size()) << query_name << " 结果数量应该一致";
+        EXPECT_EQ(single_results.size(), multi_results.size()) << query_name << " 单线程和标准多线程结果数量应该一致";
+        EXPECT_EQ(single_results.size(), tbb_results.size()) << query_name << " 单线程和TBB多线程结果数量应该一致";
 
         // 验证结果内容一致（排序后比较）
-        if (single_results.size() == multi_results.size()) {
+        if (single_results.size() == multi_results.size() && single_results.size() == tbb_results.size()) {
             std::sort(single_results.begin(), single_results.end());
             std::sort(multi_results.begin(), multi_results.end());
+            std::sort(tbb_results.begin(), tbb_results.end());
 
-            bool results_match = (single_results == multi_results);
-            EXPECT_TRUE(results_match) << query_name << " 查询结果应该完全一致";
+            bool results_match_std = (single_results == multi_results);
+            bool results_match_tbb = (single_results == tbb_results);
 
-            if (results_match) {
-                std::cout << "  ✓ 查询结果完全一致" << std::endl;
+            EXPECT_TRUE(results_match_std) << query_name << " 单线程和标准多线程查询结果应该完全一致";
+            EXPECT_TRUE(results_match_tbb) << query_name << " 单线程和TBB多线程查询结果应该完全一致";
+
+            if (results_match_std && results_match_tbb) {
+                std::cout << "  ✓ 所有索引查询结果完全一致" << std::endl;
             } else {
                 std::cout << "  ✗ 查询结果不一致！" << std::endl;
 
-                // 输出前几个不同的结果用于调试
-                size_t max_diff = std::min(single_results.size(), multi_results.size());
-                for (size_t i = 0; i < max_diff && i < 5; ++i) {
-                    if (single_results[i] != multi_results[i]) {
-                        std::cout << "    差异位置 " << i << ": 单线程=" << single_results[i] << ", 多线程=" << multi_results[i] << std::endl;
-                    }
+                if (!results_match_std) {
+                    std::cout << "    单线程与标准多线程结果不一致" << std::endl;
+                }
+                if (!results_match_tbb) {
+                    std::cout << "    单线程与TBB多线程结果不一致" << std::endl;
                 }
             }
         }
 
-        // 性能对比
+        // 查询性能对比
+        std::cout << "  查询性能对比:" << std::endl;
         if (single_time > 0 && multi_time > 0) {
-            double query_speedup = static_cast<double>(single_time) / multi_time;
-            std::cout << "  查询性能对比: " << std::fixed << std::setprecision(2) << query_speedup << "x" << std::endl;
+            double query_speedup_std = static_cast<double>(single_time) / multi_time;
+            std::cout << "    标准多线程 vs 单线程: " << std::fixed << std::setprecision(2) << query_speedup_std << "x" << std::endl;
+        }
+        if (single_time > 0 && tbb_time > 0) {
+            double query_speedup_tbb = static_cast<double>(single_time) / tbb_time;
+            std::cout << "    TBB多线程 vs 单线程: " << std::fixed << std::setprecision(2) << query_speedup_tbb << "x" << std::endl;
+        }
+        if (multi_time > 0 && tbb_time > 0) {
+            double query_improvement = static_cast<double>(multi_time) / tbb_time;
+            std::cout << "    TBB vs 标准多线程: " << std::fixed << std::setprecision(2) << query_improvement << "x" << std::endl;
         }
     }
 

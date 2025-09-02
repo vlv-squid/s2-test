@@ -59,6 +59,7 @@ find_package(Boost REQUIRED COMPONENTS geometry)
 find_package(GDAL REQUIRED PATHS "${CMAKE_PREFIX_PATH}/lib64/cmake/gdal")
 find_package(nlohmann_json REQUIRED)
 find_package(s2 REQUIRED)
+find_package(TBB REQUIRED)
 
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
@@ -85,6 +86,7 @@ target_link_libraries(s2index_test PRIVATE
     Boost::geometry
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
     s2::s2
+    TBB::tbb
 )
 
 # gis_storage_test
