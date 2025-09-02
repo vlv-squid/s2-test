@@ -393,8 +393,8 @@ namespace S2Main {
         std::filesystem::path index_path(filePath_);
         std::filesystem::create_directories(index_path.parent_path());
 
-        // 第一步：快速收集所有要素ID（使用TBB并行）
-        std::cout << "使用TBB并行收集要素ID..." << std::endl;
+        // 第一步：单线程读取所有几何数据到内存（避免多线程I/O竞争）
+        std::cout << "单线程读取几何数据到内存..." << std::endl;
 
         GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!poDS) {
@@ -412,124 +412,94 @@ namespace S2Main {
         // 获取总要素数量
         int64_t total_features = poLayer->GetFeatureCount();
 
-        // 使用TBB并行收集要素ID
-        std::vector<int> valid_fids;
-        valid_fids.reserve(total_features);
+        // 预分配内存，存储所有几何数据
+        struct GeometryData {
+            GIntBig fid; // 使用GIntBig类型匹配GDAL的FID类型
+            double center_x;
+            double center_y;
+        };
 
-        // 使用TBB的并行算法处理要素
-        tbb::parallel_for(tbb::blocked_range<int64_t>(0, total_features), [&](const tbb::blocked_range<int64_t>& range) {
-            // 为每个线程创建独立的数据集访问器
-            GDALDataset* threadDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
-            if (!threadDS)
-                return;
+        std::vector<GeometryData> geometry_data;
+        geometry_data.reserve(total_features);
 
-            OGRLayer* threadLayer = threadDS->GetLayer(0);
-            if (!threadLayer) {
-                GDALClose(threadDS);
-                return;
-            }
+        poLayer->ResetReading();
+        OGRFeature* poFeature;
+        int64_t processed = 0;
 
-            std::vector<int> local_fids;
-            local_fids.reserve(range.size());
-
-            // 设置图层读取位置
-            threadLayer->ResetReading();
-            for (int64_t i = 0; i < range.begin(); ++i) {
-                OGRFeature* skipFeature = threadLayer->GetNextFeature();
-                if (skipFeature) {
-                    OGRFeature::DestroyFeature(skipFeature);
+        while ((poFeature = poLayer->GetNextFeature()) != nullptr) {
+            OGRGeometry* poGeometry = poFeature->GetGeometryRef();
+            if (poGeometry && !poGeometry->IsEmpty()) {
+                try {
+                    OGRPoint center;
+                    if (poGeometry->Centroid(&center) == OGRERR_NONE) {
+                        geometry_data.push_back({poFeature->GetFID(), center.getX(), center.getY()});
+                    }
+                } catch (const std::exception& e) {
+                    // 忽略几何错误，继续处理下一个要素
+                    continue;
                 }
             }
+            OGRFeature::DestroyFeature(poFeature);
 
-            for (int64_t i = range.begin(); i < range.end(); ++i) {
-                OGRFeature* poFeature = threadLayer->GetNextFeature();
-                if (!poFeature)
-                    break;
-
-                OGRGeometry* poGeometry = poFeature->GetGeometryRef();
-                if (poGeometry && !poGeometry->IsEmpty()) {
-                    local_fids.push_back(poFeature->GetFID());
-                }
-
-                OGRFeature::DestroyFeature(poFeature);
+            processed++;
+            if (processed % 1000000 == 0) {
+                std::cout << "已读取 " << processed << " 个几何要素" << std::endl;
             }
+        }
 
-            GDALClose(threadDS);
-
-            // 线程安全地合并结果
-            {
-                std::lock_guard<std::mutex> lock(valid_fids_mutex_);
-                valid_fids.insert(valid_fids.end(), local_fids.begin(), local_fids.end());
-            }
-        });
-
-        std::cout << "TBB并行收集完成，有效要素数量: " << valid_fids.size() << std::endl;
+        std::cout << "几何数据读取完成，有效要素数量: " << geometry_data.size() << std::endl;
         GDALClose(poDS);
 
-        // 第二步：使用TBB并行处理要素ID
-        std::cout << "使用TBB并行处理要素..." << std::endl;
+        // 第二步：使用TBB并行处理内存中的几何数据，构建S2索引
+        std::cout << "使用TBB并行处理内存中的几何数据..." << std::endl;
 
         // 使用TBB的concurrent_unordered_map存储结果
         tbb::concurrent_unordered_map<int64_t, std::vector<int>> concurrent_index_map;
 
-        // 并行处理要素
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, valid_fids.size()), [&](const tbb::blocked_range<size_t>& range) {
-            // 为每个线程创建独立的数据集访问器
-            GDALDataset* threadDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
-            if (!threadDS)
-                return;
-
-            OGRLayer* threadLayer = threadDS->GetLayer(0);
-            if (!threadLayer) {
-                GDALClose(threadDS);
-                return;
-            }
+        // 并行处理几何数据（完全在内存中，无I/O操作）
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, geometry_data.size()), [&](const tbb::blocked_range<size_t>& range) {
+            // 本地批处理，减少锁竞争
+            const size_t local_batch_size = 1000;
+            std::vector<std::pair<int64_t, int>> local_batch;
+            local_batch.reserve(local_batch_size);
 
             for (size_t i = range.begin(); i < range.end(); ++i) {
-                int fid = valid_fids[i];
+                const auto& geom = geometry_data[i];
 
-                // 通过FID获取要素
-                OGRFeature* poFeature = threadLayer->GetFeature(fid);
-                if (!poFeature)
-                    continue;
+                try {
+                    // 计算S2 Cell ID（完全在内存中）
+                    S2LatLng latlng = S2LatLng::FromDegrees(geom.center_y, geom.center_x);
 
-                OGRGeometry* poGeometry = poFeature->GetGeometryRef();
-                if (poGeometry && !poGeometry->IsEmpty()) {
-                    try {
-                        OGRPoint center;
-                        if (poGeometry->Centroid(&center) == OGRERR_NONE) {
-                            // 计算S2 Cell ID
-                            S2LatLng latlng = S2LatLng::FromDegrees(center.getY(), center.getX());
+                    S2RegionCoverer::Options options;
+                    options.set_min_level(level_);
+                    options.set_max_level(level_);
+                    options.set_max_cells(1);
+                    S2RegionCoverer coverer(options);
 
-                            S2RegionCoverer::Options options;
-                            options.set_min_level(level_);
-                            options.set_max_level(level_);
-                            options.set_max_cells(1);
-                            S2RegionCoverer coverer(options);
+                    S2LatLng p1 = S2LatLng::FromDegrees(geom.center_y - 0.0001, geom.center_x - 0.0001);
+                    S2LatLng p2 = S2LatLng::FromDegrees(geom.center_y + 0.0001, geom.center_x + 0.0001);
+                    S2LatLngRect rect(p1, p2);
 
-                            S2LatLng p1 = S2LatLng::FromDegrees(center.getY() - 0.0001, center.getX() - 0.0001);
-                            S2LatLng p2 = S2LatLng::FromDegrees(center.getY() + 0.0001, center.getX() + 0.0001);
-                            S2LatLngRect rect(p1, p2);
+                    std::vector<S2CellId> cellIds;
+                    coverer.GetCovering(rect, &cellIds);
 
-                            std::vector<S2CellId> cellIds;
-                            coverer.GetCovering(rect, &cellIds);
-
-                            if (!cellIds.empty()) {
-                                int64_t cell_id = cellIds[0].id();
-                                // 线程安全地添加到concurrent map
-                                concurrent_index_map[cell_id].push_back(fid);
-                            }
-                        }
-                    } catch (const std::exception& e) {
-                        // 忽略几何错误，继续处理下一个要素
-                        continue;
+                    if (!cellIds.empty()) {
+                        int64_t cell_id = cellIds[0].id();
+                        local_batch.emplace_back(cell_id, static_cast<int>(geom.fid));
                     }
+                } catch (const std::exception& e) {
+                    // 忽略几何错误，继续处理下一个要素
+                    continue;
                 }
 
-                OGRFeature::DestroyFeature(poFeature);
+                // 批量添加到concurrent map，减少锁竞争
+                if (local_batch.size() >= local_batch_size || i == range.end() - 1) {
+                    for (const auto& [cell_id, fid] : local_batch) {
+                        concurrent_index_map[cell_id].push_back(fid);
+                    }
+                    local_batch.clear();
+                }
             }
-
-            GDALClose(threadDS);
         });
 
         // 第三步：将TBB结果转换为标准索引格式
@@ -543,7 +513,7 @@ namespace S2Main {
         // 保存索引
         save();
 
-        std::cout << "TBB优化多线程S2索引构建完成，总处理要素: " << valid_fids.size() << ", 总索引条目: " << indexMap_.size() << std::endl;
+        std::cout << "TBB优化多线程S2索引构建完成，总处理要素: " << geometry_data.size() << ", 总索引条目: " << indexMap_.size() << std::endl;
         return true;
     }
 
