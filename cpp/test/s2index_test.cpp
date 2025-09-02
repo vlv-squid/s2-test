@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <s2/s2latlng.h>
 #include <s2/s2cell_id.h>
+#include <iomanip> // Added for std::fixed and std::setprecision
 
 using namespace S2Main;
 using Point = bg::model::point<double, 2, bg::cs::cartesian>;
@@ -49,22 +50,66 @@ class S2IndexTest : public ::testing::Test {
 TEST_F(S2IndexTest, S2IndexBuildTest) {
     std::cout << "\n[测试1] S2索引构建测试:" << std::endl;
     EXPECT_TRUE(s2index->exists()) << "S2索引文件应该存在";
+
+    // 验证索引大小
+    size_t index_size = s2index->getIndexSize();
+    std::cout << "索引中的要素数量: " << index_size << std::endl;
+    EXPECT_GT(index_size, 0) << "索引应该包含要素";
 }
 
 TEST_F(S2IndexTest, S2IndexQueryTest) {
     std::cout << "\n[测试2] S2索引查询测试:" << std::endl;
 
-    // 创建查询范围
-    S2LatLngRect queryRect(S2LatLng::FromDegrees(sample_bbox.minlat, sample_bbox.minlon), S2LatLng::FromDegrees(sample_bbox.maxlat, sample_bbox.maxlon));
+    // 测试1：小范围查询（应该返回较少要素）
+    S2LatLngRect smallQueryRect(S2LatLng::FromDegrees(26.45, 103.26), S2LatLng::FromDegrees(26.46, 103.27));
 
-    std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-    auto results = s2index->query(queryRect, s2level);
-    std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
+    auto smallResults = s2index->query(smallQueryRect, s2level);
+    auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout << "查询时间: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
-    std::cout << "空间查询结果: " << results.size() << " 个要素" << std::endl;
+    auto smallTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "小范围查询时间: " << smallTime << "μs" << std::endl;
+    std::cout << "小范围查询结果: " << smallResults.size() << " 个要素" << std::endl;
 
-    EXPECT_GE(results.size(), 0) << "查询结果应该非负";
+    // 测试2：中等范围查询（应该返回中等数量要素）
+    S2LatLngRect mediumQueryRect(S2LatLng::FromDegrees(26.43, 103.25), S2LatLng::FromDegrees(26.47, 103.30));
+
+    start = std::chrono::high_resolution_clock::now();
+    auto mediumResults = s2index->query(mediumQueryRect, s2level);
+    end = std::chrono::high_resolution_clock::now();
+
+    auto mediumTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "中等范围查询时间: " << mediumTime << "μs" << std::endl;
+    std::cout << "中等范围查询结果: " << mediumResults.size() << " 个要素" << std::endl;
+
+    // 测试3：大范围查询（应该返回较多要素）
+    S2LatLngRect largeQueryRect(S2LatLng::FromDegrees(26.40, 103.20), S2LatLng::FromDegrees(26.50, 103.35));
+
+    start = std::chrono::high_resolution_clock::now();
+    auto largeResults = s2index->query(largeQueryRect, s2level);
+    end = std::chrono::high_resolution_clock::now();
+
+    auto largeTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "大范围查询时间: " << largeTime << "μs" << std::endl;
+    std::cout << "大范围查询结果: " << largeResults.size() << " 个要素" << std::endl;
+
+    // 验证查询结果的合理性
+    EXPECT_GE(smallResults.size(), 0) << "小范围查询结果应该非负";
+    EXPECT_GE(mediumResults.size(), 0) << "中等范围查询结果应该非负";
+    EXPECT_GE(largeResults.size(), 0) << "大范围查询结果应该非负";
+
+    // 验证查询结果的数量关系（大范围应该包含更多要素）
+    EXPECT_LE(smallResults.size(), mediumResults.size()) << "小范围查询结果应该少于中等范围";
+    EXPECT_LE(mediumResults.size(), largeResults.size()) << "中等范围查询结果应该少于大范围";
+
+    // 输出性能分析
+    std::cout << "\n性能分析:" << std::endl;
+    std::cout << "小范围查询: " << smallTime << "μs, " << smallResults.size() << " 要素, 平均 " << std::fixed << std::setprecision(3)
+              << (smallResults.size() > 0 ? static_cast<double>(smallTime) / smallResults.size() : 0.0) << "μs/要素" << std::endl;
+    std::cout << "中等范围查询: " << mediumTime << "μs, " << mediumResults.size() << " 要素, 平均 " << std::fixed << std::setprecision(3)
+              << (mediumResults.size() > 0 ? static_cast<double>(mediumTime) / mediumResults.size() : 0.0) << "μs/要素" << std::endl;
+    std::cout << "大范围查询: " << largeTime << "μs, " << largeResults.size() << " 要素, 平均 " << std::fixed << std::setprecision(3)
+              << (largeResults.size() > 0 ? static_cast<double>(largeTime) / largeResults.size() : 0.0) << "μs/要素" << std::endl;
 }
 
 TEST_F(S2IndexTest, S2IndexLoadTest) {
@@ -74,10 +119,19 @@ TEST_F(S2IndexTest, S2IndexLoadTest) {
     S2SpatialIndex newIndex(index_file_path, s2level);
     newIndex.load();
 
-    // 测试查询
-    S2LatLngRect queryRect(S2LatLng::FromDegrees(sample_bbox.minlat, sample_bbox.minlon), S2LatLng::FromDegrees(sample_bbox.maxlat, sample_bbox.maxlon));
+    // 验证加载后的索引大小
+    size_t loadedIndexSize = newIndex.getIndexSize();
+    size_t originalIndexSize = s2index->getIndexSize();
 
-    auto results = newIndex.query(queryRect, s2level);
+    std::cout << "原始索引要素数量: " << originalIndexSize << std::endl;
+    std::cout << "加载后索引要素数量: " << loadedIndexSize << std::endl;
+
+    EXPECT_EQ(loadedIndexSize, originalIndexSize) << "加载后的索引大小应该与原始索引一致";
+
+    // 测试加载后的查询功能
+    S2LatLngRect testQueryRect(S2LatLng::FromDegrees(26.45, 103.26), S2LatLng::FromDegrees(26.46, 103.27));
+
+    auto results = newIndex.query(testQueryRect, s2level);
     std::cout << "加载后查询结果: " << results.size() << " 个要素" << std::endl;
 
     EXPECT_GE(results.size(), 0) << "加载后查询结果应该非负";
@@ -85,6 +139,9 @@ TEST_F(S2IndexTest, S2IndexLoadTest) {
 
 TEST_F(S2IndexTest, GDALComparisonTest) {
     std::cout << "\n[测试4] GDAL顺序扫描对比测试:" << std::endl;
+
+    // 使用相同的查询范围
+    S2LatLngRect queryRect(S2LatLng::FromDegrees(sample_bbox.minlat, sample_bbox.minlon), S2LatLng::FromDegrees(sample_bbox.maxlat, sample_bbox.maxlon));
 
     // GDAL顺序扫描
     GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(gis_dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
@@ -96,33 +153,47 @@ TEST_F(S2IndexTest, GDALComparisonTest) {
     poLayer->SetSpatialFilterRect(sample_bbox.minlon, sample_bbox.minlat, sample_bbox.maxlon, sample_bbox.maxlat);
     poLayer->ResetReading();
 
-    std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
     std::vector<int> gdalResults;
     while (OGRFeature* poFeature = poLayer->GetNextFeature()) {
         gdalResults.push_back(poFeature->GetFID());
+        OGRFeature::DestroyFeature(poFeature);
     }
-    std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout << "GDAL查询时间: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
+    auto gdalTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "GDAL查询时间: " << gdalTime << "μs" << std::endl;
     std::cout << "GDAL查询结果: " << gdalResults.size() << " 个要素" << std::endl;
 
     GDALClose(poDS);
 
     // S2索引查询
-    S2LatLngRect queryRect(S2LatLng::FromDegrees(sample_bbox.minlat, sample_bbox.minlon), S2LatLng::FromDegrees(sample_bbox.maxlat, sample_bbox.maxlon));
-
-    start = std::chrono::system_clock::now();
+    start = std::chrono::high_resolution_clock::now();
     auto s2Results = s2index->query(queryRect, s2level);
-    end = std::chrono::system_clock::now();
+    end = std::chrono::high_resolution_clock::now();
 
-    std::cout << "S2索引查询时间: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
+    auto s2Time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "S2索引查询时间: " << s2Time << "μs" << std::endl;
     std::cout << "S2索引查询结果: " << s2Results.size() << " 个要素" << std::endl;
 
-    // 性能对比
-    if (!gdalResults.empty() && !s2Results.empty()) {
-        double speedup = static_cast<double>(gdalResults.size()) / s2Results.size();
-        std::cout << "S2索引相对于GDAL的性能提升: " << speedup << "x" << std::endl;
+    // 性能对比（基于时间，而不是结果数量）
+    if (gdalTime > 0 && s2Time > 0) {
+        double speedup = static_cast<double>(gdalTime) / s2Time;
+        std::cout << "S2索引相对于GDAL的性能提升: " << std::fixed << std::setprecision(2) << speedup << "x" << std::endl;
+
+        // 验证S2索引确实比GDAL快
+        EXPECT_GT(speedup, 1.0) << "S2索引应该比GDAL顺序扫描快";
+
+        // 输出详细的性能分析
+        std::cout << "\n详细性能分析:" << std::endl;
+        std::cout << "GDAL: " << gdalTime << "μs, " << gdalResults.size() << " 要素, 平均 " << std::fixed << std::setprecision(3) << (gdalResults.size() > 0 ? static_cast<double>(gdalTime) / gdalResults.size() : 0.0)
+                  << "μs/要素" << std::endl;
+        std::cout << "S2索引: " << s2Time << "μs, " << s2Results.size() << " 要素, 平均 " << std::fixed << std::setprecision(3) << (s2Results.size() > 0 ? static_cast<double>(s2Time) / s2Results.size() : 0.0)
+                  << "μs/要素" << std::endl;
     }
+
+    // 验证结果数量的一致性（允许有小的差异，因为不同的空间索引可能有不同的精度）
+    EXPECT_NEAR(gdalResults.size(), s2Results.size(), std::max(gdalResults.size(), s2Results.size()) * 0.1) << "S2索引和GDAL查询结果数量应该大致一致";
 }
 
 int main(int argc, char** argv) {
