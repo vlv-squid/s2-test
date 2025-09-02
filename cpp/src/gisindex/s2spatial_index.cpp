@@ -11,6 +11,7 @@
 #include <gdal.h>
 #include <ogrsf_frmts.h>
 #include <cpl_conv.h>
+#include <set>
 
 namespace S2Main {
 
