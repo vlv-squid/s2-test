@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <sqlite3.h>
+#include <filesystem>
 
 #include <s2/s2latlng.h>
 #include <s2/s2latlng_rect.h>
@@ -16,16 +16,23 @@
 #include <s2/s2cell_index.h>
 
 namespace S2Main {
-    enum class IndexStorageType { BINARY_FILE, SQLITE_DB };
 
     class S2SpatialIndex {
       public:
-        S2SpatialIndex(const std::string& filePath, IndexStorageType storageType, int level);
+        S2SpatialIndex(const std::string& filePath, int level);
         ~S2SpatialIndex();
 
         void build(const std::vector<std::pair<int64_t, int>>& entries);
+        void addBatch(const std::vector<std::pair<int64_t, int>>& entries);
+        void clear();
         void save() const;
         void load();
+
+        // 智能索引管理
+        bool smartLoadOrBuild(const std::string& dataset_path, int batch_size = 50000);
+        bool isIndexValid() const;
+        size_t getIndexSize() const;
+        bool buildFromDataset(const std::string& dataset_path, int batch_size = 50000);
 
         std::vector<int> query(const S2LatLngRect& rect, int level) const;
 
@@ -33,7 +40,6 @@ namespace S2Main {
 
       private:
         std::string filePath_;
-        IndexStorageType storageType_;
         int level_;
         std::unordered_map<int64_t, std::vector<int>> indexMap_;
     };
