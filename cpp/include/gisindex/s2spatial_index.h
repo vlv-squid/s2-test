@@ -34,6 +34,9 @@ namespace S2Main {
         size_t getIndexSize() const;
         bool buildFromDataset(const std::string& dataset_path, int batch_size = 50000);
 
+        // 多线程构建方法
+        bool buildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size = 50000, int num_threads = 4);
+
         // 索引完整性验证
         bool isIndexComplete(const std::string& dataset_path) const;
         int64_t getDatasetFeatureCount(const std::string& dataset_path) const;

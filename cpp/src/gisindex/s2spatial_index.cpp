@@ -12,6 +12,7 @@
 #include <ogrsf_frmts.h>
 #include <cpl_conv.h>
 #include <set>
+#include <thread>
 
 namespace S2Main {
 
@@ -204,6 +205,179 @@ namespace S2Main {
 
         GDALClose(poDS);
         std::cout << "S2索引构建完成，总处理要素: " << processed_count << ", 总索引条目: " << total_entries << std::endl;
+        return true;
+    }
+
+    // 多线程构建S2索引
+    bool S2SpatialIndex::buildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size, int num_threads) {
+        GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        if (!poDS) {
+            std::cerr << "无法打开数据集: " << dataset_path << std::endl;
+            return false;
+        }
+
+        OGRLayer* poLayer = poDS->GetLayer(0);
+        if (!poLayer) {
+            std::cerr << "无法获取图层" << std::endl;
+            GDALClose(poDS);
+            return false;
+        }
+
+        // 获取总要素数量
+        int64_t total_features = poLayer->GetFeatureCount();
+        std::cout << "开始多线程构建S2索引，总要素数量: " << total_features << ", 线程数: " << num_threads << std::endl;
+
+        // 创建输出目录
+        std::filesystem::path index_path(filePath_);
+        std::filesystem::create_directories(index_path.parent_path());
+
+        // 策略：先收集所有有效的要素ID，然后分块处理
+        std::cout << "收集要素ID..." << std::endl;
+        std::vector<int> valid_fids;
+        valid_fids.reserve(total_features);
+
+        poLayer->ResetReading();
+        OGRFeature* poFeature;
+        int64_t processed = 0;
+
+        while ((poFeature = poLayer->GetNextFeature()) != nullptr) {
+            OGRGeometry* poGeometry = poFeature->GetGeometryRef();
+            if (poGeometry && !poGeometry->IsEmpty()) {
+                valid_fids.push_back(poFeature->GetFID());
+            }
+            OGRFeature::DestroyFeature(poFeature);
+
+            processed++;
+            if (processed % 1000000 == 0) {
+                std::cout << "已收集 " << processed << " 个要素ID" << std::endl;
+            }
+        }
+
+        std::cout << "收集完成，有效要素数量: " << valid_fids.size() << std::endl;
+
+        // 计算每个线程处理的要素数量
+        size_t features_per_thread = valid_fids.size() / num_threads;
+        size_t remaining_features = valid_fids.size() % num_threads;
+
+        // 存储所有线程的结果
+        std::vector<std::vector<std::pair<int64_t, int>>> thread_results(num_threads);
+
+        // 线程函数：处理指定范围的要素ID
+        auto processFeatures = [&](int thread_id, size_t start_idx, size_t end_idx) {
+            std::vector<std::pair<int64_t, int>> local_entries;
+            local_entries.reserve(batch_size);
+
+            // 为每个线程创建独立的数据集访问器
+            GDALDataset* threadDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+            if (!threadDS) {
+                std::cerr << "线程 " << thread_id << " 无法打开数据集" << std::endl;
+                return;
+            }
+
+            OGRLayer* threadLayer = threadDS->GetLayer(0);
+            if (!threadLayer) {
+                std::cerr << "线程 " << thread_id << " 无法获取图层" << std::endl;
+                GDALClose(threadDS);
+                return;
+            }
+
+            for (size_t i = start_idx; i < end_idx; ++i) {
+                int fid = valid_fids[i];
+
+                // 通过FID获取要素
+                OGRFeature* poFeature = threadLayer->GetFeature(fid);
+                if (!poFeature)
+                    continue;
+
+                OGRGeometry* poGeometry = poFeature->GetGeometryRef();
+                if (poGeometry && !poGeometry->IsEmpty()) {
+                    try {
+                        OGRPoint center;
+                        if (poGeometry->Centroid(&center) == OGRERR_NONE) {
+                            // 计算S2 Cell ID
+                            S2LatLng latlng = S2LatLng::FromDegrees(center.getY(), center.getX());
+
+                            S2RegionCoverer::Options options;
+                            options.set_min_level(level_);
+                            options.set_max_level(level_);
+                            options.set_max_cells(1);
+                            S2RegionCoverer coverer(options);
+
+                            S2LatLng p1 = S2LatLng::FromDegrees(center.getY() - 0.0001, center.getX() - 0.0001);
+                            S2LatLng p2 = S2LatLng::FromDegrees(center.getY() + 0.0001, center.getX() + 0.0001);
+                            S2LatLngRect rect(p1, p2);
+
+                            std::vector<S2CellId> cellIds;
+                            coverer.GetCovering(rect, &cellIds);
+
+                            if (!cellIds.empty()) {
+                                local_entries.emplace_back(cellIds[0].id(), fid);
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        // 忽略几何错误，继续处理下一个要素
+                        continue;
+                    }
+                }
+
+                OGRFeature::DestroyFeature(poFeature);
+
+                // 显示进度
+                if ((i - start_idx + 1) % 100000 == 0) {
+                    double progress = (double)(i - start_idx + 1) / (end_idx - start_idx) * 100.0;
+                    std::cout << "线程 " << thread_id << " 进度: " << std::fixed << std::setprecision(1) << progress << "% (" << (i - start_idx + 1) << "/" << (end_idx - start_idx) << ")" << std::endl;
+                }
+            }
+
+            GDALClose(threadDS);
+
+            // 将结果存储到对应线程的结果向量中
+            thread_results[thread_id] = std::move(local_entries);
+        };
+
+        // 创建并启动线程
+        std::vector<std::thread> threads;
+        size_t current_start = 0;
+
+        for (int i = 0; i < num_threads; ++i) {
+            size_t current_end = current_start + features_per_thread;
+            if (i < remaining_features) {
+                current_end++; // 分配剩余要素
+            }
+
+            threads.emplace_back(processFeatures, i, current_start, current_end);
+            current_start = current_end;
+        }
+
+        // 等待所有线程完成
+        for (auto& thread : threads) {
+            thread.join();
+        }
+
+        // 合并所有线程的结果
+        std::cout << "合并线程结果..." << std::endl;
+        size_t total_entries = 0;
+
+        for (int i = 0; i < num_threads; ++i) {
+            total_entries += thread_results[i].size();
+            std::cout << "线程 " << i << " 处理了 " << thread_results[i].size() << " 个要素" << std::endl;
+        }
+
+        // 构建最终索引
+        std::cout << "构建最终索引..." << std::endl;
+        indexMap_.clear();
+
+        for (const auto& thread_result : thread_results) {
+            for (const auto& [cell_id, fid] : thread_result) {
+                indexMap_[cell_id].push_back(fid);
+            }
+        }
+
+        // 保存索引
+        save();
+
+        GDALClose(poDS);
+        std::cout << "多线程S2索引构建完成，总处理要素: " << valid_fids.size() << ", 总索引条目: " << total_entries << std::endl;
         return true;
     }
 
