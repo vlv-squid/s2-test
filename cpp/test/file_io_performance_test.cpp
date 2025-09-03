@@ -205,7 +205,7 @@ class FileIOPerformanceTestFixture : public ::testing::Test {
   protected:
     void SetUp() override {
         // 可以在这里准备测试文件
-        geom_file = "../output_data/dltb_532300_2020_geom.dat";
+        geom_file = "../output_data/dltb_532300_2020.geom";
     }
 
     std::string geom_file;
@@ -289,7 +289,7 @@ TEST_F(FileIOPerformanceTestFixture, SmallReadPerformance) {
 class BufferSizeTest : public ::testing::TestWithParam<size_t> {};
 
 TEST_P(BufferSizeTest, SequentialReadWithDifferentBufferSizes) {
-    std::string geom_file = "../output_data/dltb_532300_2020_geom.dat";
+    std::string geom_file = "../output_data/dltb_532300_2020.geom";
 
     if (!std::filesystem::exists(geom_file)) {
         GTEST_SKIP() << "测试文件不存在，跳过测试";

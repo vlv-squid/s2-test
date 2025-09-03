@@ -1,4 +1,4 @@
-#include <iostream>
+#include <gtest/gtest.h>
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -21,8 +21,8 @@ const std::string TEST_DATA_PATH = "../data/test.shp";
 const std::string OUTPUT_DIR = "./test_output/integrated_test";
 const std::string INDEX_DIR = "./test_output/integrated_test";
 
-class IntegratedGisFormatTest {
-  private:
+class IntegratedGisFormatTest : public ::testing::Test {
+  protected:
     std::unique_ptr<GisStorage::GisStorageSystem> storage_system_;
     std::unique_ptr<S2Main::S2SpatialIndex> spatial_index_;
 
@@ -36,8 +36,7 @@ class IntegratedGisFormatTest {
         static constexpr const char* S2_INDEX = ".s2idx";      // S2空间索引文件
     };
 
-  public:
-    IntegratedGisFormatTest() {
+    void SetUp() override {
         // 创建输出目录
         std::filesystem::create_directories(OUTPUT_DIR);
         std::filesystem::create_directories(INDEX_DIR);
@@ -50,168 +49,164 @@ class IntegratedGisFormatTest {
         spatial_index_ = std::make_unique<S2Main::S2SpatialIndex>(s2_index_path, 15);
     }
 
-    // 测试文件扩展名定义
-    void testFileExtensions() {
-        std::cout << "=== 测试文件扩展名定义 ===" << std::endl;
-        std::cout << "几何数据文件: " << FileExtensions::GEOMETRY_DATA << std::endl;
-        std::cout << "属性数据文件: " << FileExtensions::ATTRIBUTE_DATA << std::endl;
-        std::cout << "字符串池文件: " << FileExtensions::STRING_POOL << std::endl;
-        std::cout << "索引数据文件: " << FileExtensions::INDEX_DATA << std::endl;
-        std::cout << "元数据文件: " << FileExtensions::METADATA << std::endl;
-        std::cout << "S2空间索引文件: " << FileExtensions::S2_INDEX << std::endl;
-        std::cout << std::endl;
-    }
-
-    // 测试Shapefile转换和存储
-    void testShapefileConversion() {
-        std::cout << "=== 测试Shapefile转换和存储 ===" << std::endl;
-
-        if (!std::filesystem::exists(TEST_DATA_PATH)) {
-            std::cout << "测试数据文件不存在: " << TEST_DATA_PATH << std::endl;
-            return;
-        }
-
-        try {
-            // 使用ShapefileConverter进行实际转换
-            std::cout << "开始转换Shapefile..." << std::endl;
-            GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
-
-            auto feature_ids = converter.convert();
-            std::cout << "✓ Shapefile转换成功，转换了 " << feature_ids.size() << " 个要素" << std::endl;
-
-            // 获取转换统计信息
-            auto stats = converter.getConversionStats();
-            std::cout << "  总要素数: " << stats.total_features << std::endl;
-            std::cout << "  有效要素数: " << stats.valid_features << std::endl;
-            std::cout << "  几何数据大小: " << stats.geometry_size << " 字节" << std::endl;
-            std::cout << "  属性数据压缩比: " << std::fixed << std::setprecision(2) << stats.compression_ratio << "%" << std::endl;
-            std::cout << "  转换耗时: " << std::fixed << std::setprecision(2) << stats.conversion_time_seconds << " 秒" << std::endl;
-
-            // 重新初始化存储系统以使用转换后的文件
-            storage_system_->initializeStorageFiles(TEST_DATA_PATH);
-            std::cout << "✓ 存储文件初始化成功" << std::endl;
-
-            // 验证生成的文件
-            std::string base_name = std::filesystem::path(TEST_DATA_PATH).stem().string();
-            std::vector<std::string> expected_files = {converter.getGeometryFilePath(), converter.getAttributeFilePath(), converter.getStringPoolFilePath(), converter.getIndexFilePath()};
-
-            for (const auto& file : expected_files) {
-                if (std::filesystem::exists(file)) {
-                    std::cout << "✓ 文件生成成功: " << std::filesystem::path(file).filename() << std::endl;
-                } else {
-                    std::cout << "✗ 文件缺失: " << std::filesystem::path(file).filename() << std::endl;
-                }
-            }
-        } catch (const std::exception& e) {
-            std::cout << "✗ Shapefile转换失败: " << e.what() << std::endl;
-        }
-        std::cout << std::endl;
-    }
-
-    // 测试S2空间索引构建
-    void testS2SpatialIndex() {
-        std::cout << "=== 测试S2空间索引构建 ===" << std::endl;
-
-        try {
-            // 从数据集构建索引
-            bool success = spatial_index_->buildFromDataset(TEST_DATA_PATH, 1000);
-            if (success) {
-                std::cout << "✓ S2空间索引构建成功" << std::endl;
-                std::cout << "  索引大小: " << spatial_index_->getIndexSize() << " 个S2单元格" << std::endl;
-                std::cout << "  要素总数: " << spatial_index_->getTotalFeatureCount() << std::endl;
-
-                // 保存索引
-                spatial_index_->save();
-                std::cout << "✓ S2空间索引保存成功" << std::endl;
-            } else {
-                std::cout << "✗ S2空间索引构建失败" << std::endl;
-            }
-        } catch (const std::exception& e) {
-            std::cout << "✗ S2空间索引测试失败: " << e.what() << std::endl;
-        }
-        std::cout << std::endl;
-    }
-
-    // 测试数据读取和索引查询的整合
-    void testIntegratedDataAccess() {
-        std::cout << "=== 测试整合数据访问 ===" << std::endl;
-
-        try {
-            // 获取所有要素ID
-            auto feature_ids = storage_system_->getAllFeatureIds();
-            if (feature_ids.empty()) {
-                std::cout << "✗ 没有可用的要素ID" << std::endl;
-                return;
-            }
-
-            std::cout << "✓ 获取到 " << feature_ids.size() << " 个要素ID" << std::endl;
-
-            // 测试几何数据读取
-            if (!feature_ids.empty()) {
-                auto geometry = storage_system_->readGeometry(feature_ids[0]);
-                if (geometry) {
-                    std::cout << "✓ 几何数据读取成功，要素ID: " << feature_ids[0] << std::endl;
-                    std::cout << "  几何类型: " << static_cast<int>(geometry->getGeometryType()) << std::endl;
-                    std::cout << "  坐标数量: " << geometry->getCoordinates().size() << std::endl;
-                } else {
-                    std::cout << "✗ 几何数据读取失败" << std::endl;
-                }
-            }
-
-            // 测试属性数据读取
-            if (!feature_ids.empty()) {
-                auto attributes = storage_system_->readAttribute(feature_ids[0]);
-                if (attributes) {
-                    std::cout << "✓ 属性数据读取成功，要素ID: " << feature_ids[0] << std::endl;
-                    std::cout << "  属性字段数量: " << attributes->getProperties().size() << std::endl;
-                } else {
-                    std::cout << "✗ 属性数据读取失败" << std::endl;
-                }
-            }
-
-            // 测试空间查询
-            if (spatial_index_->isIndexValid()) {
-                // 创建一个测试查询范围
-                S2LatLngRect query_rect(S2LatLng::FromDegrees(26.0, 103.0), S2LatLng::FromDegrees(27.0, 104.0));
-
-                auto results = spatial_index_->query(query_rect, 16);
-                std::cout << "✓ 空间查询成功，查询结果数量: " << results.size() << std::endl;
-            }
-
-        } catch (const std::exception& e) {
-            std::cout << "✗ 整合数据访问测试失败: " << e.what() << std::endl;
-        }
-        std::cout << std::endl;
-    }
-
-    // 运行所有测试
-    void runAllTests() {
-        std::cout << "开始运行整合GIS格式测试..." << std::endl;
-        std::cout << "测试数据路径: " << TEST_DATA_PATH << std::endl;
-        std::cout << "输出目录: " << OUTPUT_DIR << std::endl;
-        std::cout << "索引目录: " << INDEX_DIR << std::endl;
-        std::cout << std::endl;
-
-        testFileExtensions();
-        testShapefileConversion();
-        testS2SpatialIndex();
-        testIntegratedDataAccess();
-
-        std::cout << "整合GIS格式测试完成!" << std::endl;
+    void TearDown() override {
+        // 清理资源
+        storage_system_.reset();
+        spatial_index_.reset();
     }
 };
 
-int main() {
+// 测试文件扩展名定义
+TEST_F(IntegratedGisFormatTest, FileExtensions) {
+    // 验证文件扩展名定义
+    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::GEOMETRY_DATA, ".geom");
+    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::ATTRIBUTE_DATA, ".attr");
+    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::STRING_POOL, ".pool");
+    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::INDEX_DATA, ".idx");
+    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::METADATA, ".meta");
+    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::S2_INDEX, ".s2idx");
+}
+
+// 测试Shapefile转换和存储
+TEST_F(IntegratedGisFormatTest, ShapefileConversion) {
+    // 检查测试数据是否存在
+    ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
+
+    // 使用ShapefileConverter进行实际转换
+    GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
+
+    auto feature_ids = converter.convert();
+    EXPECT_GT(feature_ids.size(), 0) << "转换后应该包含要素";
+
+    // 获取转换统计信息
+    auto stats = converter.getConversionStats();
+    EXPECT_EQ(stats.total_features, stats.valid_features) << "所有要素都应该有效";
+    EXPECT_GT(stats.compression_ratio, 0.0) << "应该有压缩效果";
+
+    // 验证生成的文件
+    std::vector<std::string> expected_files = {converter.getGeometryFilePath(), converter.getAttributeFilePath(), converter.getStringPoolFilePath(), converter.getIndexFilePath()};
+
+    for (const auto& file : expected_files) {
+        EXPECT_TRUE(std::filesystem::exists(file)) << "文件应该存在: " << std::filesystem::path(file).filename();
+    }
+
+    // 重新初始化存储系统以使用转换后的文件（在验证文件存在之后）
+    EXPECT_NO_THROW(storage_system_->initializeStorageFiles(TEST_DATA_PATH));
+}
+
+// 测试S2空间索引构建
+TEST_F(IntegratedGisFormatTest, S2SpatialIndex) {
+    // 检查测试数据是否存在
+    ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
+
+    // 从数据集构建索引
+    bool success = spatial_index_->buildFromDataset(TEST_DATA_PATH, 1000);
+    EXPECT_TRUE(success) << "S2空间索引构建应该成功";
+
+    if (success) {
+        EXPECT_GT(spatial_index_->getIndexSize(), 0) << "索引应该包含S2单元格";
+        EXPECT_GT(spatial_index_->getTotalFeatureCount(), 0) << "索引应该包含要素";
+
+        // 保存索引
+        EXPECT_NO_THROW(spatial_index_->save());
+    }
+}
+
+// 测试整合数据访问
+TEST_F(IntegratedGisFormatTest, IntegratedDataAccess) {
+    // 检查测试数据是否存在
+    ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
+
+    // 先执行Shapefile转换，生成数据文件
+    GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
+    auto feature_ids = converter.convert();
+    ASSERT_GT(feature_ids.size(), 0) << "转换应该成功";
+
+    // 构建S2空间索引
+    bool success = spatial_index_->buildFromDataset(TEST_DATA_PATH, 1000);
+    ASSERT_TRUE(success) << "S2空间索引构建应该成功";
+
+    // 保存S2索引
+    EXPECT_NO_THROW(spatial_index_->save());
+
+    // 初始化存储系统以使用转换后的文件
+    EXPECT_NO_THROW(storage_system_->initializeStorageFiles(TEST_DATA_PATH));
+
+    // 重新执行转换以生成文件（因为initializeStorageFiles会删除文件）
+    GisStorage::ShapefileConverter converter2(TEST_DATA_PATH, OUTPUT_DIR);
+    auto feature_ids2 = converter2.convert();
+    ASSERT_GT(feature_ids2.size(), 0) << "重新转换应该成功";
+
+    // 获取所有要素ID
+    auto all_feature_ids = storage_system_->getAllFeatureIds();
+    EXPECT_GT(all_feature_ids.size(), 0) << "应该能获取到要素ID";
+
+    if (!all_feature_ids.empty()) {
+        // 测试几何数据读取
+        EXPECT_NO_THROW({
+            auto geometry = storage_system_->readGeometry(all_feature_ids[0]);
+            EXPECT_NE(geometry, nullptr) << "几何数据应该能成功读取";
+            if (geometry) {
+                EXPECT_GT(geometry->getCoordinates().size(), 0) << "几何数据应该包含坐标";
+            }
+        });
+
+        // 测试属性数据读取
+        EXPECT_NO_THROW({
+            auto attributes = storage_system_->readAttribute(all_feature_ids[0]);
+            EXPECT_NE(attributes, nullptr) << "属性数据应该能成功读取";
+            if (attributes) {
+                EXPECT_GT(attributes->getProperties().size(), 0) << "属性数据应该包含字段";
+            }
+        });
+    }
+
+    // 测试空间查询
+    if (spatial_index_->isIndexValid()) {
+        // 创建一个测试查询范围
+        S2LatLngRect query_rect(S2LatLng::FromDegrees(26.0, 103.0), S2LatLng::FromDegrees(27.0, 104.0));
+
+        auto results = spatial_index_->query(query_rect, 15);
+        EXPECT_GT(results.size(), 0) << "空间查询应该返回结果";
+    }
+}
+
+// 测试文件完整性
+TEST_F(IntegratedGisFormatTest, FileIntegrity) {
+    // 检查测试数据是否存在
+    ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
+
+    // 先执行转换
+    GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
+    auto feature_ids = converter.convert();
+    ASSERT_GT(feature_ids.size(), 0) << "转换应该成功";
+
+    // 检查文件大小
+    std::vector<std::pair<std::string, size_t>> expected_files = {{converter.getGeometryFilePath(), 0}, {converter.getAttributeFilePath(), 0}, {converter.getStringPoolFilePath(), 0}, {converter.getIndexFilePath(), 0}};
+
+    for (auto& [file_path, file_size] : expected_files) {
+        ASSERT_TRUE(std::filesystem::exists(file_path)) << "文件应该存在: " << std::filesystem::path(file_path).filename();
+
+        file_size = std::filesystem::file_size(file_path);
+        EXPECT_GT(file_size, 0) << "文件大小应该大于0: " << std::filesystem::path(file_path).filename();
+    }
+
+    // 检查S2索引文件
+    std::string s2_index_file = INDEX_DIR + "/test" + FileExtensions::S2_INDEX;
+    if (std::filesystem::exists(s2_index_file)) {
+        auto s2_file_size = std::filesystem::file_size(s2_index_file);
+        EXPECT_GT(s2_file_size, 0) << "S2索引文件大小应该大于0";
+    }
+}
+
+// 主函数
+int main(int argc, char** argv) {
     // 初始化GDAL
     GDALAllRegister();
 
-    try {
-        IntegratedGisFormatTest test;
-        test.runAllTests();
-    } catch (const std::exception& e) {
-        std::cerr << "测试执行失败: " << e.what() << std::endl;
-        return 1;
-    }
+    // 初始化Google Test
+    ::testing::InitGoogleTest(&argc, argv);
 
-    return 0;
+    // 运行所有测试
+    return RUN_ALL_TESTS();
 }

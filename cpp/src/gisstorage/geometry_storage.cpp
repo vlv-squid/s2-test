@@ -17,9 +17,12 @@ namespace GisStorage {
     GeometryStorage::GeometryStorage(const std::string& geometry_file)
         : geometry_file_(geometry_file)
         , index_built_(false) {
-        // 创建目录
         std::filesystem::path file_path(geometry_file);
         std::filesystem::create_directories(file_path.parent_path());
+
+        if (std::filesystem::exists(geometry_file_)) {
+            std::filesystem::remove(geometry_file_);
+        }
     }
 
     int64_t GeometryStorage::writeGeometry(const GeometryData& geometry) {
