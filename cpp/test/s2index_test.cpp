@@ -26,7 +26,7 @@ class S2IndexTest : public ::testing::Test {
     S2IndexTest()
         : gis_dataset_path("/home/chenming/Data/GIS_DATA/filegdb/DLTB_2021CG.gdb")
         , index_file_path("./test_output/storage_test/DLTB_2021CG_s2.idx")
-        , s2level(15)
+        , s2level(14)
         , s2index(std::make_unique<S2SpatialIndex>(index_file_path, s2level))
         , sample_bbox(103.2504, 26.4297, 103.3028, 26.4747) {}
 
@@ -53,8 +53,8 @@ TEST_F(S2IndexTest, S2IndexBuildTest) {
 
     // 验证索引大小
     size_t index_size = s2index->getIndexSize();
-    std::cout << "索引中的要素数量: " << index_size << std::endl;
-    EXPECT_GT(index_size, 0) << "索引应该包含要素";
+    std::cout << "索引中的S2单元格数量: " << index_size << std::endl;
+    EXPECT_GT(index_size, 0) << "索引应该包含单元格";
 }
 
 TEST_F(S2IndexTest, S2IndexQueryTest) {
@@ -72,7 +72,7 @@ TEST_F(S2IndexTest, S2IndexQueryTest) {
     std::cout << "小范围查询结果: " << smallResults.size() << " 个要素" << std::endl;
 
     // 测试2：中等范围查询（应该返回中等数量要素）
-    S2LatLngRect mediumQueryRect(S2LatLng::FromDegrees(26.43, 103.25), S2LatLng::FromDegrees(26.47, 103.30));
+    S2LatLngRect mediumQueryRect(S2LatLng::FromDegrees(26.4297, 103.2504), S2LatLng::FromDegrees(26.4747, 103.3028));
 
     start = std::chrono::high_resolution_clock::now();
     auto mediumResults = s2index->query(mediumQueryRect, s2level);
@@ -212,7 +212,7 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
 
     if (single_success) {
         std::cout << "单线程构建成功，耗时: " << singleThreadTime << "ms" << std::endl;
-        std::cout << "单线程索引要素数量: " << singleThreadIndex.getIndexSize() << std::endl;
+        std::cout << "单线程索引 - S2单元格数量: " << singleThreadIndex.getIndexSize() << ", 总要素数量: " << singleThreadIndex.getTotalFeatureCount() << std::endl;
     } else {
         std::cout << "单线程构建失败" << std::endl;
         return;
@@ -231,7 +231,7 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
 
     if (multi_success) {
         std::cout << "多线程构建成功，耗时: " << multiThreadTime << "ms" << std::endl;
-        std::cout << "多线程索引要素数量: " << multiThreadIndex.getIndexSize() << std::endl;
+        std::cout << "多线程索引 - S2单元格数量: " << multiThreadIndex.getIndexSize() << ", 总要素数量: " << multiThreadIndex.getTotalFeatureCount() << std::endl;
 
         // 性能对比
         if (singleThreadTime > 0 && multiThreadTime > 0) {
@@ -246,7 +246,8 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
         }
 
         // 验证索引完整性
-        EXPECT_EQ(singleThreadIndex.getIndexSize(), multiThreadIndex.getIndexSize()) << "单线程和多线程构建的索引要素数量应该一致";
+        EXPECT_EQ(singleThreadIndex.getIndexSize(), multiThreadIndex.getIndexSize()) << "单线程和多线程构建的索引S2单元格数量应该一致";
+        EXPECT_EQ(singleThreadIndex.getTotalFeatureCount(), multiThreadIndex.getTotalFeatureCount()) << "单线程和多线程构建的索引总要素数量应该一致";
     } else {
         std::cout << "多线程构建失败" << std::endl;
     }
@@ -323,17 +324,24 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     }
 
     // 验证索引完整性
-    size_t single_size = singleThreadIndex.getIndexSize();
-    size_t multi_size = multiThreadIndex.getIndexSize();
-    size_t tbb_size = tbbThreadIndex.getIndexSize();
+    size_t single_cells = singleThreadIndex.getIndexSize();
+    size_t multi_cells = multiThreadIndex.getIndexSize();
+    size_t tbb_cells = tbbThreadIndex.getIndexSize();
+
+    size_t single_features = singleThreadIndex.getTotalFeatureCount();
+    size_t multi_features = multiThreadIndex.getTotalFeatureCount();
+    size_t tbb_features = tbbThreadIndex.getTotalFeatureCount();
 
     std::cout << "\n=== 索引完整性验证 ===" << std::endl;
-    std::cout << "单线程索引要素数量: " << single_size << std::endl;
-    std::cout << "标准多线程索引要素数量: " << multi_size << std::endl;
-    std::cout << "TBB多线程索引要素数量: " << tbb_size << std::endl;
+    std::cout << "单线程索引 - S2单元格数量: " << single_cells << ", 总要素数量: " << single_features << std::endl;
+    std::cout << "标准多线程索引 - S2单元格数量: " << multi_cells << ", 总要素数量: " << multi_features << std::endl;
+    std::cout << "TBB多线程索引 - S2单元格数量: " << tbb_cells << ", 总要素数量: " << tbb_features << std::endl;
 
-    EXPECT_EQ(single_size, multi_size) << "单线程和标准多线程索引要素数量应该一致";
-    EXPECT_EQ(single_size, tbb_size) << "单线程和TBB多线程索引要素数量应该一致";
+    EXPECT_EQ(single_cells, multi_cells) << "单线程和标准多线程索引S2单元格数量应该一致";
+    EXPECT_EQ(single_cells, tbb_cells) << "单线程和TBB多线程索引S2单元格数量应该一致";
+
+    EXPECT_EQ(single_features, multi_features) << "单线程和标准多线程索引总要素数量应该一致";
+    EXPECT_EQ(single_features, tbb_features) << "单线程和TBB多线程索引总要素数量应该一致";
 
     // 使用多种查询范围验证查询结果一致性
     std::cout << "\n=== 查询结果一致性验证 ===" << std::endl;

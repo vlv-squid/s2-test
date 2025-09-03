@@ -31,7 +31,8 @@ namespace S2Main {
         // 智能索引管理
         bool smartLoadOrBuild(const std::string& dataset_path, int batch_size = 50000);
         bool isIndexValid() const;
-        size_t getIndexSize() const;
+        size_t getIndexSize() const;         // 返回S2单元格数量
+        size_t getTotalFeatureCount() const; // 返回总要素数量
         bool buildFromDataset(const std::string& dataset_path, int batch_size = 50000);
 
         // 多线程构建方法

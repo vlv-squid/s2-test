@@ -110,6 +110,14 @@ namespace S2Main {
         return indexMap_.size();
     }
 
+    size_t S2SpatialIndex::getTotalFeatureCount() const {
+        size_t total_count = 0;
+        for (const auto& [cell_id, fids] : indexMap_) {
+            total_count += fids.size();
+        }
+        return total_count;
+    }
+
     bool S2SpatialIndex::buildFromDataset(const std::string& dataset_path, int batch_size) {
         GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!poDS) {
@@ -154,7 +162,7 @@ namespace S2Main {
                     S2RegionCoverer::Options options;
                     options.set_min_level(level_);
                     options.set_max_level(level_);
-                    options.set_max_cells(1);
+                    options.set_max_cells(8);
                     S2RegionCoverer coverer(options);
 
                     // 创建一个小矩形区域
@@ -301,7 +309,7 @@ namespace S2Main {
                             S2RegionCoverer::Options options;
                             options.set_min_level(level_);
                             options.set_max_level(level_);
-                            options.set_max_cells(1);
+                            options.set_max_cells(8);
                             S2RegionCoverer coverer(options);
 
                             S2LatLng p1 = S2LatLng::FromDegrees(center.getY() - 0.0001, center.getX() - 0.0001);
@@ -473,7 +481,7 @@ namespace S2Main {
                     S2RegionCoverer::Options options;
                     options.set_min_level(level_);
                     options.set_max_level(level_);
-                    options.set_max_cells(1);
+                    options.set_max_cells(8);
                     S2RegionCoverer coverer(options);
 
                     S2LatLng p1 = S2LatLng::FromDegrees(geom.center_y - 0.0001, geom.center_x - 0.0001);
