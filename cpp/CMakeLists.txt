@@ -119,3 +119,16 @@ target_link_libraries(spatial_index_benchmark PRIVATE
     s2::s2
 )
 
+# integrated_gis_format_test
+add_executable(integrated_gis_format_test 
+    test/integrated_gis_format_test.cpp
+    ${GISSTORAGE_SOURCES}
+    ${GISINDEX_SOURCES}
+)
+target_link_libraries(integrated_gis_format_test
+    GDAL::GDAL
+    Boost::geometry
+    s2::s2
+    TBB::tbb
+    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
+)

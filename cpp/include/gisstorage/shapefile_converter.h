@@ -31,6 +31,7 @@ namespace GisStorage {
         std::string getAttributeFilePath() const;
         std::string getIndexFilePath() const;
         std::string getStringPoolFilePath() const;
+        std::string getMetadataFilePath() const;
 
         // 获取压缩统计信息
         AttributeSerializer::CompressionStats getCompressionStats() const;
