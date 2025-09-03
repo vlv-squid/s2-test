@@ -261,7 +261,7 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     auto start = std::chrono::high_resolution_clock::now();
 
     S2SpatialIndex singleThreadIndex("./test_output/single_thread_comprehensive.idx", s2level);
-    bool single_success = singleThreadIndex.buildFromDataset(gis_dataset_path, 50000);
+    bool single_success = singleThreadIndex.buildFromDataset(gis_dataset_path, 200000);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto singleThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -271,12 +271,12 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
         return;
     }
 
-    // 测试2：标准多线程构建（8线程）
-    std::cout << "\n开始标准多线程构建测试（8线程）..." << std::endl;
+    // 测试2：标准多线程构建（16线程）
+    std::cout << "\n开始标准多线程构建测试（16线程）..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
 
     S2SpatialIndex multiThreadIndex("./test_output/multi_thread_comprehensive.idx", s2level);
-    bool multi_success = multiThreadIndex.buildFromDatasetMultiThreaded(gis_dataset_path, 50000, 8);
+    bool multi_success = multiThreadIndex.buildFromDatasetMultiThreaded(gis_dataset_path, 200000, 16);
 
     end = std::chrono::high_resolution_clock::now();
     auto multiThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -289,12 +289,12 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     // 性能对比分析
     std::cout << "\n=== 性能对比结果 ===" << std::endl;
     std::cout << "单线程构建时间: " << singleThreadTime << "ms" << std::endl;
-    std::cout << "标准多线程(8线程)时间: " << multiThreadTime << "ms" << std::endl;
+    std::cout << "标准多线程(16线程)时间: " << multiThreadTime << "ms" << std::endl;
 
     // 计算加速比
     if (singleThreadTime > 0 && multiThreadTime > 0) {
         double speedup_std = static_cast<double>(singleThreadTime) / multiThreadTime;
-        std::cout << "标准多线程(8线程)加速比: " << std::fixed << std::setprecision(2) << speedup_std << "x" << std::endl;
+        std::cout << "标准多线程(16线程)加速比: " << std::fixed << std::setprecision(2) << speedup_std << "x" << std::endl;
     }
 
     // 验证索引完整性
