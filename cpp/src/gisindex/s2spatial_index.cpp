@@ -119,6 +119,8 @@ namespace S2Main {
     }
 
     bool S2SpatialIndex::buildFromDataset(const std::string& dataset_path, int batch_size) {
+        GDALAllRegister();
+
         GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!poDS) {
             std::cerr << "无法打开数据集: " << dataset_path << std::endl;
@@ -219,9 +221,12 @@ namespace S2Main {
 
     // 多线程构建S2索引
     bool S2SpatialIndex::buildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size, int num_threads) {
+        GDALAllRegister();
+
         GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!poDS) {
             std::cerr << "无法打开数据集: " << dataset_path << std::endl;
+            std::cerr << "GDAL错误: " << CPLGetLastErrorMsg() << std::endl;
             return false;
         }
 
@@ -387,141 +392,6 @@ namespace S2Main {
 
         GDALClose(poDS);
         std::cout << "多线程S2索引构建完成，总处理要素: " << valid_fids.size() << ", 总索引条目: " << total_entries << std::endl;
-        return true;
-    }
-
-    // 使用TBB的优化多线程构建S2索引
-    bool S2SpatialIndex::buildFromDatasetMultiThreadedTBB(const std::string& dataset_path, int batch_size, int num_threads) {
-        // 设置TBB线程数
-        tbb::global_control global_limit(tbb::global_control::max_allowed_parallelism, num_threads);
-
-        std::cout << "开始TBB优化多线程构建S2索引，总要素数量: 16511241, 线程数: " << num_threads << std::endl;
-
-        // 创建输出目录
-        std::filesystem::path index_path(filePath_);
-        std::filesystem::create_directories(index_path.parent_path());
-
-        // 第一步：单线程读取所有几何数据到内存（避免多线程I/O竞争）
-        std::cout << "单线程读取几何数据到内存..." << std::endl;
-
-        GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
-        if (!poDS) {
-            std::cerr << "无法打开数据集: " << dataset_path << std::endl;
-            return false;
-        }
-
-        OGRLayer* poLayer = poDS->GetLayer(0);
-        if (!poLayer) {
-            std::cerr << "无法获取图层" << std::endl;
-            GDALClose(poDS);
-            return false;
-        }
-
-        // 获取总要素数量
-        int64_t total_features = poLayer->GetFeatureCount();
-
-        // 预分配内存，存储所有几何数据
-        struct GeometryData {
-            GIntBig fid; // 使用GIntBig类型匹配GDAL的FID类型
-            double center_x;
-            double center_y;
-        };
-
-        std::vector<GeometryData> geometry_data;
-        geometry_data.reserve(total_features);
-
-        poLayer->ResetReading();
-        OGRFeature* poFeature;
-        int64_t processed = 0;
-
-        while ((poFeature = poLayer->GetNextFeature()) != nullptr) {
-            OGRGeometry* poGeometry = poFeature->GetGeometryRef();
-            if (poGeometry && !poGeometry->IsEmpty()) {
-                try {
-                    OGRPoint center;
-                    if (poGeometry->Centroid(&center) == OGRERR_NONE) {
-                        geometry_data.push_back({poFeature->GetFID(), center.getX(), center.getY()});
-                    }
-                } catch (const std::exception& e) {
-                    // 忽略几何错误，继续处理下一个要素
-                    continue;
-                }
-            }
-            OGRFeature::DestroyFeature(poFeature);
-
-            processed++;
-            if (processed % 1000000 == 0) {
-                std::cout << "已读取 " << processed << " 个几何要素" << std::endl;
-            }
-        }
-
-        std::cout << "几何数据读取完成，有效要素数量: " << geometry_data.size() << std::endl;
-        GDALClose(poDS);
-
-        // 第二步：使用TBB并行处理内存中的几何数据，构建S2索引
-        std::cout << "使用TBB并行处理内存中的几何数据..." << std::endl;
-
-        // 使用TBB的concurrent_unordered_map存储结果
-        tbb::concurrent_unordered_map<int64_t, std::vector<int>> concurrent_index_map;
-
-        // 并行处理几何数据（完全在内存中，无I/O操作）
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, geometry_data.size()), [&](const tbb::blocked_range<size_t>& range) {
-            // 本地批处理，减少锁竞争
-            const size_t local_batch_size = 1000;
-            std::vector<std::pair<int64_t, int>> local_batch;
-            local_batch.reserve(local_batch_size);
-
-            for (size_t i = range.begin(); i < range.end(); ++i) {
-                const auto& geom = geometry_data[i];
-
-                try {
-                    // 计算S2 Cell ID（完全在内存中）
-                    S2LatLng latlng = S2LatLng::FromDegrees(geom.center_y, geom.center_x);
-
-                    S2RegionCoverer::Options options;
-                    options.set_min_level(level_);
-                    options.set_max_level(level_);
-                    options.set_max_cells(8);
-                    S2RegionCoverer coverer(options);
-
-                    S2LatLng p1 = S2LatLng::FromDegrees(geom.center_y - 0.0001, geom.center_x - 0.0001);
-                    S2LatLng p2 = S2LatLng::FromDegrees(geom.center_y + 0.0001, geom.center_x + 0.0001);
-                    S2LatLngRect rect(p1, p2);
-
-                    std::vector<S2CellId> cellIds;
-                    coverer.GetCovering(rect, &cellIds);
-
-                    if (!cellIds.empty()) {
-                        int64_t cell_id = cellIds[0].id();
-                        local_batch.emplace_back(cell_id, static_cast<int>(geom.fid));
-                    }
-                } catch (const std::exception& e) {
-                    // 忽略几何错误，继续处理下一个要素
-                    continue;
-                }
-
-                // 批量添加到concurrent map，减少锁竞争
-                if (local_batch.size() >= local_batch_size || i == range.end() - 1) {
-                    for (const auto& [cell_id, fid] : local_batch) {
-                        concurrent_index_map[cell_id].push_back(fid);
-                    }
-                    local_batch.clear();
-                }
-            }
-        });
-
-        // 第三步：将TBB结果转换为标准索引格式
-        std::cout << "转换TBB结果到标准索引格式..." << std::endl;
-        indexMap_.clear();
-
-        for (const auto& [cell_id, fids] : concurrent_index_map) {
-            indexMap_[cell_id] = fids;
-        }
-
-        // 保存索引
-        save();
-
-        std::cout << "TBB优化多线程S2索引构建完成，总处理要素: " << geometry_data.size() << ", 总索引条目: " << indexMap_.size() << std::endl;
         return true;
     }
 
