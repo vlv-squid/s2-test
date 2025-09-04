@@ -25,7 +25,7 @@ class S2IndexTest : public ::testing::Test {
   protected:
     S2IndexTest()
         : gis_dataset_path("/home/chenming/Data/GIS_DATA/filegdb/DLTB_2021CG.gdb")
-        , index_file_path("./test_output/storage_test/DLTB_2021CG_s2.idx")
+        , index_file_path("/home/chenming/Projects/test/s2-test/output_data/storage_test/DLTB_2021CG_s2.idx")
         , s2level(14)
         , s2index(std::make_unique<S2SpatialIndex>(index_file_path, s2level))
         , sample_bbox(103.2504, 26.4297, 103.3028, 26.4747) {}

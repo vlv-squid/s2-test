@@ -52,10 +52,16 @@ show_help() {
 check_dependencies() {
     print_info "检查依赖项..."
     
+    # 获取脚本所在目录
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    BUILD_DIR="$PROJECT_ROOT/build"
+    DEMO_EXECUTABLE="$BUILD_DIR/examples/gis_storage_demo"
+    
     # 检查可执行文件是否存在
-    if [ ! -f "./gis_storage_demo" ]; then
+    if [ ! -f "$DEMO_EXECUTABLE" ]; then
         print_error "演示程序不存在，请先构建程序"
-        print_info "运行: cmake .. && make gis_storage_demo"
+        print_info "运行: ./tools/build/build.sh --examples"
         exit 1
     fi
     
@@ -86,10 +92,10 @@ run_demo() {
     
     if [ "$VERBOSE" = "true" ]; then
         # 详细模式
-        ./gis_storage_demo "$INPUT_FILE" "$OUTPUT_DIR"
+        "$DEMO_EXECUTABLE" "$INPUT_FILE" "$OUTPUT_DIR"
     else
         # 普通模式
-        ./gis_storage_demo "$INPUT_FILE" "$OUTPUT_DIR" 2>&1 | tee demo_output.log
+        "$DEMO_EXECUTABLE" "$INPUT_FILE" "$OUTPUT_DIR" 2>&1 | tee demo_output.log
     fi
     
     local exit_code=$?

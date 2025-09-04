@@ -66,75 +66,7 @@ include_directories(
     ${CMAKE_PREFIX_PATH}/include
 )
 
-# 使用file(GLOB)收集源文件
-file(GLOB GISSTORAGE_SOURCES "src/gisstorage/*.cpp")
-file(GLOB GISINDEX_SOURCES "src/gisindex/*.cpp")
-file(GLOB TEST_SOURCES "test/*.cpp")
-
-# 打印收集到的源文件（调试用）
-message(STATUS "GIS存储源文件: ${GISSTORAGE_SOURCES}")
-message(STATUS "GIS索引源文件: ${GISINDEX_SOURCES}")
-message(STATUS "测试源文件: ${TEST_SOURCES}")
-
-# s2index_test
-add_executable(s2index_test 
-    test/s2index_test.cpp
-    ${GISINDEX_SOURCES}
-)
-target_link_libraries(s2index_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    s2::s2
-    TBB::tbb
-)
-
-# gis_storage_test
-add_executable(gis_storage_test
-    test/gis_storage_test.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
-)
-target_link_libraries(gis_storage_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
-    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    s2::s2
-    TBB::tbb
-)
-
-# file_io_performance_test
-add_executable(file_io_performance_test
-    test/file_io_performance_test.cpp
-)
-target_link_libraries(file_io_performance_test PRIVATE
-    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-)
-
-# spatial_index_benchmark
-add_executable(spatial_index_benchmark
-    src/performance/spatial_index_benchmark.cpp
-)
-target_link_libraries(spatial_index_benchmark PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    s2::s2
-)
-
-# integrated_gis_format_test
-add_executable(integrated_gis_format_test 
-    test/integrated_gis_format_test.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
-)
-target_link_libraries(integrated_gis_format_test
-    GDAL::GDAL
-    Boost::geometry
-    s2::s2
-    TBB::tbb
-    GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-)
-
-# 添加examples子目录
+# 添加子目录
+add_subdirectory(tests)
+add_subdirectory(benchmarks)
 add_subdirectory(examples)

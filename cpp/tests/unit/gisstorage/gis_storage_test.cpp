@@ -30,12 +30,9 @@ class GisStorageTest : public ::testing::Test {
     std::unique_ptr<AttributeStorage> attr_storage;
 
     void SetUp() override {
-        // 创建测试输出目录
-        std::filesystem::create_directories("./test_output");
-
         // 设置测试文件路径
         test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
-        output_dir = "./test_output/storage_test";
+        output_dir = "/home/chenming/Projects/test/s2-test/output_data/storage_test";
 
         // 检查测试文件是否存在
         if (!std::filesystem::exists(test_shapefile)) {

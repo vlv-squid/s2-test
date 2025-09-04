@@ -17,9 +17,9 @@
 #include "gisindex/s2spatial_index.h"
 
 // 测试配置
-const std::string TEST_DATA_PATH = "../data/test.shp";
-const std::string OUTPUT_DIR = "./test_output/integrated_test";
-const std::string INDEX_DIR = "./test_output/integrated_test";
+const std::string TEST_DATA_PATH = "/home/chenming/Projects/test/s2-test/data/test.shp";
+const std::string OUTPUT_DIR = "/home/chenming/Projects/test/s2-test/output_data/integrated_test";
+const std::string INDEX_DIR = "/home/chenming/Projects/test/s2-test/output_data/integrated_test";
 
 class IntegratedGisFormatTest : public ::testing::Test {
   protected:

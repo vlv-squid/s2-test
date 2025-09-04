@@ -205,7 +205,7 @@ class FileIOPerformanceTestFixture : public ::testing::Test {
   protected:
     void SetUp() override {
         // 可以在这里准备测试文件
-        geom_file = "../output_data/dltb_532300_2020.geom";
+        geom_file = "/home/chenming/Projects/test/s2-test/output_data/test.geom";
     }
 
     std::string geom_file;
