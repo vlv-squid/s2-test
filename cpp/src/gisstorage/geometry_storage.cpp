@@ -20,13 +20,14 @@ namespace GisStorage {
         std::filesystem::path file_path(geometry_file);
         std::filesystem::create_directories(file_path.parent_path());
 
-        if (std::filesystem::exists(geometry_file_)) {
-            std::filesystem::remove(geometry_file_);
-        }
+        // 只在文件不存在时创建新文件，不删除已存在的文件
+        // if (std::filesystem::exists(geometry_file_)) {
+        //     std::filesystem::remove(geometry_file_);
+        // }
     }
 
     int64_t GeometryStorage::writeGeometry(const GeometryData& geometry) {
-        // 使用追加模式，因为文件在构造函数中已经被清理
+        // 使用追加模式，如果文件不存在则创建新文件
         std::ofstream file(geometry_file_, std::ios::binary | std::ios::app);
         if (!file) {
             throw std::runtime_error("无法打开几何文件进行写入: " + geometry_file_);

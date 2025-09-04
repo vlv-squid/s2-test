@@ -42,7 +42,7 @@ namespace GisStorage {
         // 创建输出目录
         std::filesystem::create_directories(output_dir_);
 
-        // 初始化存储对象 - 使用标准扩展名
+        // 初始化存储对象 - 使用标准扩展名（与GisStorageSystem保持一致）
         std::string geom_file = output_dir_ + "/" + shapefile_name_ + ".geom";
         std::string attr_file = output_dir_ + "/" + shapefile_name_ + ".attr";
         std::string pool_file = output_dir_ + "/" + shapefile_name_ + ".pool";

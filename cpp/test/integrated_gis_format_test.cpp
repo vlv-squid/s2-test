@@ -26,16 +26,6 @@ class IntegratedGisFormatTest : public ::testing::Test {
     std::unique_ptr<GisStorage::GisStorageSystem> storage_system_;
     std::unique_ptr<S2Main::S2SpatialIndex> spatial_index_;
 
-    // 文件扩展名定义
-    struct FileExtensions {
-        static constexpr const char* GEOMETRY_DATA = ".geom";  // 几何数据文件
-        static constexpr const char* ATTRIBUTE_DATA = ".attr"; // 属性数据文件
-        static constexpr const char* STRING_POOL = ".pool";    // 字符串池文件
-        static constexpr const char* INDEX_DATA = ".idx";      // 索引数据文件
-        static constexpr const char* METADATA = ".meta";       // 元数据文件
-        static constexpr const char* S2_INDEX = ".s2idx";      // S2空间索引文件
-    };
-
     void SetUp() override {
         // 创建输出目录
         std::filesystem::create_directories(OUTPUT_DIR);
@@ -44,8 +34,8 @@ class IntegratedGisFormatTest : public ::testing::Test {
         // 初始化存储系统
         storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(OUTPUT_DIR);
 
-        // 初始化S2空间索引 - 统一命名格式
-        std::string s2_index_path = INDEX_DIR + "/test" + FileExtensions::S2_INDEX;
+        // 初始化S2空间索引 - 使用GisStorageSystem中定义的标准扩展名
+        std::string s2_index_path = INDEX_DIR + "/test" + GisStorage::GisStorageSystem::FileExtensions::S2_INDEX;
         spatial_index_ = std::make_unique<S2Main::S2SpatialIndex>(s2_index_path, 15);
     }
 
@@ -58,13 +48,14 @@ class IntegratedGisFormatTest : public ::testing::Test {
 
 // 测试文件扩展名定义
 TEST_F(IntegratedGisFormatTest, FileExtensions) {
-    // 验证文件扩展名定义
-    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::GEOMETRY_DATA, ".geom");
-    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::ATTRIBUTE_DATA, ".attr");
-    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::STRING_POOL, ".pool");
-    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::INDEX_DATA, ".idx");
-    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::METADATA, ".meta");
-    EXPECT_STREQ(IntegratedGisFormatTest::FileExtensions::S2_INDEX, ".s2idx");
+    // 验证文件扩展名定义（使用GisStorageSystem中的标准定义）
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::GEOMETRY_DATA, ".geom");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::ATTRIBUTE_DATA, ".attr");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::STRING_POOL, ".pool");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::INDEX_DATA, ".idx");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::METADATA, "_meta.json");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::S2_INDEX, ".s2idx");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::SPATIAL_INDEX, ".spx");
 }
 
 // 测试Shapefile转换和存储
@@ -171,6 +162,52 @@ TEST_F(IntegratedGisFormatTest, IntegratedDataAccess) {
     }
 }
 
+// 测试重构后的GisStorageSystem功能
+TEST_F(IntegratedGisFormatTest, GisStorageSystemFeatures) {
+    // 检查测试数据是否存在
+    ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
+
+    // 初始化存储系统
+    EXPECT_NO_THROW(storage_system_->initializeStorageFiles(TEST_DATA_PATH));
+
+    // 测试文件路径获取
+    EXPECT_FALSE(storage_system_->getGeometryFilePath().empty());
+    EXPECT_FALSE(storage_system_->getAttributeFilePath().empty());
+    EXPECT_FALSE(storage_system_->getStringPoolFilePath().empty());
+    EXPECT_FALSE(storage_system_->getIndexFilePath().empty());
+    EXPECT_FALSE(storage_system_->getMetadataFilePath().empty());
+    EXPECT_FALSE(storage_system_->getS2IndexFilePath().empty());
+
+    // 测试元数据功能
+    const auto& metadata = storage_system_->getMetadata();
+    EXPECT_EQ(metadata.format_version, "1.0");
+    EXPECT_EQ(metadata.source_format, "Shapefile");
+    EXPECT_FALSE(metadata.source_file.empty());
+    EXPECT_FALSE(metadata.creation_date.empty());
+
+    // 测试存储统计信息
+    auto storage_stats = storage_system_->getStorageStats();
+    EXPECT_GE(storage_stats.total_files, 0);
+    EXPECT_GE(storage_stats.total_size_bytes, 0);
+
+    // 测试S2索引集成
+    EXPECT_NO_THROW(storage_system_->initializeS2Index(15));
+    EXPECT_NO_THROW(storage_system_->buildS2IndexFromDataset(TEST_DATA_PATH, 1000));
+
+    if (storage_system_->isS2IndexValid()) {
+        EXPECT_GT(storage_system_->getS2IndexSize(), 0);
+        EXPECT_GT(storage_system_->getS2TotalFeatureCount(), 0);
+
+        // 测试S2索引保存
+        EXPECT_NO_THROW(storage_system_->saveS2Index());
+    }
+
+    // 测试元数据更新和保存
+    EXPECT_NO_THROW(storage_system_->updateFileSizes());
+    EXPECT_NO_THROW(storage_system_->updateChecksums());
+    EXPECT_NO_THROW(storage_system_->saveMetadata());
+}
+
 // 测试文件完整性
 TEST_F(IntegratedGisFormatTest, FileIntegrity) {
     // 检查测试数据是否存在
@@ -192,7 +229,7 @@ TEST_F(IntegratedGisFormatTest, FileIntegrity) {
     }
 
     // 检查S2索引文件
-    std::string s2_index_file = INDEX_DIR + "/test" + FileExtensions::S2_INDEX;
+    std::string s2_index_file = INDEX_DIR + "/test" + GisStorage::GisStorageSystem::FileExtensions::S2_INDEX;
     if (std::filesystem::exists(s2_index_file)) {
         auto s2_file_size = std::filesystem::file_size(s2_index_file);
         EXPECT_GT(s2_file_size, 0) << "S2索引文件大小应该大于0";

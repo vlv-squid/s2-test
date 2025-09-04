@@ -93,12 +93,15 @@ target_link_libraries(s2index_test PRIVATE
 add_executable(gis_storage_test
     test/gis_storage_test.cpp
     ${GISSTORAGE_SOURCES}
+    ${GISINDEX_SOURCES}
 )
 target_link_libraries(gis_storage_test PRIVATE
     GDAL::GDAL
     Boost::geometry
     nlohmann_json::nlohmann_json
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
+    s2::s2
+    TBB::tbb
 )
 
 # file_io_performance_test

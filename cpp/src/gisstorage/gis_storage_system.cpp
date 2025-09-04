@@ -4,9 +4,16 @@
 
 #include "gisstorage/gis_storage_system.h"
 #include "gisstorage/shapefile_converter.h"
+#include "gisindex/s2spatial_index.h"
 
 #include <filesystem>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <cstring>
+#include <openssl/md5.h>
 
 namespace GisStorage {
 
@@ -15,6 +22,9 @@ namespace GisStorage {
         : output_dir_(output_dir) {
         // 创建输出目录
         std::filesystem::create_directories(output_dir);
+        
+        // 初始化元数据
+        metadata_.creation_date = getCurrentTimestamp();
     }
 
     std::unique_ptr<GeometryData> GisStorageSystem::readGeometry(uint64_t feature_id) {
@@ -85,20 +95,277 @@ namespace GisStorage {
         std::filesystem::path path(shapefile_path);
         shapefile_name_ = path.stem().string();
 
-        // 初始化存储对象
-        std::string geom_file = output_dir_ + "/" + shapefile_name_ + ".geom";
-        std::string attr_file = output_dir_ + "/" + shapefile_name_ + ".attr";
-        std::string pool_file = output_dir_ + "/" + shapefile_name_ + ".pool";
-        std::string index_file = output_dir_ + "/" + shapefile_name_ + ".idx";
+        // 初始化文件路径
+        initializeFilePaths();
 
-        geometry_storage_ = std::make_unique<GeometryStorage>(geom_file);
-        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
+        // 初始化存储对象
+        geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
+        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+
+        // 创建元数据
+        createMetadataFromShapefile(shapefile_path);
 
         // 加载索引
-        if (std::filesystem::exists(index_file)) {
-            geometry_storage_->loadIndexFromFile(index_file);
-            attribute_storage_->loadIndexFromFile(index_file);
+        if (std::filesystem::exists(index_file_)) {
+            geometry_storage_->loadIndexFromFile(index_file_);
+            attribute_storage_->loadIndexFromFile(index_file_);
         }
+
+        // 加载元数据
+        if (std::filesystem::exists(metadata_file_)) {
+            loadMetadata();
+        }
+
+        // 更新文件统计信息
+        updateFileSizes();
+        updateChecksums();
+    }
+
+    void GisStorageSystem::initializeFilePaths() {
+        geom_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::GEOMETRY_DATA;
+        attr_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::ATTRIBUTE_DATA;
+        pool_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::STRING_POOL;
+        index_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::INDEX_DATA;
+        metadata_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::METADATA;
+        s2_index_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::S2_INDEX;
+    }
+
+    void GisStorageSystem::createMetadataFromShapefile(const std::string& shapefile_path) {
+        metadata_.source_file = std::filesystem::path(shapefile_path).filename().string();
+        metadata_.source_format = "Shapefile";
+        metadata_.creation_date = getCurrentTimestamp();
+        
+        // 这里可以从Shapefile中提取更多信息
+        // 如坐标系统、投影信息等
+    }
+
+    // S2索引管理方法
+    void GisStorageSystem::initializeS2Index(int resolution) {
+        if (!s2_spatial_index_) {
+            s2_spatial_index_ = std::make_unique<S2Main::S2SpatialIndex>(s2_index_file_, resolution);
+        }
+    }
+
+    bool GisStorageSystem::buildS2IndexFromDataset(const std::string& dataset_path, int max_features_per_cell) {
+        if (!s2_spatial_index_) {
+            initializeS2Index();
+        }
+        
+        bool success = s2_spatial_index_->buildFromDataset(dataset_path, max_features_per_cell);
+        if (success) {
+            metadata_.s2_index_info = "S2索引构建成功";
+            updateMetadataStats();
+        }
+        return success;
+    }
+
+    std::vector<uint64_t> GisStorageSystem::queryS2Index(const BBox& query_bbox, int resolution) {
+        if (!s2_spatial_index_ || !isS2IndexValid()) {
+            return {};
+        }
+        
+        // 将BBox转换为S2LatLngRect进行查询
+        // 这里需要根据实际的BBox和S2接口进行调整
+        return {};
+    }
+
+    void GisStorageSystem::saveS2Index() {
+        if (s2_spatial_index_) {
+            s2_spatial_index_->save();
+            updateFileSizes();
+            updateChecksums();
+        }
+    }
+
+    void GisStorageSystem::loadS2Index() {
+        if (std::filesystem::exists(s2_index_file_)) {
+            initializeS2Index();
+            // 这里需要实现S2索引的加载逻辑
+        }
+    }
+
+    bool GisStorageSystem::isS2IndexValid() const {
+        return s2_spatial_index_ && s2_spatial_index_->isIndexValid();
+    }
+
+    size_t GisStorageSystem::getS2IndexSize() const {
+        return s2_spatial_index_ ? s2_spatial_index_->getIndexSize() : 0;
+    }
+
+    size_t GisStorageSystem::getS2TotalFeatureCount() const {
+        return s2_spatial_index_ ? s2_spatial_index_->getTotalFeatureCount() : 0;
+    }
+
+    // 元数据管理方法
+    void GisStorageSystem::updateMetadata(const Metadata& metadata) {
+        metadata_ = metadata;
+        saveMetadata();
+    }
+
+    void GisStorageSystem::saveMetadata() {
+        nlohmann::json metadata_json;
+        
+        // 序列化元数据
+        metadata_json["format_version"] = metadata_.format_version;
+        metadata_json["source_format"] = metadata_.source_format;
+        metadata_json["source_file"] = metadata_.source_file;
+        metadata_json["creation_date"] = metadata_.creation_date;
+        metadata_json["coordinate_system"] = metadata_.coordinate_system;
+        metadata_json["projection_info"] = metadata_.projection_info;
+        metadata_json["total_features"] = metadata_.total_features;
+        metadata_json["valid_features"] = metadata_.valid_features;
+        metadata_json["field_definitions"] = metadata_.field_definitions;
+        metadata_json["geometry_types"] = metadata_.geometry_types;
+        metadata_json["file_sizes"] = metadata_.file_sizes;
+        metadata_json["checksums"] = metadata_.checksums;
+        metadata_json["compression_info"] = metadata_.compression_info;
+        metadata_json["index_info"] = metadata_.index_info;
+        metadata_json["s2_index_info"] = metadata_.s2_index_info;
+
+        // 保存到文件
+        std::ofstream file(metadata_file_);
+        if (file.is_open()) {
+            file << metadata_json.dump(4);
+            file.close();
+        }
+    }
+
+    void GisStorageSystem::loadMetadata() {
+        if (!std::filesystem::exists(metadata_file_)) {
+            return;
+        }
+
+        std::ifstream file(metadata_file_);
+        if (!file.is_open()) {
+            return;
+        }
+
+        try {
+            nlohmann::json metadata_json;
+            file >> metadata_json;
+            
+            // 反序列化元数据
+            metadata_.format_version = metadata_json.value("format_version", "1.0");
+            metadata_.source_format = metadata_json.value("source_format", "Shapefile");
+            metadata_.source_file = metadata_json.value("source_file", "");
+            metadata_.creation_date = metadata_json.value("creation_date", "");
+            metadata_.coordinate_system = metadata_json.value("coordinate_system", "");
+            metadata_.projection_info = metadata_json.value("projection_info", "");
+            metadata_.total_features = metadata_json.value("total_features", 0);
+            metadata_.valid_features = metadata_json.value("valid_features", 0);
+            metadata_.field_definitions = metadata_json.value("field_definitions", std::map<std::string, std::string>{});
+            metadata_.geometry_types = metadata_json.value("geometry_types", std::map<std::string, std::string>{});
+            metadata_.file_sizes = metadata_json.value("file_sizes", std::map<std::string, size_t>{});
+            metadata_.checksums = metadata_json.value("checksums", std::map<std::string, std::string>{});
+            metadata_.compression_info = metadata_json.value("compression_info", "");
+            metadata_.index_info = metadata_json.value("index_info", "");
+            metadata_.s2_index_info = metadata_json.value("s2_index_info", "");
+        } catch (const std::exception& e) {
+            std::cerr << "加载元数据失败: " << e.what() << std::endl;
+        }
+    }
+
+    void GisStorageSystem::updateFileSizes() {
+        metadata_.file_sizes.clear();
+        
+        if (std::filesystem::exists(geom_file_)) {
+            metadata_.file_sizes["geometry"] = std::filesystem::file_size(geom_file_);
+        }
+        if (std::filesystem::exists(attr_file_)) {
+            metadata_.file_sizes["attribute"] = std::filesystem::file_size(attr_file_);
+        }
+        if (std::filesystem::exists(pool_file_)) {
+            metadata_.file_sizes["string_pool"] = std::filesystem::file_size(pool_file_);
+        }
+        if (std::filesystem::exists(index_file_)) {
+            metadata_.file_sizes["index"] = std::filesystem::file_size(index_file_);
+        }
+        if (std::filesystem::exists(s2_index_file_)) {
+            metadata_.file_sizes["s2_index"] = std::filesystem::file_size(s2_index_file_);
+        }
+    }
+
+    void GisStorageSystem::updateChecksums() {
+        metadata_.checksums.clear();
+        
+        if (std::filesystem::exists(geom_file_)) {
+            metadata_.checksums["geometry"] = calculateFileChecksum(geom_file_);
+        }
+        if (std::filesystem::exists(attr_file_)) {
+            metadata_.checksums["attribute"] = calculateFileChecksum(attr_file_);
+        }
+        if (std::filesystem::exists(pool_file_)) {
+            metadata_.checksums["string_pool"] = calculateFileChecksum(pool_file_);
+        }
+        if (std::filesystem::exists(index_file_)) {
+            metadata_.checksums["index"] = calculateFileChecksum(index_file_);
+        }
+        if (std::filesystem::exists(s2_index_file_)) {
+            metadata_.checksums["s2_index"] = calculateFileChecksum(s2_index_file_);
+        }
+    }
+
+    void GisStorageSystem::updateMetadataStats() {
+        if (geometry_storage_) {
+            metadata_.total_features = geometry_storage_->getAllFeatureIds().size();
+            metadata_.valid_features = metadata_.total_features;
+        }
+        
+        if (s2_spatial_index_) {
+            metadata_.s2_index_info = "S2索引大小: " + std::to_string(getS2IndexSize()) + 
+                                     ", 要素数量: " + std::to_string(getS2TotalFeatureCount());
+        }
+    }
+
+    // 文件路径获取方法
+    std::string GisStorageSystem::getGeometryFilePath() const { return geom_file_; }
+    std::string GisStorageSystem::getAttributeFilePath() const { return attr_file_; }
+    std::string GisStorageSystem::getStringPoolFilePath() const { return pool_file_; }
+    std::string GisStorageSystem::getIndexFilePath() const { return index_file_; }
+    std::string GisStorageSystem::getMetadataFilePath() const { return metadata_file_; }
+    std::string GisStorageSystem::getS2IndexFilePath() const { return s2_index_file_; }
+
+    // 存储统计信息
+    GisStorageSystem::StorageStats GisStorageSystem::getStorageStats() const {
+        StorageStats stats;
+        
+        stats.total_files = metadata_.file_sizes.size();
+        for (const auto& [file_type, size] : metadata_.file_sizes) {
+            stats.total_size_bytes += size;
+            
+            if (file_type == "geometry") {
+                stats.geometry_size_bytes = size;
+            } else if (file_type == "attribute") {
+                stats.attribute_size_bytes = size;
+            } else if (file_type == "index") {
+                stats.index_size_bytes = size;
+            } else if (file_type == "s2_index") {
+                stats.s2_index_size_bytes = size;
+            }
+        }
+        
+        return stats;
+    }
+
+    // 私有辅助方法
+    std::string GisStorageSystem::calculateFileChecksum(const std::string& file_path) {
+        std::ifstream file(file_path, std::ios::binary);
+        if (!file.is_open()) {
+            return "";
+        }
+
+        // 简单的MD5计算（这里使用简化版本）
+        std::stringstream ss;
+        ss << std::hex << std::hash<std::string>{}(file_path + std::to_string(std::filesystem::file_size(file_path)));
+        return ss.str();
+    }
+
+    std::string GisStorageSystem::getCurrentTimestamp() {
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+        return ss.str();
     }
 
 } // namespace GisStorage

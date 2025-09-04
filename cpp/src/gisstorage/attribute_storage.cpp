@@ -21,9 +21,10 @@ namespace GisStorage {
         std::filesystem::path file_path(attribute_file);
         std::filesystem::create_directories(file_path.parent_path());
 
-        if (std::filesystem::exists(attribute_file)) {
-            std::filesystem::remove(attribute_file);
-        }
+        // 只在文件不存在时创建新文件，不删除已存在的文件
+        // if (std::filesystem::exists(attribute_file)) {
+        //     std::filesystem::remove(attribute_file);
+        // }
 
         // 尝试加载字符串池
         if (std::filesystem::exists(string_pool_file_)) {
