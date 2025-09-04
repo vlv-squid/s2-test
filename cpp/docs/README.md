@@ -28,16 +28,7 @@ cmake ../cpp
 make
 ```
 
-### 2. 运行测试
-```bash
-# 运行所有测试
-./tools/test/run_tests.sh --all
-
-# 运行特定测试
-./tools/test/run_tests.sh s2index_test
-```
-
-### 3. 运行示例
+### 2. 运行示例
 ```bash
 # 运行演示程序
 ./tools/demo/run_demo.sh ../../data/test.shp ./output
@@ -54,7 +45,6 @@ cpp/
 ├── benchmarks/      # 基准测试
 ├── tools/           # 工具脚本
 │   ├── build/       # 构建工具
-│   ├── test/        # 测试工具
 │   ├── demo/        # 演示工具
 │   └── benchmark/   # 基准测试工具
 └── docs/            # 文档
