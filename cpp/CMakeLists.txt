@@ -135,3 +135,6 @@ target_link_libraries(integrated_gis_format_test
     TBB::tbb
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
+
+# 添加examples子目录
+add_subdirectory(examples)

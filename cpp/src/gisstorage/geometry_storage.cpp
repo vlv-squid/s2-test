@@ -19,11 +19,6 @@ namespace GisStorage {
         , index_built_(false) {
         std::filesystem::path file_path(geometry_file);
         std::filesystem::create_directories(file_path.parent_path());
-
-        // 只在文件不存在时创建新文件，不删除已存在的文件
-        // if (std::filesystem::exists(geometry_file_)) {
-        //     std::filesystem::remove(geometry_file_);
-        // }
     }
 
     int64_t GeometryStorage::writeGeometry(const GeometryData& geometry) {
