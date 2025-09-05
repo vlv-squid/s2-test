@@ -22,7 +22,7 @@ namespace GisStorage {
         : output_dir_(output_dir) {
         // 创建输出目录
         std::filesystem::create_directories(output_dir);
-        
+
         // 初始化元数据
         metadata_.creation_date = getCurrentTimestamp();
     }
@@ -134,7 +134,7 @@ namespace GisStorage {
         metadata_.source_file = std::filesystem::path(shapefile_path).filename().string();
         metadata_.source_format = "Shapefile";
         metadata_.creation_date = getCurrentTimestamp();
-        
+
         // 这里可以从Shapefile中提取更多信息
         // 如坐标系统、投影信息等
     }
@@ -150,7 +150,7 @@ namespace GisStorage {
         if (!s2_spatial_index_) {
             initializeS2Index();
         }
-        
+
         bool success = s2_spatial_index_->buildFromDataset(dataset_path, max_features_per_cell);
         if (success) {
             metadata_.s2_index_info = "S2索引构建成功";
@@ -163,7 +163,7 @@ namespace GisStorage {
         if (!s2_spatial_index_ || !isS2IndexValid()) {
             return {};
         }
-        
+
         // 将BBox转换为S2LatLngRect进行查询
         // 这里需要根据实际的BBox和S2接口进行调整
         return {};
@@ -204,7 +204,7 @@ namespace GisStorage {
 
     void GisStorageSystem::saveMetadata() {
         nlohmann::json metadata_json;
-        
+
         // 序列化元数据
         metadata_json["format_version"] = metadata_.format_version;
         metadata_json["source_format"] = metadata_.source_format;
@@ -243,7 +243,7 @@ namespace GisStorage {
         try {
             nlohmann::json metadata_json;
             file >> metadata_json;
-            
+
             // 反序列化元数据
             metadata_.format_version = metadata_json.value("format_version", "1.0");
             metadata_.source_format = metadata_json.value("source_format", "Shapefile");
@@ -267,7 +267,7 @@ namespace GisStorage {
 
     void GisStorageSystem::updateFileSizes() {
         metadata_.file_sizes.clear();
-        
+
         if (std::filesystem::exists(geom_file_)) {
             metadata_.file_sizes["geometry"] = std::filesystem::file_size(geom_file_);
         }
@@ -287,7 +287,7 @@ namespace GisStorage {
 
     void GisStorageSystem::updateChecksums() {
         metadata_.checksums.clear();
-        
+
         if (std::filesystem::exists(geom_file_)) {
             metadata_.checksums["geometry"] = calculateFileChecksum(geom_file_);
         }
@@ -310,29 +310,40 @@ namespace GisStorage {
             metadata_.total_features = geometry_storage_->getAllFeatureIds().size();
             metadata_.valid_features = metadata_.total_features;
         }
-        
+
         if (s2_spatial_index_) {
-            metadata_.s2_index_info = "S2索引大小: " + std::to_string(getS2IndexSize()) + 
-                                     ", 要素数量: " + std::to_string(getS2TotalFeatureCount());
+            metadata_.s2_index_info = "S2索引大小: " + std::to_string(getS2IndexSize()) + ", 要素数量: " + std::to_string(getS2TotalFeatureCount());
         }
     }
 
     // 文件路径获取方法
-    std::string GisStorageSystem::getGeometryFilePath() const { return geom_file_; }
-    std::string GisStorageSystem::getAttributeFilePath() const { return attr_file_; }
-    std::string GisStorageSystem::getStringPoolFilePath() const { return pool_file_; }
-    std::string GisStorageSystem::getIndexFilePath() const { return index_file_; }
-    std::string GisStorageSystem::getMetadataFilePath() const { return metadata_file_; }
-    std::string GisStorageSystem::getS2IndexFilePath() const { return s2_index_file_; }
+    std::string GisStorageSystem::getGeometryFilePath() const {
+        return geom_file_;
+    }
+    std::string GisStorageSystem::getAttributeFilePath() const {
+        return attr_file_;
+    }
+    std::string GisStorageSystem::getStringPoolFilePath() const {
+        return pool_file_;
+    }
+    std::string GisStorageSystem::getIndexFilePath() const {
+        return index_file_;
+    }
+    std::string GisStorageSystem::getMetadataFilePath() const {
+        return metadata_file_;
+    }
+    std::string GisStorageSystem::getS2IndexFilePath() const {
+        return s2_index_file_;
+    }
 
     // 存储统计信息
     GisStorageSystem::StorageStats GisStorageSystem::getStorageStats() const {
         StorageStats stats;
-        
+
         stats.total_files = metadata_.file_sizes.size();
         for (const auto& [file_type, size] : metadata_.file_sizes) {
             stats.total_size_bytes += size;
-            
+
             if (file_type == "geometry") {
                 stats.geometry_size_bytes = size;
             } else if (file_type == "attribute") {
@@ -343,7 +354,7 @@ namespace GisStorage {
                 stats.s2_index_size_bytes = size;
             }
         }
-        
+
         return stats;
     }
 

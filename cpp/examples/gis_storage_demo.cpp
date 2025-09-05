@@ -126,8 +126,8 @@ class GisStorageDemo {
         }
 
         // 检查文件大小
-        auto file_size = std::filesystem::file_size(input_shapefile_);
-        std::cout << "  文件大小: " << formatFileSize(file_size) << std::endl;
+        // auto file_size = std::filesystem::file_size(input_shapefile_);
+        // std::cout << "  文件大小: " << formatFileSize(file_size) << std::endl;
 
         // 使用GDAL检查文件信息
         GDALDataset* dataset = static_cast<GDALDataset*>(GDALOpenEx(input_shapefile_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));

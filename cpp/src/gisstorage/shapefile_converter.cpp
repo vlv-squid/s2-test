@@ -212,9 +212,9 @@ namespace GisStorage {
             OGRFeature::DestroyFeature(feature);
 
             processed_count++;
-            // if (processed_count % 1000 == 0) {
-            //     std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
-            // }
+            if (processed_count % 1000000 == 0) {
+                std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
+            }
         }
 
         // 保存索引数据
