@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstring>
 #include <openssl/md5.h>
+#include <algorithm>
 
 namespace GisStorage {
 
@@ -133,19 +134,37 @@ namespace GisStorage {
 
             std::cout << "      将查询 " << all_feature_ids.size() << " 个要素" << std::endl;
 
-            // 遍历所有要素，查找匹配的属性
-            for (uint64_t fid : all_feature_ids) {
-                try {
-                    auto attr = attribute_storage_->readAttribute(fid);
+            // 批量读取优化：每次处理100000个要素（增加批量大小提升性能）
+            const size_t batch_size = 100000;
+            size_t processed = 0;
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            for (size_t i = 0; i < all_feature_ids.size(); i += batch_size) {
+                size_t end_idx = std::min(i + batch_size, all_feature_ids.size());
+                std::vector<uint64_t> batch_ids(all_feature_ids.begin() + i, all_feature_ids.begin() + end_idx);
+
+                // 批量读取属性
+                auto batch_attrs = readAttributes(batch_ids);
+
+                // 处理批量结果
+                for (const auto& [fid, attr] : batch_attrs) {
                     if (attr) {
                         std::string value = attr->getProperty(field_name);
                         if (value == field_value) {
                             results.push_back(fid);
                         }
                     }
-                } catch (const std::exception& e) {
-                    // 忽略单个要素读取错误，继续处理其他要素
-                    continue;
+                }
+
+                processed += batch_ids.size();
+
+                // 每处理10万个要素显示一次进度
+                if (processed % 100000 == 0) {
+                    auto current_time = std::chrono::high_resolution_clock::now();
+                    double elapsed = std::chrono::duration<double>(current_time - start_time).count();
+                    double rate = processed / elapsed;
+                    std::cout << "      进度: " << processed << "/" << all_feature_ids.size() << " (" << (100.0 * processed / all_feature_ids.size()) << "%) " << "速度: " << std::fixed << std::setprecision(0) << rate
+                              << " 要素/秒" << std::endl;
                 }
             }
         } catch (const std::exception& e) {
