@@ -92,10 +92,12 @@ namespace GisStorage {
             std::string key = string_pool_.getString(key_id);
             std::string value = string_pool_.getString(value_id);
 
-            if (key.empty() || value.empty()) {
-                throw std::runtime_error("字符串池中找不到对应的字符串");
+            // 检查字符串ID是否超出字符串池范围
+            if (key_id >= string_pool_.getPoolSize() || value_id >= string_pool_.getPoolSize()) {
+                throw std::runtime_error("字符串池中找不到对应的字符串 - key_id: " + std::to_string(key_id) + ", value_id: " + std::to_string(value_id) + ", 字符串池大小: " + std::to_string(string_pool_.getPoolSize()));
             }
 
+            // 允许空字符串，因为某些属性字段可能确实为空
             properties[key] = value;
         }
 

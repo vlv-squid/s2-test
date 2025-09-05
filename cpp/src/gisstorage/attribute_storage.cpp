@@ -80,25 +80,15 @@ namespace GisStorage {
             throw std::runtime_error("属性数据不完整 for FID " + std::to_string(feature_id));
         }
 
-        // 计算需要读取的数据大小
+        // 计算需要读取的数据大小（包括FID、属性数量和属性数据）
         size_t data_size = sizeof(uint64_t) + sizeof(uint32_t) + prop_count * sizeof(uint32_t) * 2;
 
-        // 读取剩余数据
-        std::vector<uint8_t> data(data_size);
-        data[0] = reinterpret_cast<uint8_t*>(&stored_fid)[0];
-        data[1] = reinterpret_cast<uint8_t*>(&stored_fid)[1];
-        data[2] = reinterpret_cast<uint8_t*>(&stored_fid)[2];
-        data[3] = reinterpret_cast<uint8_t*>(&stored_fid)[3];
-        data[4] = reinterpret_cast<uint8_t*>(&stored_fid)[4];
-        data[5] = reinterpret_cast<uint8_t*>(&stored_fid)[5];
-        data[6] = reinterpret_cast<uint8_t*>(&stored_fid)[6];
-        data[7] = reinterpret_cast<uint8_t*>(&stored_fid)[7];
-        data[8] = reinterpret_cast<uint8_t*>(&prop_count)[0];
-        data[9] = reinterpret_cast<uint8_t*>(&prop_count)[1];
-        data[10] = reinterpret_cast<uint8_t*>(&prop_count)[2];
-        data[11] = reinterpret_cast<uint8_t*>(&prop_count)[3];
+        // 重新定位到数据开始位置
+        file.seekg(it->second);
 
-        if (!file.read(reinterpret_cast<char*>(&data[12]), data_size - 12)) {
+        // 读取完整的数据
+        std::vector<uint8_t> data(data_size);
+        if (!file.read(reinterpret_cast<char*>(data.data()), data_size)) {
             throw std::runtime_error("属性数据不完整 for FID " + std::to_string(feature_id));
         }
 
