@@ -77,6 +77,12 @@ namespace GisStorage {
         // 初始化存储文件
         void initializeStorageFiles(const std::string& shapefile_path);
 
+        // 设置数据集名称（用于加载现有数据）
+        void setDatasetName(const std::string& dataset_name);
+
+        // 轻量级设置数据集名称（仅加载S2索引和元数据，不加载几何和属性索引）
+        void setDatasetNameLightweight(const std::string& dataset_name);
+
         // S2索引管理
         void initializeS2Index(int resolution = 15);
         bool buildS2IndexFromDataset(const std::string& dataset_path, int max_features_per_cell = 1000);
@@ -109,6 +115,7 @@ namespace GisStorage {
             size_t total_size_bytes = 0;
             size_t geometry_size_bytes = 0;
             size_t attribute_size_bytes = 0;
+            size_t string_pool_size_bytes = 0;
             size_t index_size_bytes = 0;
             size_t s2_index_size_bytes = 0;
             double compression_ratio = 0.0;

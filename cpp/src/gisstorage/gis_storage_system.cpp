@@ -121,6 +121,63 @@ namespace GisStorage {
         updateChecksums();
     }
 
+    void GisStorageSystem::setDatasetName(const std::string& dataset_name) {
+        shapefile_name_ = dataset_name;
+
+        // 重新初始化文件路径
+        initializeFilePaths();
+
+        // 重新初始化存储对象
+        geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
+        attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+
+        // 加载索引
+        if (std::filesystem::exists(index_file_)) {
+            geometry_storage_->loadIndexFromFile(index_file_);
+            attribute_storage_->loadIndexFromFile(index_file_);
+        }
+
+        // 加载元数据
+        if (std::filesystem::exists(metadata_file_)) {
+            loadMetadata();
+        }
+
+        // 加载S2索引
+        if (std::filesystem::exists(s2_index_file_)) {
+            initializeS2Index(15); // 使用默认分辨率15
+            s2_spatial_index_->load();
+        }
+
+        // 更新文件统计信息
+        updateFileSizes();
+        updateChecksums();
+    }
+
+    void GisStorageSystem::setDatasetNameLightweight(const std::string& dataset_name) {
+        shapefile_name_ = dataset_name;
+
+        // 重新初始化文件路径
+        initializeFilePaths();
+
+        // 轻量级模式：不初始化几何和属性存储对象
+        // 这些对象将在需要时按需创建
+
+        // 只加载元数据
+        if (std::filesystem::exists(metadata_file_)) {
+            loadMetadata();
+        }
+
+        // 只加载S2索引
+        if (std::filesystem::exists(s2_index_file_)) {
+            initializeS2Index(15); // 使用默认分辨率15
+            s2_spatial_index_->load();
+        }
+
+        // 更新文件统计信息
+        updateFileSizes();
+        updateChecksums();
+    }
+
     void GisStorageSystem::initializeFilePaths() {
         geom_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::GEOMETRY_DATA;
         attr_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::ATTRIBUTE_DATA;
@@ -164,9 +221,28 @@ namespace GisStorage {
             return {};
         }
 
-        // 将BBox转换为S2LatLngRect进行查询
-        // 这里需要根据实际的BBox和S2接口进行调整
-        return {};
+        try {
+            // 将BBox转换为S2LatLngRect进行查询
+            S2LatLng p1 = S2LatLng::FromDegrees(query_bbox.min_y, query_bbox.min_x); // 纬度, 经度
+            S2LatLng p2 = S2LatLng::FromDegrees(query_bbox.max_y, query_bbox.max_x);
+            S2LatLngRect rect(p1, p2);
+
+            // 使用S2索引进行查询
+            auto s2_results = s2_spatial_index_->query(rect, resolution);
+
+            // 将int类型的FID转换为uint64_t
+            std::vector<uint64_t> results;
+            results.reserve(s2_results.size());
+            for (int fid : s2_results) {
+                results.push_back(static_cast<uint64_t>(fid));
+            }
+
+            return results;
+
+        } catch (const std::exception& e) {
+            std::cerr << "S2查询错误: " << e.what() << std::endl;
+            return {};
+        }
     }
 
     void GisStorageSystem::saveS2Index() {
@@ -340,18 +416,26 @@ namespace GisStorage {
     GisStorageSystem::StorageStats GisStorageSystem::getStorageStats() const {
         StorageStats stats;
 
-        stats.total_files = metadata_.file_sizes.size();
-        for (const auto& [file_type, size] : metadata_.file_sizes) {
-            stats.total_size_bytes += size;
+        // 只统计5个核心文件，不包含元数据文件
+        std::vector<std::string> core_files = {"geometry", "attribute", "string_pool", "index", "s2_index"};
 
-            if (file_type == "geometry") {
-                stats.geometry_size_bytes = size;
-            } else if (file_type == "attribute") {
-                stats.attribute_size_bytes = size;
-            } else if (file_type == "index") {
-                stats.index_size_bytes = size;
-            } else if (file_type == "s2_index") {
-                stats.s2_index_size_bytes = size;
+        for (const auto& file_type : core_files) {
+            auto it = metadata_.file_sizes.find(file_type);
+            if (it != metadata_.file_sizes.end()) {
+                stats.total_files++;
+                stats.total_size_bytes += it->second;
+
+                if (file_type == "geometry") {
+                    stats.geometry_size_bytes = it->second;
+                } else if (file_type == "attribute") {
+                    stats.attribute_size_bytes = it->second;
+                } else if (file_type == "string_pool") {
+                    stats.string_pool_size_bytes = it->second;
+                } else if (file_type == "index") {
+                    stats.index_size_bytes = it->second;
+                } else if (file_type == "s2_index") {
+                    stats.s2_index_size_bytes = it->second;
+                }
             }
         }
 
