@@ -55,15 +55,19 @@ class GisStorageDemo {
     }
 
     // 仅瓦片查询演示构造函数
-    GisStorageDemo(const std::string& existing_data_dir)
+    GisStorageDemo(const std::string& existing_data_dir, const std::string& dataset_name, bool is_tile_query)
         : output_dir_(existing_data_dir)
         , mode_(DemoMode::TILE_QUERY_ONLY) {
         // 初始化GDAL
         GDALAllRegister();
 
-        // 从目录名提取数据集名称
-        std::filesystem::path path(existing_data_dir);
-        dataset_name_ = path.filename().string();
+        // 如果指定了数据集名称，使用指定的名称；否则从目录名提取
+        if (!dataset_name.empty()) {
+            dataset_name_ = dataset_name;
+        } else {
+            std::filesystem::path path(existing_data_dir);
+            dataset_name_ = path.filename().string();
+        }
 
         std::cout << "=== GIS存储系统瓦片查询演示 ===" << std::endl;
         std::cout << "数据目录: " << output_dir_ << std::endl;
@@ -143,12 +147,16 @@ class GisStorageDemo {
             return false;
         }
 
-        // 步骤2: 云南全省瓦片查询演示
+        // 步骤2: 属性查询演示
+        std::cout << "\n步骤2: 属性查询演示..." << std::endl;
+        demonstrateAttributeQueries();
+
+        // 步骤3: 云南全省瓦片查询演示
         if (!demonstrateYunnanTileQueries()) {
             return false;
         }
 
-        // 步骤3: 显示统计信息
+        // 步骤4: 显示统计信息
         displayStatistics();
 
         std::cout << "\n=== 瓦片查询演示完成！===" << std::endl;
@@ -444,6 +452,10 @@ class GisStorageDemo {
             } else {
                 std::cout << "  S2空间索引: 无效" << std::endl;
             }
+
+            // 演示属性查询
+            std::cout << "  属性查询演示:" << std::endl;
+            demonstrateAttributeQueries();
 
             std::cout << "  ✓ 数据访问演示完成" << std::endl;
             return true;
@@ -778,6 +790,124 @@ class GisStorageDemo {
         return results;
     }
 
+    // 属性查询演示
+    void demonstrateAttributeQueries() {
+        try {
+            // 演示1: 查询dlbm字段值为0101的要素
+            std::cout << "    演示1: 查询dlbm字段值为'0101'的要素" << std::endl;
+            auto dlbm_results = storage_system_->queryByAttribute("dlbm", "0101");
+            std::cout << "      找到 " << dlbm_results.size() << " 个匹配的要素" << std::endl;
+
+            // 如果没找到，尝试查询实际存在的值
+            if (dlbm_results.empty()) {
+                std::cout << "      尝试查询dlbm字段值为'0301'的要素（从第一个要素看到的实际值）" << std::endl;
+                auto dlbm_results_0301 = storage_system_->queryByAttribute("dlbm", "0301");
+                std::cout << "      找到 " << dlbm_results_0301.size() << " 个匹配的要素" << std::endl;
+            }
+
+            if (!dlbm_results.empty()) {
+                std::cout << "      前5个匹配的要素ID: ";
+                size_t show_count = std::min(static_cast<size_t>(5), dlbm_results.size());
+                for (size_t i = 0; i < show_count; ++i) {
+                    std::cout << dlbm_results[i];
+                    if (i < show_count - 1)
+                        std::cout << ", ";
+                }
+                std::cout << std::endl;
+
+                // 显示第一个匹配要素的详细信息
+                if (!dlbm_results.empty()) {
+                    auto attr = storage_system_->readAttribute(dlbm_results[0]);
+                    if (attr) {
+                        std::cout << "      要素 " << dlbm_results[0] << " 的属性信息:" << std::endl;
+                        const auto& properties = attr->getProperties();
+                        size_t prop_count = 0;
+                        for (const auto& [key, value] : properties) {
+                            if (prop_count < 5) { // 只显示前5个属性
+                                std::cout << "        " << key << ": " << value << std::endl;
+                                prop_count++;
+                            }
+                        }
+                        if (properties.size() > 5) {
+                            std::cout << "        ... 还有 " << (properties.size() - 5) << " 个属性" << std::endl;
+                        }
+                    }
+                }
+            }
+
+            // 演示2: 查询dlbm字段包含"01"的要素（模式匹配）
+            std::cout << "    演示2: 查询dlbm字段包含'01'的要素" << std::endl;
+            auto pattern_results = storage_system_->queryByAttributePattern("dlbm", "01");
+            std::cout << "      找到 " << pattern_results.size() << " 个匹配的要素" << std::endl;
+
+            // 演示3: 获取dlbm字段的所有不同值
+            std::cout << "    演示3: 获取dlbm字段的所有不同值" << std::endl;
+            auto dlbm_values = storage_system_->queryAttributeValues("dlbm");
+            std::cout << "      找到 " << dlbm_values.size() << " 个有dlbm值的要素" << std::endl;
+
+            if (!dlbm_values.empty()) {
+                // 统计不同值的数量
+                std::map<std::string, int> value_counts;
+                for (const auto& [fid, value] : dlbm_values) {
+                    value_counts[value]++;
+                }
+
+                std::cout << "      dlbm字段的不同值统计:" << std::endl;
+                size_t show_values = 0;
+                for (const auto& [value, count] : value_counts) {
+                    if (show_values < 10) { // 只显示前10个不同的值
+                        std::cout << "        '" << value << "': " << count << " 个要素" << std::endl;
+                        show_values++;
+                    }
+                }
+                if (value_counts.size() > 10) {
+                    std::cout << "        ... 还有 " << (value_counts.size() - 10) << " 个不同的值" << std::endl;
+                }
+            }
+
+            // 演示4: 显示所有可用字段
+            std::cout << "    演示4: 显示所有可用字段" << std::endl;
+
+            // 尝试直接读取第一个要素的属性（FID=1）
+            std::cout << "      尝试读取第一个要素 (FID: 1) 的属性..." << std::endl;
+
+            try {
+                auto attr = storage_system_->readAttribute(1);
+                if (attr) {
+                    const auto& properties = attr->getProperties();
+                    std::cout << "      数据集包含 " << properties.size() << " 个字段:" << std::endl;
+
+                    size_t field_count = 0;
+                    for (const auto& [key, value] : properties) {
+                        if (field_count < 10) { // 只显示前10个字段
+                            std::cout << "        " << key << ": " << value << std::endl;
+                            field_count++;
+                        }
+                    }
+                    if (properties.size() > 10) {
+                        std::cout << "        ... 还有 " << (properties.size() - 10) << " 个字段" << std::endl;
+                    }
+
+                    // 检查是否有dlbm字段
+                    if (properties.find("dlbm") != properties.end()) {
+                        std::cout << "      ✓ 找到dlbm字段！" << std::endl;
+                    } else {
+                        std::cout << "      ✗ 未找到dlbm字段" << std::endl;
+                    }
+                } else {
+                    std::cout << "      ✗ 无法读取第一个要素的属性数据" << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "      读取第一个要素属性失败: " << e.what() << std::endl;
+            }
+
+            std::cout << "    ✓ 属性查询演示完成" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "    ✗ 属性查询演示失败: " << e.what() << std::endl;
+        }
+    }
+
     // 步骤9: 显示统计信息
     void displayStatistics() {
         std::cout << "\n步骤9: 处理统计信息" << std::endl;
@@ -851,38 +981,59 @@ class GisStorageDemo {
 // 主函数
 int main(int argc, char* argv[]) {
     // 检查命令行参数
-    if (argc < 2 || argc > 3) {
+    if (argc < 2 || argc > 4) {
         std::cout << "用法:" << std::endl;
         std::cout << "  完整处理流程: " << argv[0] << " <输入Shapefile路径> <输出目录>" << std::endl;
-        std::cout << "  仅瓦片查询:   " << argv[0] << " <现有数据目录>" << std::endl;
+        std::cout << "  仅瓦片查询:   " << argv[0] << " <现有数据目录> [数据集名称]" << std::endl;
         std::cout << std::endl;
         std::cout << "示例:" << std::endl;
         std::cout << "  " << argv[0] << " ../data/test.shp ./output" << std::endl;
         std::cout << "  " << argv[0] << " ./output" << std::endl;
+        std::cout << "  " << argv[0] << " ./output DLTB_2021CG" << std::endl;
         return 1;
     }
 
     bool success = false;
 
     if (argc == 3) {
-        // 完整处理流程模式
-        std::string input_shapefile = argv[1];
-        std::string output_dir = argv[2];
+        // 检查第二个参数是否是文件（完整处理流程）还是目录（轻量级模式）
+        std::string first_arg = argv[1];
+        std::string second_arg = argv[2];
 
-        GisStorageDemo demo(input_shapefile, output_dir);
-        success = demo.runCompleteWorkflow();
+        // 如果第一个参数以.shp结尾，则是完整处理流程
+        if (first_arg.length() >= 4 && first_arg.substr(first_arg.length() - 4) == ".shp") {
+            // 完整处理流程模式
+            std::string input_shapefile = argv[1];
+            std::string output_dir = argv[2];
 
-        if (success) {
-            std::cout << "\n🎉 所有处理步骤都成功完成！" << std::endl;
-            std::cout << "生成的文件位于: " << output_dir << std::endl;
+            GisStorageDemo demo(input_shapefile, output_dir);
+            success = demo.runCompleteWorkflow();
+
+            if (success) {
+                std::cout << "\n🎉 所有处理步骤都成功完成！" << std::endl;
+                std::cout << "生成的文件位于: " << output_dir << std::endl;
+            } else {
+                std::cout << "\n❌ 处理过程中遇到错误，请检查日志信息。" << std::endl;
+            }
         } else {
-            std::cout << "\n❌ 处理过程中遇到错误，请检查日志信息。" << std::endl;
+            // 轻量级模式，第二个参数是数据集名称
+            std::string existing_data_dir = argv[1];
+            std::string dataset_name = argv[2];
+
+            GisStorageDemo demo(existing_data_dir, dataset_name, true);
+            success = demo.runCompleteWorkflow();
+
+            if (success) {
+                std::cout << "\n🎉 瓦片查询演示成功完成！" << std::endl;
+            } else {
+                std::cout << "\n❌ 瓦片查询演示过程中遇到错误，请检查日志信息。" << std::endl;
+            }
         }
     } else {
-        // 仅瓦片查询模式
+        // 仅瓦片查询模式（无数据集名称）
         std::string existing_data_dir = argv[1];
 
-        GisStorageDemo demo(existing_data_dir);
+        GisStorageDemo demo(existing_data_dir, "", true);
         success = demo.runCompleteWorkflow();
 
         if (success) {

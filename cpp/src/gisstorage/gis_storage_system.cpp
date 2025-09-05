@@ -90,6 +90,186 @@ namespace GisStorage {
         return results;
     }
 
+    // 属性查询方法实现
+    std::vector<uint64_t> GisStorageSystem::queryByAttribute(const std::string& field_name, const std::string& field_value) {
+        std::vector<uint64_t> results;
+
+        // 如果属性存储未初始化，尝试按需初始化
+        if (!attribute_storage_) {
+            try {
+                // 重新初始化文件路径
+                initializeFilePaths();
+                // 初始化属性存储对象
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    attribute_storage_->loadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            // 获取所有要素ID - 如果几何存储未初始化，尝试从索引文件获取
+            std::vector<uint64_t> all_feature_ids;
+            if (geometry_storage_) {
+                all_feature_ids = geometry_storage_->getAllFeatureIds();
+            } else {
+                // 轻量级模式：从索引文件获取要素ID列表
+                // 这里我们需要一个方法来从索引文件获取所有FID
+                // 暂时使用一个简单的范围查询（假设FID从1开始连续）
+                // 在实际应用中，应该从索引文件中读取所有FID
+                std::cout << "      轻量级模式：使用范围查询获取要素ID" << std::endl;
+                // 从元数据获取总要素数，然后生成FID列表
+                const auto& metadata = getMetadata();
+                size_t total_features = metadata.total_features;
+                all_feature_ids.reserve(total_features);
+                for (size_t i = 1; i <= total_features; ++i) {
+                    all_feature_ids.push_back(i);
+                }
+            }
+
+            std::cout << "      将查询 " << all_feature_ids.size() << " 个要素" << std::endl;
+
+            // 遍历所有要素，查找匹配的属性
+            for (uint64_t fid : all_feature_ids) {
+                try {
+                    auto attr = attribute_storage_->readAttribute(fid);
+                    if (attr) {
+                        std::string value = attr->getProperty(field_name);
+                        if (value == field_value) {
+                            results.push_back(fid);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    // 忽略单个要素读取错误，继续处理其他要素
+                    continue;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "属性查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
+    std::vector<uint64_t> GisStorageSystem::queryByAttributePattern(const std::string& field_name, const std::string& pattern) {
+        std::vector<uint64_t> results;
+
+        // 如果属性存储未初始化，尝试按需初始化
+        if (!attribute_storage_) {
+            try {
+                // 重新初始化文件路径
+                initializeFilePaths();
+                // 初始化属性存储对象
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    attribute_storage_->loadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            // 获取所有要素ID - 如果几何存储未初始化，尝试从索引文件获取
+            std::vector<uint64_t> all_feature_ids;
+            if (geometry_storage_) {
+                all_feature_ids = geometry_storage_->getAllFeatureIds();
+            } else {
+                // 轻量级模式：从元数据获取总要素数，生成FID列表
+                const auto& metadata = getMetadata();
+                size_t total_features = metadata.total_features;
+                all_feature_ids.reserve(total_features);
+                for (size_t i = 1; i <= total_features; ++i) {
+                    all_feature_ids.push_back(i);
+                }
+            }
+
+            // 遍历所有要素，查找匹配的属性模式
+            for (uint64_t fid : all_feature_ids) {
+                try {
+                    auto attr = attribute_storage_->readAttribute(fid);
+                    if (attr) {
+                        std::string value = attr->getProperty(field_name);
+                        // 简单的包含匹配（可以扩展为正则表达式）
+                        if (value.find(pattern) != std::string::npos) {
+                            results.push_back(fid);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    // 忽略单个要素读取错误，继续处理其他要素
+                    continue;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "属性模式查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
+    std::vector<std::pair<uint64_t, std::string>> GisStorageSystem::queryAttributeValues(const std::string& field_name) {
+        std::vector<std::pair<uint64_t, std::string>> results;
+
+        // 如果属性存储未初始化，尝试按需初始化
+        if (!attribute_storage_) {
+            try {
+                // 重新初始化文件路径
+                initializeFilePaths();
+                // 初始化属性存储对象
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    attribute_storage_->loadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            // 获取所有要素ID - 如果几何存储未初始化，尝试从索引文件获取
+            std::vector<uint64_t> all_feature_ids;
+            if (geometry_storage_) {
+                all_feature_ids = geometry_storage_->getAllFeatureIds();
+            } else {
+                // 轻量级模式：从元数据获取总要素数，生成FID列表
+                const auto& metadata = getMetadata();
+                size_t total_features = metadata.total_features;
+                all_feature_ids.reserve(total_features);
+                for (size_t i = 1; i <= total_features; ++i) {
+                    all_feature_ids.push_back(i);
+                }
+            }
+
+            // 遍历所有要素，获取指定字段的值
+            for (uint64_t fid : all_feature_ids) {
+                try {
+                    auto attr = attribute_storage_->readAttribute(fid);
+                    if (attr) {
+                        std::string value = attr->getProperty(field_name);
+                        if (!value.empty()) {
+                            results.emplace_back(fid, value);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    // 忽略单个要素读取错误，继续处理其他要素
+                    continue;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "属性值查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
     void GisStorageSystem::initializeStorageFiles(const std::string& shapefile_path) {
         // 提取Shapefile名称
         std::filesystem::path path(shapefile_path);
