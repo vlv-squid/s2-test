@@ -42,6 +42,9 @@ namespace GisStorage {
         // 从索引文件加载索引
         void loadIndexFromFile(const std::string& index_file);
 
+        // 保存索引到二进制文件
+        void saveIndexToFile(const std::string& index_file);
+
         // 保存字符串池到文件
         void saveStringPool();
 

@@ -4,10 +4,7 @@
 
 #include "gisstorage/attribute_serializer.h"
 
-#include <sstream>
 #include <stdexcept>
-#include <nlohmann/json.hpp>
-#include <iostream>
 #include <cstring>
 
 namespace GisStorage {
@@ -21,18 +18,21 @@ namespace GisStorage {
     }
 
     std::vector<uint8_t> AttributeSerializer::serializeAttributes(const AttributeData& attribute) {
-        std::vector<uint8_t> data;
-
-        // 写入feature_id
-        uint64_t feature_id = attribute.getFeatureId();
-        data.insert(data.end(), reinterpret_cast<uint8_t*>(&feature_id), reinterpret_cast<uint8_t*>(&feature_id) + sizeof(uint64_t));
-
         // 获取属性
         auto properties = attribute.getProperties();
 
+        // 预计算数据大小以提高性能
+        size_t data_size = sizeof(uint64_t) + sizeof(uint32_t) + properties.size() * sizeof(uint32_t) * 2;
+        std::vector<uint8_t> data;
+        data.reserve(data_size);
+
+        // 写入feature_id
+        uint64_t feature_id = attribute.getFeatureId();
+        data.insert(data.end(), reinterpret_cast<const uint8_t*>(&feature_id), reinterpret_cast<const uint8_t*>(&feature_id) + sizeof(uint64_t));
+
         // 写入属性数量
         uint32_t prop_count = static_cast<uint32_t>(properties.size());
-        data.insert(data.end(), reinterpret_cast<uint8_t*>(&prop_count), reinterpret_cast<uint8_t*>(&prop_count) + sizeof(uint32_t));
+        data.insert(data.end(), reinterpret_cast<const uint8_t*>(&prop_count), reinterpret_cast<const uint8_t*>(&prop_count) + sizeof(uint32_t));
 
         // 计算原始大小（用于统计）
         size_t original_size = sizeof(uint64_t) + sizeof(uint32_t); // feature_id + prop_count
@@ -44,8 +44,8 @@ namespace GisStorage {
             uint32_t value_id = string_pool_.getStringId(value);
 
             // 写入key_id和value_id
-            data.insert(data.end(), reinterpret_cast<uint8_t*>(&key_id), reinterpret_cast<uint8_t*>(&key_id) + sizeof(uint32_t));
-            data.insert(data.end(), reinterpret_cast<uint8_t*>(&value_id), reinterpret_cast<uint8_t*>(&value_id) + sizeof(uint32_t));
+            data.insert(data.end(), reinterpret_cast<const uint8_t*>(&key_id), reinterpret_cast<const uint8_t*>(&key_id) + sizeof(uint32_t));
+            data.insert(data.end(), reinterpret_cast<const uint8_t*>(&value_id), reinterpret_cast<const uint8_t*>(&value_id) + sizeof(uint32_t));
 
             // 计算原始大小
             original_size += key.length() + value.length() + 2; // 字符串长度 + 引号
@@ -74,8 +74,10 @@ namespace GisStorage {
         std::memcpy(&prop_count, &data[offset], sizeof(uint32_t));
         offset += sizeof(uint32_t);
 
-        // 重建属性映射
+        // 创建属性映射
         std::map<std::string, std::string> properties;
+
+        // 重建属性映射
         for (uint32_t i = 0; i < prop_count; ++i) {
             if (offset + sizeof(uint32_t) * 2 > data.size()) {
                 throw std::runtime_error("属性数据不完整");

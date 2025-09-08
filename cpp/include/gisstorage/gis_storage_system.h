@@ -75,7 +75,6 @@ namespace GisStorage {
         std::map<uint64_t, std::unique_ptr<AttributeData>> readAttributes(const std::vector<uint64_t>& feature_ids);
 
         // 属性查询方法
-        std::vector<uint64_t> queryByAttribute(const std::string& field_name, const std::string& field_value);
         std::vector<uint64_t> queryByAttributePattern(const std::string& field_name, const std::string& pattern);
         std::vector<std::pair<uint64_t, std::string>> queryAttributeValues(const std::string& field_name);
 

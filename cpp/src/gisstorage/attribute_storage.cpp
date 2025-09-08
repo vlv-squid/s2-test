@@ -123,36 +123,91 @@ namespace GisStorage {
 
         offset_index_.clear();
 
-        // 尝试读取JSON格式的索引文件
-        std::ifstream file(index_file);
+        // 首先尝试作为JSON格式读取
+        std::ifstream json_file(index_file);
+        if (json_file) {
+            try {
+                nlohmann::json index_data = nlohmann::json::parse(json_file);
+
+                // 验证JSON结构
+                if (index_data.contains("version") && index_data.contains("data") && index_data["data"].contains("features")) {
+                    std::cout << "索引文件格式: JSON" << std::endl;
+                    std::cout << "版本: " << index_data["version"] << std::endl;
+                    std::cout << "要素数量: " << index_data["data"]["features"].size() << std::endl;
+
+                    // 读取每个索引条目
+                    int count = 0;
+                    for (const auto& feature : index_data["data"]["features"].items()) {
+                        uint64_t fid = std::stoull(feature.key());
+                        int64_t attr_offset = feature.value()["attr_offset"];
+
+                        offset_index_[fid] = attr_offset;
+
+                        if (count < 5) { // 只显示前5个条目
+                            std::cout << "索引条目 " << count << ": FID=" << fid << ", attr_offset=" << attr_offset << std::endl;
+                        }
+                        count++;
+                    }
+
+                    std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
+                    index_built_ = true;
+                    return;
+                }
+            } catch (const nlohmann::json::exception& e) {
+                // JSON解析失败，继续尝试二进制格式
+            }
+        }
+
+        // 尝试作为二进制格式读取
+        std::ifstream file(index_file, std::ios::binary);
         if (!file) {
             std::cout << "无法打开索引文件: " << index_file << std::endl;
             return;
         }
 
         try {
-            nlohmann::json index_data = nlohmann::json::parse(file);
+            // 读取文件头
+            struct IndexHeader {
+                uint32_t version;
+                uint32_t feature_count;
+                uint64_t reserved; // 保留字段，用于对齐
+            } header;
 
-            // 验证JSON结构
-            if (!index_data.contains("version") || !index_data.contains("data") || !index_data["data"].contains("features")) {
-                std::cout << "索引文件格式不正确" << std::endl;
+            if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
+                std::cout << "无法读取索引文件头" << std::endl;
                 return;
             }
 
-            std::cout << "索引文件格式: JSON" << std::endl;
-            std::cout << "版本: " << index_data["version"] << std::endl;
-            std::cout << "要素数量: " << index_data["data"]["features"].size() << std::endl;
+            // 检查版本号是否合理（1-1000之间）
+            if (header.version < 1 || header.version > 1000) {
+                std::cout << "二进制索引文件版本号异常: " << header.version << std::endl;
+                return;
+            }
 
-            // 读取每个索引条目
+            std::cout << "索引文件格式: 二进制" << std::endl;
+            std::cout << "版本: " << header.version << std::endl;
+            std::cout << "要素数量: " << header.feature_count << std::endl;
+
+            // 预分配内存以提高性能
+            offset_index_.reserve(header.feature_count);
+
+            // 读取索引条目
+            struct IndexEntry {
+                uint64_t feature_id;
+                int64_t attr_offset;
+            } entry;
+
             int count = 0;
-            for (const auto& feature : index_data["data"]["features"].items()) {
-                uint64_t fid = std::stoull(feature.key());
-                int64_t attr_offset = feature.value()["attr_offset"];
+            for (uint32_t i = 0; i < header.feature_count; ++i) {
+                if (!file.read(reinterpret_cast<char*>(&entry), sizeof(entry))) {
+                    std::cout << "索引条目读取不完整，已读取 " << i << " 个条目" << std::endl;
+                    break;
+                }
 
-                offset_index_[fid] = attr_offset;
+                offset_index_[entry.feature_id] = entry.attr_offset;
 
                 if (count < 5) { // 只显示前5个条目
-                    std::cout << "索引条目 " << count << ": FID=" << fid << ", attr_offset=" << attr_offset << std::endl;
+                    std::cout << "索引条目 " << count << ": FID=" << entry.feature_id << ", attr_offset=" << entry.attr_offset << std::endl;
                 }
                 count++;
             }
@@ -160,8 +215,52 @@ namespace GisStorage {
             std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
             index_built_ = true;
 
-        } catch (const nlohmann::json::exception& e) {
-            std::cout << "JSON索引文件解析失败: " << e.what() << std::endl;
+        } catch (const std::exception& e) {
+            std::cout << "二进制索引文件解析失败: " << e.what() << std::endl;
+        }
+    }
+
+    void AttributeStorage::saveIndexToFile(const std::string& index_file) {
+        const auto& offsets = getOffsetIndex();
+        if (offsets.empty()) {
+            std::cout << "没有索引数据需要保存" << std::endl;
+            return;
+        }
+
+        std::ofstream file(index_file, std::ios::binary);
+        if (!file) {
+            std::cout << "无法创建索引文件: " << index_file << std::endl;
+            return;
+        }
+
+        try {
+            // 写入文件头
+            struct IndexHeader {
+                uint32_t version = 1; // 版本号
+                uint32_t feature_count;
+                uint64_t reserved = 0; // 保留字段，用于对齐
+            } header;
+
+            header.feature_count = static_cast<uint32_t>(offsets.size());
+            file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+
+            // 写入索引条目
+            struct IndexEntry {
+                uint64_t feature_id;
+                int64_t attr_offset;
+            } entry;
+
+            for (const auto& [feature_id, attr_offset] : offsets) {
+                entry.feature_id = feature_id;
+                entry.attr_offset = attr_offset;
+                file.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
+            }
+
+            file.flush();
+            std::cout << "索引已保存到: " << index_file << " (条目数: " << offsets.size() << ")" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cout << "保存索引文件失败: " << e.what() << std::endl;
         }
     }
 
@@ -236,7 +335,6 @@ namespace GisStorage {
         }
 
         offset_index_.clear();
-        int64_t offset = 0;
 
         while (file.good()) {
             int64_t current_offset = file.tellg();

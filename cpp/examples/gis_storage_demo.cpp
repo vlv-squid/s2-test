@@ -795,15 +795,8 @@ class GisStorageDemo {
         try {
             // 演示1: 查询dlbm字段值为0101的要素
             std::cout << "    演示1: 查询dlbm字段值为'0101'的要素" << std::endl;
-            auto dlbm_results = storage_system_->queryByAttribute("dlbm", "0101");
+            auto dlbm_results = storage_system_->queryByAttributeEfficient("dlbm", "0101");
             std::cout << "      找到 " << dlbm_results.size() << " 个匹配的要素" << std::endl;
-
-            // 如果没找到，尝试查询实际存在的值
-            if (dlbm_results.empty()) {
-                std::cout << "      尝试查询dlbm字段值为'0301'的要素（从第一个要素看到的实际值）" << std::endl;
-                auto dlbm_results_0301 = storage_system_->queryByAttribute("dlbm", "0301");
-                std::cout << "      找到 " << dlbm_results_0301.size() << " 个匹配的要素" << std::endl;
-            }
 
             if (!dlbm_results.empty()) {
                 std::cout << "      前5个匹配的要素ID: ";
@@ -983,11 +976,12 @@ int main(int argc, char* argv[]) {
     // 检查命令行参数
     if (argc < 2 || argc > 4) {
         std::cout << "用法:" << std::endl;
-        std::cout << "  完整处理流程: " << argv[0] << " <输入Shapefile路径> <输出目录>" << std::endl;
+        std::cout << "  完整处理流程: " << argv[0] << " <输入GIS文件路径(.shp/.gdb)> <输出目录>" << std::endl;
         std::cout << "  仅瓦片查询:   " << argv[0] << " <现有数据目录> [数据集名称]" << std::endl;
         std::cout << std::endl;
         std::cout << "示例:" << std::endl;
         std::cout << "  " << argv[0] << " ../data/test.shp ./output" << std::endl;
+        std::cout << "  " << argv[0] << " ../data/test.gdb ./output" << std::endl;
         std::cout << "  " << argv[0] << " ./output" << std::endl;
         std::cout << "  " << argv[0] << " ./output DLTB_2021CG" << std::endl;
         return 1;
@@ -1000,8 +994,16 @@ int main(int argc, char* argv[]) {
         std::string first_arg = argv[1];
         std::string second_arg = argv[2];
 
-        // 如果第一个参数以.shp结尾，则是完整处理流程
-        if (first_arg.length() >= 4 && first_arg.substr(first_arg.length() - 4) == ".shp") {
+        // 如果第一个参数是GIS数据文件（.shp或.gdb），则是完整处理流程
+        bool is_gis_file = false;
+        if (first_arg.length() >= 4) {
+            std::string ext = first_arg.substr(first_arg.length() - 4);
+            if (ext == ".shp" || ext == ".gdb") {
+                is_gis_file = true;
+            }
+        }
+
+        if (is_gis_file) {
             // 完整处理流程模式
             std::string input_shapefile = argv[1];
             std::string output_dir = argv[2];

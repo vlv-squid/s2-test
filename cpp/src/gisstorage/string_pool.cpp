@@ -4,9 +4,6 @@
 
 #include "gisstorage/string_pool.h"
 
-#include <fstream>
-#include <iostream>
-#include <algorithm>
 #include <cstring>
 
 namespace GisStorage {
@@ -43,16 +40,23 @@ namespace GisStorage {
     std::vector<uint8_t> StringPool::serialize() const {
         std::lock_guard<std::mutex> lock(mutex_);
 
+        // 预计算总大小以提高性能
+        size_t total_size = sizeof(uint32_t); // 字符串数量
+        for (const auto& str : string_table_) {
+            total_size += sizeof(uint32_t) + str.length(); // 长度 + 字符串内容
+        }
+
         std::vector<uint8_t> data;
+        data.reserve(total_size);
 
         // 写入字符串数量
         uint32_t count = static_cast<uint32_t>(string_table_.size());
-        data.insert(data.end(), reinterpret_cast<uint8_t*>(&count), reinterpret_cast<uint8_t*>(&count) + sizeof(uint32_t));
+        data.insert(data.end(), reinterpret_cast<const uint8_t*>(&count), reinterpret_cast<const uint8_t*>(&count) + sizeof(uint32_t));
 
         // 写入每个字符串
         for (const auto& str : string_table_) {
             uint32_t length = static_cast<uint32_t>(str.length());
-            data.insert(data.end(), reinterpret_cast<uint8_t*>(&length), reinterpret_cast<uint8_t*>(&length) + sizeof(uint32_t));
+            data.insert(data.end(), reinterpret_cast<const uint8_t*>(&length), reinterpret_cast<const uint8_t*>(&length) + sizeof(uint32_t));
             data.insert(data.end(), str.begin(), str.end());
         }
 
@@ -75,6 +79,10 @@ namespace GisStorage {
         std::memcpy(&count, &data[offset], sizeof(uint32_t));
         offset += sizeof(uint32_t);
 
+        // 预分配内存以提高性能
+        string_table_.reserve(count);
+        string_to_id_.reserve(count);
+
         // 读取每个字符串
         for (uint32_t i = 0; i < count; ++i) {
             if (offset + sizeof(uint32_t) > data.size()) {
@@ -89,10 +97,14 @@ namespace GisStorage {
                 break;
             }
 
-            std::string str(data.begin() + offset, data.begin() + offset + length);
+            // 使用更高效的字符串构造
+            std::string str;
+            str.reserve(length);
+            str.assign(reinterpret_cast<const char*>(&data[offset]), length);
+
             string_to_id_[str] = i;
-            string_table_.push_back(str);
-            total_size_ += calculateStringSize(str);
+            string_table_.push_back(std::move(str));
+            total_size_ += sizeof(uint32_t) + length;
 
             offset += length;
         }
