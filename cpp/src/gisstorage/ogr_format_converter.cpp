@@ -35,11 +35,11 @@ namespace GisStorage {
         stats_.string_pool_saved_bytes = 0;
         stats_.conversion_time_seconds = 0.0;
 
-        // 初始化空间范围
-        dataset_spatial_extent_.min_x = 1e10;
-        dataset_spatial_extent_.min_y = 1e10;
-        dataset_spatial_extent_.max_x = -1e10;
-        dataset_spatial_extent_.max_y = -1e10;
+        // 初始化空间范围（将从图层直接获取）
+        dataset_spatial_extent_.min_x = 0.0;
+        dataset_spatial_extent_.min_y = 0.0;
+        dataset_spatial_extent_.max_x = 0.0;
+        dataset_spatial_extent_.max_y = 0.0;
 
         // 初始化存储文件
         initializeStorageFiles();
@@ -134,6 +134,19 @@ namespace GisStorage {
         std::cout << "目标坐标系统: " << target_crs_info << std::endl;
         std::cout << "转换信息: " << transformation_info << std::endl;
 
+        // 从图层直接获取空间范围（原始数据源的bbox）
+        OGREnvelope layer_extent;
+        if (layer->GetExtent(&layer_extent) == OGRERR_NONE) {
+            dataset_spatial_extent_.min_x = layer_extent.MinX;
+            dataset_spatial_extent_.min_y = layer_extent.MinY;
+            dataset_spatial_extent_.max_x = layer_extent.MaxX;
+            dataset_spatial_extent_.max_y = layer_extent.MaxY;
+            std::cout << "数据源空间范围: [" << dataset_spatial_extent_.min_x << ", " << dataset_spatial_extent_.min_y << " - " << dataset_spatial_extent_.max_x << ", " << dataset_spatial_extent_.max_y << "]"
+                      << std::endl;
+        } else {
+            std::cout << "警告: 无法获取图层空间范围" << std::endl;
+        }
+
         // 字段定义将在转换结束后保存
 
         // 初始化索引数据
@@ -169,20 +182,12 @@ namespace GisStorage {
                     continue;
                 }
 
-                // 计算边界框
+                // 计算边界框（仅用于几何数据存储）
                 BBox bbox = calculateBBox(coordinates);
-
-                // 更新数据集空间范围
-                dataset_spatial_extent_.min_x = std::min(dataset_spatial_extent_.min_x, bbox.min_x);
-                dataset_spatial_extent_.min_y = std::min(dataset_spatial_extent_.min_y, bbox.min_y);
-                dataset_spatial_extent_.max_x = std::max(dataset_spatial_extent_.max_x, bbox.max_x);
-                dataset_spatial_extent_.max_y = std::max(dataset_spatial_extent_.max_y, bbox.max_y);
 
                 // 调试输出（每1000000个要素输出一次）
                 if (processed_count % 1000000 == 0) {
-                    std::cout << "要素 " << processed_count << " 边界框: [" << bbox.min_x << ", " << bbox.min_y << " - " << bbox.max_x << ", " << bbox.max_y << "]" << std::endl;
-                    std::cout << "当前数据集范围: [" << dataset_spatial_extent_.min_x << ", " << dataset_spatial_extent_.min_y << " - " << dataset_spatial_extent_.max_x << ", " << dataset_spatial_extent_.max_y << "]"
-                              << std::endl;
+                    std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
                 }
 
                 // 压缩坐标数据
@@ -278,11 +283,7 @@ namespace GisStorage {
             }
 
             OGRFeature::DestroyFeature(feature);
-
             processed_count++;
-            if (processed_count % 1000000 == 0) {
-                std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
-            }
         }
 
         // 保存索引数据
