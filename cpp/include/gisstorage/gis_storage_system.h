@@ -34,7 +34,6 @@ namespace GisStorage {
             static constexpr const char* INDEX_DATA = ".idx";      // 索引数据文件
             static constexpr const char* METADATA = "_meta.json";  // 元数据文件
             static constexpr const char* S2_INDEX = ".s2idx";      // S2空间索引文件
-            static constexpr const char* SPATIAL_INDEX = ".spx";   // 通用空间索引文件
         };
 
         // 元数据结构 - 完整描述数据集信息

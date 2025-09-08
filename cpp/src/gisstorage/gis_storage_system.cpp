@@ -132,8 +132,8 @@ namespace GisStorage {
 
             std::cout << "      将查询 " << total_features << " 个要素（批量读取优化）" << std::endl;
 
-            // 批量读取优化：每次处理50000个要素
-            const size_t batch_size = 50000;
+            // 批量读取优化：每次处理100000个要素
+            const size_t batch_size = 100000;
             size_t processed = 0;
             size_t found_count = 0;
 
@@ -162,7 +162,7 @@ namespace GisStorage {
 
                 processed += batch_ids.size();
 
-                // 每处理5万个要素显示一次进度
+                // 每处理10万个要素显示一次进度
                 if (processed % 100000 == 0) {
                     auto current_time = std::chrono::high_resolution_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
