@@ -61,6 +61,9 @@ namespace GisStorage {
         // 统计信息
         ConversionStats stats_;
 
+        // 数据集空间范围
+        BBox dataset_spatial_extent_;
+
         // 计算边界框
         BBox calculateBBox(const std::vector<Coordinate>& coordinates);
 
@@ -93,6 +96,9 @@ namespace GisStorage {
 
         // 保存字符串池
         void saveStringPool();
+
+        // 保存元数据（包括字段定义、空间范围和坐标系统信息）
+        void saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs, const std::string& transformation_info);
 
         // 更新统计信息
         void updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size);

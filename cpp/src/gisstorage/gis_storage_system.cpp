@@ -15,6 +15,7 @@
 #include <cstring>
 #include <openssl/md5.h>
 #include <algorithm>
+#include <cmath>
 
 namespace GisStorage {
 
@@ -569,30 +570,59 @@ namespace GisStorage {
     void GisStorageSystem::saveMetadata() {
         nlohmann::json metadata_json;
 
-        // 序列化元数据
+        // 首先尝试读取现有的元数据文件，保留字段定义和空间范围
+        if (std::filesystem::exists(metadata_file_)) {
+            std::ifstream file(metadata_file_);
+            if (file.is_open()) {
+                try {
+                    file >> metadata_json;
+                } catch (const std::exception& e) {
+                    std::cerr << "读取现有元数据失败: " << e.what() << std::endl;
+                }
+            }
+        }
+
+        // 更新元数据字段
         metadata_json["format_version"] = metadata_.format_version;
         metadata_json["source_format"] = metadata_.source_format;
         metadata_json["source_file"] = metadata_.source_file;
         metadata_json["creation_date"] = metadata_.creation_date;
         metadata_json["coordinate_system"] = metadata_.coordinate_system;
         metadata_json["projection_info"] = metadata_.projection_info;
+        metadata_json["source_coordinate_system"] = metadata_.source_coordinate_system;
+        metadata_json["target_coordinate_system"] = metadata_.target_coordinate_system;
+        metadata_json["coordinate_transformation"] = metadata_.coordinate_transformation;
         metadata_json["total_features"] = metadata_.total_features;
         metadata_json["valid_features"] = metadata_.valid_features;
-        metadata_json["field_definitions"] = metadata_.field_definitions;
-        metadata_json["geometry_types"] = metadata_.geometry_types;
         metadata_json["file_sizes"] = metadata_.file_sizes;
         metadata_json["checksums"] = metadata_.checksums;
         metadata_json["compression_info"] = metadata_.compression_info;
         metadata_json["index_info"] = metadata_.index_info;
         metadata_json["s2_index_info"] = metadata_.s2_index_info;
 
-        // 保存空间范围
-        nlohmann::json spatial_extent_json;
-        spatial_extent_json["min_x"] = metadata_.spatial_extent.min_x;
-        spatial_extent_json["min_y"] = metadata_.spatial_extent.min_y;
-        spatial_extent_json["max_x"] = metadata_.spatial_extent.max_x;
-        spatial_extent_json["max_y"] = metadata_.spatial_extent.max_y;
-        metadata_json["spatial_extent"] = spatial_extent_json;
+        // 只有在字段定义和空间范围不存在时才使用默认值
+        if (!metadata_json.contains("field_definitions") || metadata_json["field_definitions"].empty()) {
+            metadata_json["field_definitions"] = metadata_.field_definitions;
+        }
+        if (!metadata_json.contains("geometry_types") || metadata_json["geometry_types"].empty()) {
+            metadata_json["geometry_types"] = metadata_.geometry_types;
+        }
+
+        // 只有在空间范围不存在或为无效值时才使用默认值
+        if (!metadata_json.contains("spatial_extent") ||
+            (metadata_json["spatial_extent"]["min_x"] == 0.0 && metadata_json["spatial_extent"]["min_y"] == 0.0 && metadata_json["spatial_extent"]["max_x"] == 0.0 && metadata_json["spatial_extent"]["max_y"] == 0.0) ||
+            (std::abs(static_cast<double>(metadata_json["spatial_extent"]["min_x"])) > 1e9 || std::abs(static_cast<double>(metadata_json["spatial_extent"]["min_y"])) > 1e9 ||
+             std::abs(static_cast<double>(metadata_json["spatial_extent"]["max_x"])) > 1e9 || std::abs(static_cast<double>(metadata_json["spatial_extent"]["max_y"])) > 1e9)) {
+            // 只有在metadata_中的空间范围也是无效值时才使用默认值
+            if (std::abs(metadata_.spatial_extent.min_x) > 1e9 || std::abs(metadata_.spatial_extent.min_y) > 1e9 || std::abs(metadata_.spatial_extent.max_x) > 1e9 || std::abs(metadata_.spatial_extent.max_y) > 1e9) {
+                nlohmann::json spatial_extent_json;
+                spatial_extent_json["min_x"] = metadata_.spatial_extent.min_x;
+                spatial_extent_json["min_y"] = metadata_.spatial_extent.min_y;
+                spatial_extent_json["max_x"] = metadata_.spatial_extent.max_x;
+                spatial_extent_json["max_y"] = metadata_.spatial_extent.max_y;
+                metadata_json["spatial_extent"] = spatial_extent_json;
+            }
+        }
 
         // 保存到文件
         std::ofstream file(metadata_file_);
@@ -623,6 +653,9 @@ namespace GisStorage {
             metadata_.creation_date = metadata_json.value("creation_date", "");
             metadata_.coordinate_system = metadata_json.value("coordinate_system", "");
             metadata_.projection_info = metadata_json.value("projection_info", "");
+            metadata_.source_coordinate_system = metadata_json.value("source_coordinate_system", "");
+            metadata_.target_coordinate_system = metadata_json.value("target_coordinate_system", "");
+            metadata_.coordinate_transformation = metadata_json.value("coordinate_transformation", "");
             metadata_.total_features = metadata_json.value("total_features", 0);
             metadata_.valid_features = metadata_json.value("valid_features", 0);
             metadata_.field_definitions = metadata_json.value("field_definitions", std::map<std::string, std::string>{});

@@ -180,6 +180,17 @@ TEST_F(IntegratedGisFormatTest, GisStorageSystemFeatures) {
     EXPECT_FALSE(metadata.source_file.empty());
     EXPECT_FALSE(metadata.creation_date.empty());
 
+    // 测试坐标系统信息（如果存在）
+    if (!metadata.source_coordinate_system.empty()) {
+        EXPECT_FALSE(metadata.source_coordinate_system.empty());
+    }
+    if (!metadata.target_coordinate_system.empty()) {
+        EXPECT_FALSE(metadata.target_coordinate_system.empty());
+    }
+    if (!metadata.coordinate_transformation.empty()) {
+        EXPECT_FALSE(metadata.coordinate_transformation.empty());
+    }
+
     // 测试存储统计信息
     auto storage_stats = storage_system_->getStorageStats();
     EXPECT_GE(storage_stats.total_files, 0);

@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cstring>
 #include <chrono>
+#include <limits>
+#include <iomanip>
 
 namespace GisStorage {
 
@@ -32,6 +34,12 @@ namespace GisStorage {
         stats_.string_pool_size = 0;
         stats_.string_pool_saved_bytes = 0;
         stats_.conversion_time_seconds = 0.0;
+
+        // 初始化空间范围
+        dataset_spatial_extent_.min_x = 1e10;
+        dataset_spatial_extent_.min_y = 1e10;
+        dataset_spatial_extent_.max_x = -1e10;
+        dataset_spatial_extent_.max_y = -1e10;
 
         // 初始化存储文件
         initializeStorageFiles();
@@ -80,6 +88,54 @@ namespace GisStorage {
             field_info[field_defn->GetNameRef()] = field_defn->GetType();
         }
 
+        // 提取坐标系统信息
+        std::string source_crs_info = "";
+        std::string target_crs_info = "";
+        std::string transformation_info = "";
+
+        OGRSpatialReference* spatial_ref = layer->GetSpatialRef();
+        if (spatial_ref) {
+            // 获取EPSG代码
+            const char* authority_name = spatial_ref->GetAuthorityName(nullptr);
+            const char* authority_code = spatial_ref->GetAuthorityCode(nullptr);
+            if (authority_name && authority_code) {
+                source_crs_info = std::string(authority_name) + ":" + std::string(authority_code);
+            }
+
+            // 获取坐标系统名称
+            const char* crs_name = spatial_ref->GetName();
+            if (crs_name) {
+                if (!source_crs_info.empty()) {
+                    source_crs_info += " - " + std::string(crs_name);
+                } else {
+                    source_crs_info = std::string(crs_name);
+                }
+            }
+
+            // 如果没有获取到坐标系统信息，尝试从WKT获取
+            if (source_crs_info.empty()) {
+                char* wkt = nullptr;
+                if (spatial_ref->exportToWkt(&wkt) == OGRERR_NONE) {
+                    source_crs_info = std::string(wkt);
+                    CPLFree(wkt);
+                }
+            }
+
+            // 目标坐标系统与源坐标系统相同（没有进行坐标转换）
+            target_crs_info = source_crs_info;
+            transformation_info = "未进行坐标转换，保持原始坐标系统";
+        } else {
+            source_crs_info = "未知坐标系统";
+            target_crs_info = "未知坐标系统";
+            transformation_info = "未进行坐标转换";
+        }
+
+        std::cout << "源坐标系统: " << source_crs_info << std::endl;
+        std::cout << "目标坐标系统: " << target_crs_info << std::endl;
+        std::cout << "转换信息: " << transformation_info << std::endl;
+
+        // 字段定义将在转换结束后保存
+
         // 初始化索引数据
         nlohmann::json index_data;
         index_data["version"] = 1;
@@ -115,6 +171,19 @@ namespace GisStorage {
 
                 // 计算边界框
                 BBox bbox = calculateBBox(coordinates);
+
+                // 更新数据集空间范围
+                dataset_spatial_extent_.min_x = std::min(dataset_spatial_extent_.min_x, bbox.min_x);
+                dataset_spatial_extent_.min_y = std::min(dataset_spatial_extent_.min_y, bbox.min_y);
+                dataset_spatial_extent_.max_x = std::max(dataset_spatial_extent_.max_x, bbox.max_x);
+                dataset_spatial_extent_.max_y = std::max(dataset_spatial_extent_.max_y, bbox.max_y);
+
+                // 调试输出（每1000000个要素输出一次）
+                if (processed_count % 1000000 == 0) {
+                    std::cout << "要素 " << processed_count << " 边界框: [" << bbox.min_x << ", " << bbox.min_y << " - " << bbox.max_x << ", " << bbox.max_y << "]" << std::endl;
+                    std::cout << "当前数据集范围: [" << dataset_spatial_extent_.min_x << ", " << dataset_spatial_extent_.min_y << " - " << dataset_spatial_extent_.max_x << ", " << dataset_spatial_extent_.max_y << "]"
+                              << std::endl;
+                }
 
                 // 压缩坐标数据
                 std::vector<uint8_t> coord_data = encodeCoordinatesDeltaOptimized(coordinates);
@@ -244,6 +313,9 @@ namespace GisStorage {
 
         // 清理
         GDALClose(dataset);
+
+        // 保存元数据（包括字段定义、空间范围和坐标系统信息）
+        saveMetadata(field_info, source_crs_info, target_crs_info, transformation_info);
 
         return valid_fids;
     }
@@ -458,6 +530,56 @@ namespace GisStorage {
         stats_.geometry_size += geom_size;
         stats_.attribute_original_size += attr_original_size;
         stats_.attribute_compressed_size += attr_compressed_size;
+    }
+
+    void OGRFormatConverter::saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs, const std::string& transformation_info) {
+        // 创建元数据文件路径
+        std::string metadata_file = output_dir_ + "/" + shapefile_name_ + "_meta.json";
+
+        // 读取现有元数据（如果存在）
+        nlohmann::json metadata;
+        if (std::filesystem::exists(metadata_file)) {
+            std::ifstream file(metadata_file);
+            if (file.is_open()) {
+                try {
+                    file >> metadata;
+                } catch (const std::exception& e) {
+                    std::cerr << "读取元数据文件失败: " << e.what() << std::endl;
+                }
+            }
+        }
+
+        // 更新字段定义
+        metadata["field_definitions"] = field_info;
+
+        // 更新坐标系统信息
+        metadata["source_coordinate_system"] = source_crs;
+        metadata["target_coordinate_system"] = target_crs;
+        metadata["coordinate_transformation"] = transformation_info;
+
+        // 更新空间范围
+        nlohmann::json spatial_extent_json;
+        spatial_extent_json["min_x"] = dataset_spatial_extent_.min_x;
+        spatial_extent_json["min_y"] = dataset_spatial_extent_.min_y;
+        spatial_extent_json["max_x"] = dataset_spatial_extent_.max_x;
+        spatial_extent_json["max_y"] = dataset_spatial_extent_.max_y;
+        metadata["spatial_extent"] = spatial_extent_json;
+
+        // 保存元数据
+        std::ofstream file(metadata_file);
+        if (file.is_open()) {
+            file << metadata.dump(4);
+            file.close();
+            std::cout << "元数据已保存到文件: " << metadata_file << std::endl;
+            std::cout << "  字段定义: " << field_info.size() << " 个字段" << std::endl;
+            std::cout << "  源坐标系统: " << source_crs << std::endl;
+            std::cout << "  目标坐标系统: " << target_crs << std::endl;
+            std::cout << "  坐标转换: " << transformation_info << std::endl;
+            std::cout << "  空间范围: [" << std::fixed << std::setprecision(6) << dataset_spatial_extent_.min_x << ", " << dataset_spatial_extent_.min_y << " - " << dataset_spatial_extent_.max_x << ", "
+                      << dataset_spatial_extent_.max_y << "]" << std::endl;
+        } else {
+            std::cerr << "无法保存元数据文件: " << metadata_file << std::endl;
+        }
     }
 
 } // namespace GisStorage

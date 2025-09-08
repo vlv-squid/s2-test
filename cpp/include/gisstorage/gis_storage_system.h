@@ -45,6 +45,10 @@ namespace GisStorage {
             std::string creation_date;
             std::string coordinate_system;
             std::string projection_info;
+            // 坐标系统转换信息
+            std::string source_coordinate_system;  // 转换前的坐标系统
+            std::string target_coordinate_system;  // 转换后的坐标系统
+            std::string coordinate_transformation; // 坐标转换信息
             BBox spatial_extent;
             size_t total_features = 0;
             size_t valid_features = 0;

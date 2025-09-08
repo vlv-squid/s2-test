@@ -349,6 +349,17 @@ class GisStorageDemo {
             std::cout << "  总要素数: " << metadata.total_features << std::endl;
             std::cout << "  有效要素数: " << metadata.valid_features << std::endl;
 
+            // 显示坐标系统信息
+            if (!metadata.source_coordinate_system.empty()) {
+                std::cout << "  源坐标系统: " << metadata.source_coordinate_system << std::endl;
+            }
+            if (!metadata.target_coordinate_system.empty()) {
+                std::cout << "  目标坐标系统: " << metadata.target_coordinate_system << std::endl;
+            }
+            if (!metadata.coordinate_transformation.empty()) {
+                std::cout << "  坐标转换: " << metadata.coordinate_transformation << std::endl;
+            }
+
             return true;
 
         } catch (const std::exception& e) {
