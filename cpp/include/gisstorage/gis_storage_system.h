@@ -15,6 +15,8 @@
 #include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <tbb/tbb.h>
+#include <mutex>
 
 // 前向声明
 namespace S2Main {
@@ -42,12 +44,10 @@ namespace GisStorage {
             std::string source_format = "Shapefile";
             std::string source_file;
             std::string creation_date;
-            std::string coordinate_system;
             std::string projection_info;
             // 坐标系统转换信息
-            std::string source_coordinate_system;  // 转换前的坐标系统
-            std::string target_coordinate_system;  // 转换后的坐标系统
-            std::string coordinate_transformation; // 坐标转换信息
+            std::string source_coordinate_system; // 转换前的坐标系统
+            std::string target_coordinate_system; // 转换后的坐标系统
             BBox spatial_extent;
             size_t total_features = 0;
             size_t valid_features = 0;
@@ -83,6 +83,9 @@ namespace GisStorage {
 
         // 高效的属性查询方法（基于字符串池）
         std::vector<uint64_t> queryByAttributeEfficient(const std::string& field_name, const std::string& field_value);
+
+        // 并行属性查询方法（使用TBB）
+        std::vector<uint64_t> queryByAttributeParallel(const std::string& field_name, const std::string& field_value);
 
         // 高效的复合查询方法（空间+属性）
         std::vector<uint64_t> querySpatialAttributeEfficient(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value);

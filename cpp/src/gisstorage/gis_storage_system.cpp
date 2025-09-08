@@ -16,6 +16,8 @@
 #include <openssl/md5.h>
 #include <algorithm>
 #include <cmath>
+#include <tbb/tbb.h>
+#include <mutex>
 
 namespace GisStorage {
 
@@ -178,6 +180,105 @@ namespace GisStorage {
 
         } catch (const std::exception& e) {
             std::cerr << "属性查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
+    std::vector<uint64_t> GisStorageSystem::queryByAttributeParallel(const std::string& field_name, const std::string& field_value) {
+        std::vector<uint64_t> results;
+
+        // 如果属性存储未初始化，尝试按需初始化
+        if (!attribute_storage_) {
+            try {
+                // 重新初始化文件路径
+                initializeFilePaths();
+                // 初始化属性存储对象
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    attribute_storage_->loadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            std::cout << "      并行属性查询：字段='" << field_name << "', 值='" << field_value << "'" << std::endl;
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            // 获取字符串池的压缩统计信息
+            auto stats = attribute_storage_->getCompressionStats();
+            std::cout << "      字符串池包含 " << stats.unique_strings << " 个唯一字符串" << std::endl;
+
+            // 获取总要素数
+            const auto& metadata = getMetadata();
+            size_t total_features = metadata.total_features;
+
+            std::cout << "      将并行查询 " << total_features << " 个要素" << std::endl;
+
+            // 使用TBB并行处理
+            tbb::concurrent_vector<uint64_t> concurrent_results;
+            std::atomic<size_t> processed_count{0};
+            std::atomic<size_t> found_count{0};
+            std::mutex progress_mutex; // 用于进度输出的线程安全
+
+            // 并行处理要素
+            tbb::parallel_for(tbb::blocked_range<size_t>(1, total_features + 1), [&](const tbb::blocked_range<size_t>& range) {
+                std::vector<uint64_t> local_results; // 本地结果缓存，减少锁竞争
+                local_results.reserve(1000);         // 预分配空间
+
+                for (size_t fid = range.begin(); fid != range.end(); ++fid) {
+                    try {
+                        auto attr = attribute_storage_->readAttribute(fid);
+                        if (attr) {
+                            std::string value = attr->getProperty(field_name);
+                            if (value == field_value) {
+                                local_results.push_back(fid);
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        // 忽略单个要素读取错误，继续处理其他要素
+                        continue;
+                    }
+
+                    size_t current_processed = processed_count.fetch_add(1) + 1;
+
+                    // 每处理10万个要素显示一次进度（使用锁确保输出不混乱）
+                    if (current_processed % 100000 == 0) {
+                        std::lock_guard<std::mutex> lock(progress_mutex);
+                        auto current_time = std::chrono::high_resolution_clock::now();
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                        double speed = current_processed / (elapsed.count() / 1000.0);
+                        std::cout << "      进度: " << current_processed << "/" << total_features << " (" << (100.0 * current_processed / total_features) << "%) " << "找到: " << found_count.load()
+                                  << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::endl;
+                    }
+                }
+
+                // 批量添加本地结果到并发向量
+                if (!local_results.empty()) {
+                    for (const auto& fid : local_results) {
+                        concurrent_results.push_back(fid);
+                    }
+                    found_count.fetch_add(local_results.size());
+                }
+            });
+
+            // 将并发结果转换为普通向量
+            results.reserve(concurrent_results.size());
+            for (const auto& fid : concurrent_results) {
+                results.push_back(fid);
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      并行属性查询完成，找到 " << results.size() << " 个匹配要素，耗时 " << total_elapsed.count() << " ms" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "并行属性查询错误: " << e.what() << std::endl;
         }
 
         return results;
@@ -587,11 +688,9 @@ namespace GisStorage {
         metadata_json["source_format"] = metadata_.source_format;
         metadata_json["source_file"] = metadata_.source_file;
         metadata_json["creation_date"] = metadata_.creation_date;
-        metadata_json["coordinate_system"] = metadata_.coordinate_system;
         metadata_json["projection_info"] = metadata_.projection_info;
         metadata_json["source_coordinate_system"] = metadata_.source_coordinate_system;
         metadata_json["target_coordinate_system"] = metadata_.target_coordinate_system;
-        metadata_json["coordinate_transformation"] = metadata_.coordinate_transformation;
         metadata_json["total_features"] = metadata_.total_features;
         metadata_json["valid_features"] = metadata_.valid_features;
         metadata_json["file_sizes"] = metadata_.file_sizes;
@@ -651,11 +750,9 @@ namespace GisStorage {
             metadata_.source_format = metadata_json.value("source_format", "Shapefile");
             metadata_.source_file = metadata_json.value("source_file", "");
             metadata_.creation_date = metadata_json.value("creation_date", "");
-            metadata_.coordinate_system = metadata_json.value("coordinate_system", "");
             metadata_.projection_info = metadata_json.value("projection_info", "");
             metadata_.source_coordinate_system = metadata_json.value("source_coordinate_system", "");
             metadata_.target_coordinate_system = metadata_json.value("target_coordinate_system", "");
-            metadata_.coordinate_transformation = metadata_json.value("coordinate_transformation", "");
             metadata_.total_features = metadata_json.value("total_features", 0);
             metadata_.valid_features = metadata_json.value("valid_features", 0);
             metadata_.field_definitions = metadata_json.value("field_definitions", std::map<std::string, std::string>{});

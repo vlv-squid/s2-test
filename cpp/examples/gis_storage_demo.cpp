@@ -356,9 +356,6 @@ class GisStorageDemo {
             if (!metadata.target_coordinate_system.empty()) {
                 std::cout << "  目标坐标系统: " << metadata.target_coordinate_system << std::endl;
             }
-            if (!metadata.coordinate_transformation.empty()) {
-                std::cout << "  坐标转换: " << metadata.coordinate_transformation << std::endl;
-            }
 
             return true;
 
@@ -838,6 +835,19 @@ class GisStorageDemo {
                     }
                 }
             }
+
+            // 演示1.5: 并行查询dlbm字段值为0101的要素（性能对比）
+            std::cout << "    演示1.5: 并行查询dlbm字段值为'0101'的要素（性能对比）" << std::endl;
+            auto dlbm_results_parallel = storage_system_->queryByAttributeParallel("dlbm", "0101");
+            std::cout << "      并行查询找到 " << dlbm_results_parallel.size() << " 个匹配的要素" << std::endl;
+
+            // 验证结果一致性
+            if (dlbm_results.size() == dlbm_results_parallel.size()) {
+                std::cout << "      ✓ 并行查询结果与串行查询结果一致" << std::endl;
+            } else {
+                std::cout << "      ⚠ 并行查询结果与串行查询结果不一致" << std::endl;
+            }
+            std::cout << std::endl;
 
             // 演示2: 查询dlbm字段包含"01"的要素（模式匹配）
             std::cout << "    演示2: 查询dlbm字段包含'01'的要素" << std::endl;

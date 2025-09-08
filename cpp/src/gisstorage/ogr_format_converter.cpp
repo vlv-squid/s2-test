@@ -556,7 +556,6 @@ namespace GisStorage {
         // 更新坐标系统信息
         metadata["source_coordinate_system"] = source_crs;
         metadata["target_coordinate_system"] = target_crs;
-        metadata["coordinate_transformation"] = transformation_info;
 
         // 更新空间范围
         nlohmann::json spatial_extent_json;
@@ -575,7 +574,6 @@ namespace GisStorage {
             std::cout << "  字段定义: " << field_info.size() << " 个字段" << std::endl;
             std::cout << "  源坐标系统: " << source_crs << std::endl;
             std::cout << "  目标坐标系统: " << target_crs << std::endl;
-            std::cout << "  坐标转换: " << transformation_info << std::endl;
             std::cout << "  空间范围: [" << std::fixed << std::setprecision(6) << dataset_spatial_extent_.min_x << ", " << dataset_spatial_extent_.min_y << " - " << dataset_spatial_extent_.max_x << ", "
                       << dataset_spatial_extent_.max_y << "]" << std::endl;
         } else {

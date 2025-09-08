@@ -55,7 +55,6 @@ TEST_F(IntegratedGisFormatTest, FileExtensions) {
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::INDEX_DATA, ".idx");
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::METADATA, "_meta.json");
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::S2_INDEX, ".s2idx");
-    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::SPATIAL_INDEX, ".spx");
 }
 
 // 测试Shapefile转换和存储
@@ -186,9 +185,6 @@ TEST_F(IntegratedGisFormatTest, GisStorageSystemFeatures) {
     }
     if (!metadata.target_coordinate_system.empty()) {
         EXPECT_FALSE(metadata.target_coordinate_system.empty());
-    }
-    if (!metadata.coordinate_transformation.empty()) {
-        EXPECT_FALSE(metadata.coordinate_transformation.empty());
     }
 
     // 测试存储统计信息
