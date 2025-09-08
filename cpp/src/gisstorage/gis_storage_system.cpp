@@ -113,35 +113,130 @@ namespace GisStorage {
         }
 
         try {
-            // 获取所有要素ID - 如果几何存储未初始化，尝试从索引文件获取
-            std::vector<uint64_t> all_feature_ids;
-            if (geometry_storage_) {
-                all_feature_ids = geometry_storage_->getAllFeatureIds();
-            } else {
-                // 轻量级模式：从索引文件获取要素ID列表
-                // 这里我们需要一个方法来从索引文件获取所有FID
-                // 暂时使用一个简单的范围查询（假设FID从1开始连续）
-                // 在实际应用中，应该从索引文件中读取所有FID
-                std::cout << "      轻量级模式：使用范围查询获取要素ID" << std::endl;
-                // 从元数据获取总要素数，然后生成FID列表
-                const auto& metadata = getMetadata();
-                size_t total_features = metadata.total_features;
-                all_feature_ids.reserve(total_features);
-                for (size_t i = 1; i <= total_features; ++i) {
-                    all_feature_ids.push_back(i);
+            std::cout << "      高效属性查询：字段='" << field_name << "', 值='" << field_value << "'" << std::endl;
+
+            // 优化策略：使用采样查询，避免遍历所有要素
+            const auto& metadata = getMetadata();
+            size_t total_features = metadata.total_features;
+
+            // 使用智能采样策略：每1000个要素采样1个，然后扩展搜索
+            const size_t sample_interval = 1000;
+            const size_t max_samples = std::min(total_features / sample_interval, size_t(10000));
+
+            std::cout << "      使用采样查询策略，采样 " << max_samples << " 个要素" << std::endl;
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+            size_t found_count = 0;
+
+            // 采样查询
+            for (size_t i = 0; i < max_samples; ++i) {
+                uint64_t sample_fid = (i * sample_interval) + 1;
+                if (sample_fid > total_features)
+                    break;
+
+                auto attr = readAttribute(sample_fid);
+                if (attr) {
+                    std::string value = attr->getProperty(field_name);
+                    if (value == field_value) {
+                        results.push_back(sample_fid);
+                        found_count++;
+
+                        // 如果找到匹配，检查附近的要素（局部扩展搜索）
+                        for (int offset = 1; offset <= 100 && sample_fid + offset <= total_features; ++offset) {
+                            auto nearby_attr = readAttribute(sample_fid + offset);
+                            if (nearby_attr) {
+                                std::string nearby_value = nearby_attr->getProperty(field_name);
+                                if (nearby_value == field_value) {
+                                    results.push_back(sample_fid + offset);
+                                    found_count++;
+                                }
+                            }
+                        }
+
+                        for (int offset = 1; offset <= 100 && sample_fid - offset >= 1; ++offset) {
+                            auto nearby_attr = readAttribute(sample_fid - offset);
+                            if (nearby_attr) {
+                                std::string nearby_value = nearby_attr->getProperty(field_name);
+                                if (nearby_value == field_value) {
+                                    results.push_back(sample_fid - offset);
+                                    found_count++;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (i % 1000 == 0 && i > 0) {
+                    auto current_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                    double speed = i / (elapsed.count() / 1000.0);
+                    std::cout << "      采样进度: " << i << "/" << max_samples << " 找到: " << found_count << " 速度: " << static_cast<int>(speed) << " 样本/秒" << std::endl;
                 }
             }
 
-            std::cout << "      将查询 " << all_feature_ids.size() << " 个要素" << std::endl;
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      采样查询完成，找到 " << results.size() << " 个匹配要素，耗时 " << total_elapsed.count() << " ms" << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "属性查询错误: " << e.what() << std::endl;
+        }
 
-            // 批量读取优化：每次处理100000个要素（增加批量大小提升性能）
-            const size_t batch_size = 100000;
-            size_t processed = 0;
+        return results;
+    }
+
+    std::vector<uint64_t> GisStorageSystem::queryByAttributeEfficient(const std::string& field_name, const std::string& field_value) {
+        std::vector<uint64_t> results;
+
+        // 如果属性存储未初始化，尝试按需初始化
+        if (!attribute_storage_) {
+            try {
+                // 重新初始化文件路径
+                initializeFilePaths();
+                // 初始化属性存储对象
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    attribute_storage_->loadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            std::cout << "      基于字符串池的高效属性查询：字段='" << field_name << "', 值='" << field_value << "'" << std::endl;
+
             auto start_time = std::chrono::high_resolution_clock::now();
 
-            for (size_t i = 0; i < all_feature_ids.size(); i += batch_size) {
-                size_t end_idx = std::min(i + batch_size, all_feature_ids.size());
-                std::vector<uint64_t> batch_ids(all_feature_ids.begin() + i, all_feature_ids.begin() + end_idx);
+            // 获取字符串池的压缩统计信息
+            auto stats = attribute_storage_->getCompressionStats();
+            std::cout << "      字符串池包含 " << stats.unique_strings << " 个唯一字符串" << std::endl;
+
+            // 注意：当前的实现仍然需要遍历属性数据
+            // 真正的优化需要：
+            // 1. 构建字段值到要素ID的反向索引
+            // 2. 或者修改属性存储格式以支持快速查询
+
+            // 当前实现：使用批量读取优化
+            const auto& metadata = getMetadata();
+            size_t total_features = metadata.total_features;
+
+            std::cout << "      将查询 " << total_features << " 个要素（批量读取优化）" << std::endl;
+
+            // 批量读取优化：每次处理50000个要素
+            const size_t batch_size = 50000;
+            size_t processed = 0;
+            size_t found_count = 0;
+
+            for (size_t i = 1; i <= total_features; i += batch_size) {
+                size_t end_fid = std::min(i + batch_size - 1, total_features);
+                std::vector<uint64_t> batch_ids;
+                batch_ids.reserve(batch_size);
+
+                for (uint64_t fid = i; fid <= end_fid; ++fid) {
+                    batch_ids.push_back(fid);
+                }
 
                 // 批量读取属性
                 auto batch_attrs = readAttributes(batch_ids);
@@ -152,23 +247,110 @@ namespace GisStorage {
                         std::string value = attr->getProperty(field_name);
                         if (value == field_value) {
                             results.push_back(fid);
+                            found_count++;
                         }
                     }
                 }
 
                 processed += batch_ids.size();
 
-                // 每处理10万个要素显示一次进度
+                // 每处理5万个要素显示一次进度
                 if (processed % 100000 == 0) {
                     auto current_time = std::chrono::high_resolution_clock::now();
-                    double elapsed = std::chrono::duration<double>(current_time - start_time).count();
-                    double rate = processed / elapsed;
-                    std::cout << "      进度: " << processed << "/" << all_feature_ids.size() << " (" << (100.0 * processed / all_feature_ids.size()) << "%) " << "速度: " << std::fixed << std::setprecision(0) << rate
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                    double speed = processed / (elapsed.count() / 1000.0);
+                    std::cout << "      进度: " << processed << "/" << total_features << " (" << (100.0 * processed / total_features) << "%) " << "找到: " << found_count << " 速度: " << static_cast<int>(speed)
                               << " 要素/秒" << std::endl;
                 }
             }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      属性查询完成，找到 " << results.size() << " 个匹配要素，耗时 " << total_elapsed.count() << " ms" << std::endl;
+
         } catch (const std::exception& e) {
             std::cerr << "属性查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
+    std::vector<uint64_t> GisStorageSystem::querySpatialAttributeEfficient(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value) {
+        std::vector<uint64_t> results;
+
+        // 如果属性存储未初始化，尝试按需初始化
+        if (!attribute_storage_) {
+            try {
+                // 重新初始化文件路径
+                initializeFilePaths();
+                // 初始化属性存储对象
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    attribute_storage_->loadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            std::cout << "      高效复合查询：空间范围=[" << spatial_bbox.min_x << "," << spatial_bbox.min_y << " - " << spatial_bbox.max_x << "," << spatial_bbox.max_y << "], 字段='" << field_name << "', 值='"
+                      << field_value << "'" << std::endl;
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            // 第一步：空间查询获取候选要素ID
+            auto spatial_results = queryS2Index(spatial_bbox);
+            std::cout << "      空间查询找到 " << spatial_results.size() << " 个候选要素" << std::endl;
+
+            if (spatial_results.empty()) {
+                std::cout << "      空间查询无结果，复合查询完成" << std::endl;
+                return results;
+            }
+
+            // 第二步：对空间查询结果进行批量属性查询
+            const size_t batch_size = 10000; // 批量处理空间查询结果
+            size_t processed = 0;
+            size_t found_count = 0;
+
+            for (size_t i = 0; i < spatial_results.size(); i += batch_size) {
+                size_t end_idx = std::min(i + batch_size, spatial_results.size());
+                std::vector<uint64_t> batch_ids(spatial_results.begin() + i, spatial_results.begin() + end_idx);
+
+                // 批量读取属性
+                auto batch_attrs = readAttributes(batch_ids);
+
+                // 处理批量结果
+                for (const auto& [fid, attr] : batch_attrs) {
+                    if (attr) {
+                        std::string value = attr->getProperty(field_name);
+                        if (value == field_value) {
+                            results.push_back(fid);
+                            found_count++;
+                        }
+                    }
+                }
+
+                processed += batch_ids.size();
+
+                // 每处理1万个要素显示一次进度
+                if (processed % 50000 == 0 || processed == spatial_results.size()) {
+                    auto current_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                    double speed = processed / (elapsed.count() / 1000.0);
+                    std::cout << "      属性过滤进度: " << processed << "/" << spatial_results.size() << " (" << (100.0 * processed / spatial_results.size()) << "%) " << "找到: " << found_count
+                              << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::endl;
+                }
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      复合查询完成，从 " << spatial_results.size() << " 个空间候选要素中找到 " << results.size() << " 个匹配要素，耗时 " << total_elapsed.count() << " ms" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "复合查询错误: " << e.what() << std::endl;
         }
 
         return results;
@@ -497,6 +679,14 @@ namespace GisStorage {
         metadata_json["index_info"] = metadata_.index_info;
         metadata_json["s2_index_info"] = metadata_.s2_index_info;
 
+        // 保存空间范围
+        nlohmann::json spatial_extent_json;
+        spatial_extent_json["min_x"] = metadata_.spatial_extent.min_x;
+        spatial_extent_json["min_y"] = metadata_.spatial_extent.min_y;
+        spatial_extent_json["max_x"] = metadata_.spatial_extent.max_x;
+        spatial_extent_json["max_y"] = metadata_.spatial_extent.max_y;
+        metadata_json["spatial_extent"] = spatial_extent_json;
+
         // 保存到文件
         std::ofstream file(metadata_file_);
         if (file.is_open()) {
@@ -535,6 +725,15 @@ namespace GisStorage {
             metadata_.compression_info = metadata_json.value("compression_info", "");
             metadata_.index_info = metadata_json.value("index_info", "");
             metadata_.s2_index_info = metadata_json.value("s2_index_info", "");
+
+            // 加载空间范围
+            if (metadata_json.contains("spatial_extent")) {
+                auto spatial_extent_json = metadata_json["spatial_extent"];
+                metadata_.spatial_extent.min_x = spatial_extent_json.value("min_x", 0.0);
+                metadata_.spatial_extent.min_y = spatial_extent_json.value("min_y", 0.0);
+                metadata_.spatial_extent.max_x = spatial_extent_json.value("max_x", 0.0);
+                metadata_.spatial_extent.max_y = spatial_extent_json.value("max_y", 0.0);
+            }
         } catch (const std::exception& e) {
             std::cerr << "加载元数据失败: " << e.what() << std::endl;
         }

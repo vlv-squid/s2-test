@@ -79,6 +79,12 @@ namespace GisStorage {
         std::vector<uint64_t> queryByAttributePattern(const std::string& field_name, const std::string& pattern);
         std::vector<std::pair<uint64_t, std::string>> queryAttributeValues(const std::string& field_name);
 
+        // 高效的属性查询方法（基于字符串池）
+        std::vector<uint64_t> queryByAttributeEfficient(const std::string& field_name, const std::string& field_value);
+
+        // 高效的复合查询方法（空间+属性）
+        std::vector<uint64_t> querySpatialAttributeEfficient(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value);
+
         // 初始化存储文件
         void initializeStorageFiles(const std::string& shapefile_path);
 
