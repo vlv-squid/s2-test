@@ -114,8 +114,8 @@ cd examples
 // 1. 创建存储系统
 GisStorage::GisStorageSystem storage("output_dir");
 
-// 2. 转换Shapefile
-GisStorage::ShapefileConverter converter;
+// 2. 转换OGR格式
+GisStorage::OGRFormatConverter converter;
 converter.convert("input.shp", "output");
 
 // 3. 初始化存储系统

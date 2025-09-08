@@ -12,7 +12,7 @@
 #include "attribute_storage.h"
 #include "geometry_serializer.h"
 #include "attribute_serializer.h"
-#include "shapefile_converter.h"
+#include "ogr_format_converter.h"
 #include "gis_storage_system.h"
 
 #endif // GIS_STORAGE_H

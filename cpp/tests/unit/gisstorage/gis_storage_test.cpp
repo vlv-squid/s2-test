@@ -3,7 +3,7 @@
 //
 
 #include "gisstorage/gis_storage.h"
-#include "gisstorage/shapefile_converter.h"
+#include "gisstorage/ogr_format_converter.h"
 #include "gisstorage/attribute_storage.h"
 #include "gisstorage/string_pool.h"
 
@@ -25,7 +25,7 @@ class GisStorageTest : public ::testing::Test {
     std::string test_shapefile;
     std::string output_dir;
     std::vector<uint64_t> valid_fids;
-    std::unique_ptr<ShapefileConverter> converter;
+    std::unique_ptr<OGRFormatConverter> converter;
     std::unique_ptr<GeometryStorage> geom_storage;
     std::unique_ptr<AttributeStorage> attr_storage;
 
@@ -45,7 +45,7 @@ class GisStorageTest : public ::testing::Test {
         }
 
         // 执行一次转换，供所有测试使用
-        converter = std::make_unique<ShapefileConverter>(test_shapefile, output_dir);
+        converter = std::make_unique<OGRFormatConverter>(test_shapefile, output_dir);
         valid_fids = converter->convert();
 
         if (valid_fids.empty()) {

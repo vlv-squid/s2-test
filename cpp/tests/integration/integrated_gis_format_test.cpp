@@ -9,7 +9,7 @@
 
 // GIS存储模块
 #include "gisstorage/gis_storage_system.h"
-#include "gisstorage/shapefile_converter.h"
+#include "gisstorage/ogr_format_converter.h"
 #include "gisstorage/geometry_data.h"
 #include "gisstorage/attribute_data.h"
 
@@ -63,8 +63,8 @@ TEST_F(IntegratedGisFormatTest, ShapefileConversion) {
     // 检查测试数据是否存在
     ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
 
-    // 使用ShapefileConverter进行实际转换
-    GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
+    // 使用OGRFormatConverter进行实际转换
+    GisStorage::OGRFormatConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
 
     auto feature_ids = converter.convert();
     EXPECT_GT(feature_ids.size(), 0) << "转换后应该包含要素";
@@ -108,8 +108,8 @@ TEST_F(IntegratedGisFormatTest, IntegratedDataAccess) {
     // 检查测试数据是否存在
     ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
 
-    // 先执行Shapefile转换，生成数据文件
-    GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
+    // 先执行OGR格式转换，生成数据文件
+    GisStorage::OGRFormatConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
     auto feature_ids = converter.convert();
     ASSERT_GT(feature_ids.size(), 0) << "转换应该成功";
 
@@ -209,7 +209,7 @@ TEST_F(IntegratedGisFormatTest, FileIntegrity) {
     ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
 
     // 先执行转换
-    GisStorage::ShapefileConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
+    GisStorage::OGRFormatConverter converter(TEST_DATA_PATH, OUTPUT_DIR);
     auto feature_ids = converter.convert();
     ASSERT_GT(feature_ids.size(), 0) << "转换应该成功";
 

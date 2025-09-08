@@ -3,7 +3,7 @@
 //
 
 #include "gisstorage/gis_storage_system.h"
-#include "gisstorage/shapefile_converter.h"
+#include "gisstorage/ogr_format_converter.h"
 #include "gisindex/s2spatial_index.h"
 
 #include <filesystem>

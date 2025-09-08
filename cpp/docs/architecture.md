@@ -26,7 +26,7 @@ GisStorageSystem
 ├── GeometryStorage
 ├── AttributeStorage
 ├── StringPool
-├── ShapefileConverter
+├── OGRFormatConverter
 └── S2SpatialIndex
     └── SerializeS2
 ```

@@ -16,7 +16,7 @@
 
 // GIS存储模块
 #include "gisstorage/gis_storage_system.h"
-#include "gisstorage/shapefile_converter.h"
+#include "gisstorage/ogr_format_converter.h"
 
 // GIS索引模块
 #include "gisindex/s2spatial_index.h"
@@ -239,7 +239,7 @@ class GisStorageDemo {
         auto start_time = std::chrono::high_resolution_clock::now();
 
         try {
-            GisStorage::ShapefileConverter converter(input_shapefile_, output_dir_);
+            GisStorage::OGRFormatConverter converter(input_shapefile_, output_dir_);
             auto feature_ids = converter.convert();
 
             auto end_time = std::chrono::high_resolution_clock::now();

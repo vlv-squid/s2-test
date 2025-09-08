@@ -2,8 +2,8 @@
 //  Created by vlv-squid on 2025.08.21.
 //
 
-#ifndef SHAPEFILE_CONVERTER_H
-#define SHAPEFILE_CONVERTER_H
+#ifndef OGR_FORMAT_CONVERTER_H
+#define OGR_FORMAT_CONVERTER_H
 
 #include "types.h"
 #include "geometry_storage.h"
@@ -18,12 +18,12 @@
 
 namespace GisStorage {
 
-    // Shapefile转换器类 - 集成字符串池
-    class ShapefileConverter {
+    // OGR格式转换器类 - 集成字符串池
+    class OGRFormatConverter {
       public:
-        ShapefileConverter(const std::string& shapefile_path, const std::string& output_dir);
+        OGRFormatConverter(const std::string& shapefile_path, const std::string& output_dir);
 
-        // 转换Shapefile到优化格式
+        // 转换OGR格式到优化格式
         std::vector<uint64_t> convert();
 
         // 获取转换后的文件路径
@@ -100,4 +100,4 @@ namespace GisStorage {
 
 } // namespace GisStorage
 
-#endif // SHAPEFILE_CONVERTER_H
+#endif // OGR_FORMAT_CONVERTER_H

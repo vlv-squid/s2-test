@@ -2,21 +2,20 @@
 //  Created by vlv-squid on 2025.08.21.
 //
 
-#include "gisstorage/shapefile_converter.h"
+#include "gisstorage/ogr_format_converter.h"
 #include "gisstorage/geometry_serializer.h"
 
 #include <filesystem>
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <algorithm>
 #include <cstring>
 #include <chrono>
 
 namespace GisStorage {
 
-    // ShapefileConverter 实现
-    ShapefileConverter::ShapefileConverter(const std::string& shapefile_path, const std::string& output_dir)
+    // OGRFormatConverter 实现
+    OGRFormatConverter::OGRFormatConverter(const std::string& shapefile_path, const std::string& output_dir)
         : shapefile_path_(shapefile_path)
         , output_dir_(output_dir) {
         // 提取Shapefile名称
@@ -38,7 +37,7 @@ namespace GisStorage {
         initializeStorageFiles();
     }
 
-    void ShapefileConverter::initializeStorageFiles() {
+    void OGRFormatConverter::initializeStorageFiles() {
         // 创建输出目录
         std::filesystem::create_directories(output_dir_);
 
@@ -52,16 +51,16 @@ namespace GisStorage {
         attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
     }
 
-    std::vector<uint64_t> ShapefileConverter::convert() {
+    std::vector<uint64_t> OGRFormatConverter::convert() {
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        std::cout << "开始转换Shapefile（优化版本）: " << shapefile_path_ << std::endl;
+        std::cout << "开始转换OGR格式（优化版本）: " << shapefile_path_ << std::endl;
 
         // 打开Shapefile
         GDALAllRegister();
         GDALDataset* dataset = static_cast<GDALDataset*>(GDALOpenEx(shapefile_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!dataset) {
-            throw std::runtime_error("无法打开Shapefile: " + shapefile_path_);
+            throw std::runtime_error("无法打开OGR格式文件: " + shapefile_path_);
         }
 
         OGRLayer* layer = dataset->GetLayer(0);
@@ -249,39 +248,39 @@ namespace GisStorage {
         return valid_fids;
     }
 
-    std::string ShapefileConverter::getGeometryFilePath() const {
+    std::string OGRFormatConverter::getGeometryFilePath() const {
         return geometry_storage_->getGeometryFilePath();
     }
 
-    std::string ShapefileConverter::getAttributeFilePath() const {
+    std::string OGRFormatConverter::getAttributeFilePath() const {
         return attribute_storage_->getAttributeFilePath();
     }
 
-    std::string ShapefileConverter::getIndexFilePath() const {
+    std::string OGRFormatConverter::getIndexFilePath() const {
         return index_file_;
     }
 
-    std::string ShapefileConverter::getStringPoolFilePath() const {
+    std::string OGRFormatConverter::getStringPoolFilePath() const {
         return attribute_storage_->getStringPoolFilePath();
     }
 
-    AttributeSerializer::CompressionStats ShapefileConverter::getCompressionStats() const {
+    AttributeSerializer::CompressionStats OGRFormatConverter::getCompressionStats() const {
         return attribute_storage_->getCompressionStats();
     }
 
-    ShapefileConverter::ConversionStats ShapefileConverter::getConversionStats() const {
+    OGRFormatConverter::ConversionStats OGRFormatConverter::getConversionStats() const {
         return stats_;
     }
 
-    BBox ShapefileConverter::calculateBBox(const std::vector<Coordinate>& coordinates) {
+    BBox OGRFormatConverter::calculateBBox(const std::vector<Coordinate>& coordinates) {
         return GeometrySerializer::calculateBBox(coordinates);
     }
 
-    std::vector<uint8_t> ShapefileConverter::encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
+    std::vector<uint8_t> OGRFormatConverter::encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
         return GeometrySerializer::encodeCoordinatesDelta(coordinates);
     }
 
-    std::vector<uint8_t> ShapefileConverter::encodeCoordinatesDeltaOptimized(const std::vector<Coordinate>& coordinates) {
+    std::vector<uint8_t> OGRFormatConverter::encodeCoordinatesDeltaOptimized(const std::vector<Coordinate>& coordinates) {
         if (coordinates.empty()) {
             return {};
         }
@@ -340,7 +339,7 @@ namespace GisStorage {
         return data;
     }
 
-    std::vector<Coordinate> ShapefileConverter::extractGeometryCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::extractGeometryCoordinates(OGRGeometry* geometry) {
         if (!geometry) {
             return {};
         }
@@ -350,7 +349,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    std::vector<Coordinate> ShapefileConverter::extractPointCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::extractPointCoordinates(OGRGeometry* geometry) {
         if (!geometry || geometry->getGeometryType() != wkbPoint) {
             return {};
         }
@@ -359,7 +358,7 @@ namespace GisStorage {
         return {{point->getX(), point->getY()}};
     }
 
-    std::vector<Coordinate> ShapefileConverter::extractLineCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::extractLineCoordinates(OGRGeometry* geometry) {
         if (!geometry || geometry->getGeometryType() != wkbLineString) {
             return {};
         }
@@ -375,7 +374,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    std::vector<Coordinate> ShapefileConverter::extractPolygonCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::extractPolygonCoordinates(OGRGeometry* geometry) {
         if (!geometry || geometry->getGeometryType() != wkbPolygon) {
             return {};
         }
@@ -397,7 +396,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    void ShapefileConverter::extractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates) {
+    void OGRFormatConverter::extractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates) {
         if (!geometry) {
             return;
         }
@@ -440,7 +439,7 @@ namespace GisStorage {
         }
     }
 
-    void ShapefileConverter::saveIndexData(const nlohmann::json& index_data) {
+    void OGRFormatConverter::saveIndexData(const nlohmann::json& index_data) {
         std::ofstream file(index_file_);
         if (file.is_open()) {
             file << index_data.dump(4);
@@ -451,11 +450,11 @@ namespace GisStorage {
         }
     }
 
-    void ShapefileConverter::saveStringPool() {
+    void OGRFormatConverter::saveStringPool() {
         attribute_storage_->saveStringPool();
     }
 
-    void ShapefileConverter::updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size) {
+    void OGRFormatConverter::updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size) {
         stats_.geometry_size += geom_size;
         stats_.attribute_original_size += attr_original_size;
         stats_.attribute_compressed_size += attr_compressed_size;
