@@ -169,8 +169,8 @@ namespace GisStorage {
                     auto current_time = std::chrono::high_resolution_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
                     double speed = processed / (elapsed.count() / 1000.0);
-                    std::cout << "      进度: " << processed << "/" << total_features << " (" << (100.0 * processed / total_features) << "%) " << "找到: " << found_count << " 速度: " << static_cast<int>(speed)
-                              << " 要素/秒" << std::endl;
+                    std::cout << "\r      进度: " << processed << "/" << total_features << " (" << (100.0 * processed / total_features) << "%) " << "找到: " << found_count << " 速度: " << static_cast<int>(speed)
+                              << " 要素/秒" << std::flush;
                 }
             }
 
@@ -253,8 +253,8 @@ namespace GisStorage {
                         auto current_time = std::chrono::high_resolution_clock::now();
                         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
                         double speed = current_processed / (elapsed.count() / 1000.0);
-                        std::cout << "      进度: " << current_processed << "/" << total_features << " (" << (100.0 * current_processed / total_features) << "%) " << "找到: " << found_count.load()
-                                  << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::endl;
+                        std::cout << "\r      进度: " << current_processed << "/" << total_features << " (" << (100.0 * current_processed / total_features) << "%) " << "找到: " << found_count.load()
+                                  << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::flush;
                     }
                 }
 
@@ -349,8 +349,8 @@ namespace GisStorage {
                     auto current_time = std::chrono::high_resolution_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
                     double speed = processed / (elapsed.count() / 1000.0);
-                    std::cout << "      属性过滤进度: " << processed << "/" << spatial_results.size() << " (" << (100.0 * processed / spatial_results.size()) << "%) " << "找到: " << found_count
-                              << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::endl;
+                    std::cout << "\r      属性过滤进度: " << processed << "/" << spatial_results.size() << " (" << (100.0 * processed / spatial_results.size()) << "%) " << "找到: " << found_count
+                              << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::flush;
                 }
             }
 
@@ -688,23 +688,32 @@ namespace GisStorage {
         metadata_json["source_format"] = metadata_.source_format;
         metadata_json["source_file"] = metadata_.source_file;
         metadata_json["creation_date"] = metadata_.creation_date;
-        metadata_json["projection_info"] = metadata_.projection_info;
         metadata_json["source_coordinate_system"] = metadata_.source_coordinate_system;
         metadata_json["target_coordinate_system"] = metadata_.target_coordinate_system;
         metadata_json["total_features"] = metadata_.total_features;
         metadata_json["valid_features"] = metadata_.valid_features;
         metadata_json["file_sizes"] = metadata_.file_sizes;
         metadata_json["checksums"] = metadata_.checksums;
-        metadata_json["compression_info"] = metadata_.compression_info;
-        metadata_json["index_info"] = metadata_.index_info;
+        // 处理compression_info，如果它是JSON字符串则解析为对象
+        // 如果现有元数据中已经有compression_info，则保留它
+        if (!metadata_json.contains("compression_info") || metadata_json["compression_info"].empty()) {
+            if (!metadata_.compression_info.empty()) {
+                try {
+                    nlohmann::json compression_json = nlohmann::json::parse(metadata_.compression_info);
+                    metadata_json["compression_info"] = compression_json;
+                } catch (const std::exception&) {
+                    // 如果不是有效的JSON，则作为字符串保存
+                    metadata_json["compression_info"] = metadata_.compression_info;
+                }
+            } else {
+                metadata_json["compression_info"] = "";
+            }
+        }
         metadata_json["s2_index_info"] = metadata_.s2_index_info;
 
         // 只有在字段定义和空间范围不存在时才使用默认值
         if (!metadata_json.contains("field_definitions") || metadata_json["field_definitions"].empty()) {
             metadata_json["field_definitions"] = metadata_.field_definitions;
-        }
-        if (!metadata_json.contains("geometry_types") || metadata_json["geometry_types"].empty()) {
-            metadata_json["geometry_types"] = metadata_.geometry_types;
         }
 
         // 只有在空间范围不存在或为无效值时才使用默认值
@@ -750,17 +759,23 @@ namespace GisStorage {
             metadata_.source_format = metadata_json.value("source_format", "Shapefile");
             metadata_.source_file = metadata_json.value("source_file", "");
             metadata_.creation_date = metadata_json.value("creation_date", "");
-            metadata_.projection_info = metadata_json.value("projection_info", "");
             metadata_.source_coordinate_system = metadata_json.value("source_coordinate_system", "");
             metadata_.target_coordinate_system = metadata_json.value("target_coordinate_system", "");
             metadata_.total_features = metadata_json.value("total_features", 0);
             metadata_.valid_features = metadata_json.value("valid_features", 0);
             metadata_.field_definitions = metadata_json.value("field_definitions", std::map<std::string, std::string>{});
-            metadata_.geometry_types = metadata_json.value("geometry_types", std::map<std::string, std::string>{});
             metadata_.file_sizes = metadata_json.value("file_sizes", std::map<std::string, size_t>{});
             metadata_.checksums = metadata_json.value("checksums", std::map<std::string, std::string>{});
-            metadata_.compression_info = metadata_json.value("compression_info", "");
-            metadata_.index_info = metadata_json.value("index_info", "");
+            // 处理compression_info，它可能是一个JSON对象或字符串
+            if (metadata_json.contains("compression_info")) {
+                if (metadata_json["compression_info"].is_string()) {
+                    metadata_.compression_info = metadata_json["compression_info"];
+                } else {
+                    metadata_.compression_info = metadata_json["compression_info"].dump();
+                }
+            } else {
+                metadata_.compression_info = "";
+            }
             metadata_.s2_index_info = metadata_json.value("s2_index_info", "");
 
             // 加载空间范围

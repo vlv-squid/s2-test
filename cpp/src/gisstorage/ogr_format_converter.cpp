@@ -13,6 +13,7 @@
 #include <chrono>
 #include <limits>
 #include <iomanip>
+#include <sstream>
 
 namespace GisStorage {
 
@@ -316,7 +317,7 @@ namespace GisStorage {
         GDALClose(dataset);
 
         // 保存元数据（包括字段定义、空间范围和坐标系统信息）
-        saveMetadata(field_info, source_crs_info, target_crs_info, transformation_info);
+        saveMetadata(field_info, source_crs_info, target_crs_info);
 
         return valid_fids;
     }
@@ -533,7 +534,7 @@ namespace GisStorage {
         stats_.attribute_compressed_size += attr_compressed_size;
     }
 
-    void OGRFormatConverter::saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs, const std::string& transformation_info) {
+    void OGRFormatConverter::saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs) {
         // 创建元数据文件路径
         std::string metadata_file = output_dir_ + "/" + shapefile_name_ + "_meta.json";
 
@@ -553,6 +554,10 @@ namespace GisStorage {
         // 更新字段定义
         metadata["field_definitions"] = field_info;
 
+        // 更新源文件信息
+        metadata["source_file"] = std::filesystem::path(shapefile_path_).filename().string();
+        metadata["source_format"] = "Shapefile";
+
         // 更新坐标系统信息
         metadata["source_coordinate_system"] = source_crs;
         metadata["target_coordinate_system"] = target_crs;
@@ -565,6 +570,29 @@ namespace GisStorage {
         spatial_extent_json["max_y"] = dataset_spatial_extent_.max_y;
         metadata["spatial_extent"] = spatial_extent_json;
 
+        // 添加创建时间
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+        metadata["creation_date"] = ss.str();
+
+        // 添加压缩信息
+        auto compression_stats = attribute_storage_->getCompressionStats();
+        nlohmann::json compression_info;
+        compression_info["compression_ratio"] = compression_stats.compression_ratio;
+        compression_info["original_size"] = compression_stats.original_size;
+        compression_info["compressed_size"] = compression_stats.compressed_size;
+        compression_info["unique_strings"] = compression_stats.unique_strings;
+        compression_info["total_strings"] = compression_stats.total_strings;
+        compression_info["saved_bytes"] = compression_stats.original_size - compression_stats.compressed_size;
+        metadata["compression_info"] = compression_info;
+
+        // 添加基本统计信息
+        metadata["total_features"] = stats_.total_features;
+        metadata["valid_features"] = stats_.valid_features;
+        metadata["conversion_time_seconds"] = stats_.conversion_time_seconds;
+
         // 保存元数据
         std::ofstream file(metadata_file);
         if (file.is_open()) {
@@ -576,6 +604,8 @@ namespace GisStorage {
             std::cout << "  目标坐标系统: " << target_crs << std::endl;
             std::cout << "  空间范围: [" << std::fixed << std::setprecision(6) << dataset_spatial_extent_.min_x << ", " << dataset_spatial_extent_.min_y << " - " << dataset_spatial_extent_.max_x << ", "
                       << dataset_spatial_extent_.max_y << "]" << std::endl;
+            std::cout << "  创建时间: " << metadata["creation_date"] << std::endl;
+            std::cout << "  压缩率: " << compression_stats.compression_ratio << "%" << std::endl;
         } else {
             std::cerr << "无法保存元数据文件: " << metadata_file << std::endl;
         }

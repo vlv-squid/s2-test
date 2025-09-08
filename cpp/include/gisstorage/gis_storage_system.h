@@ -44,7 +44,6 @@ namespace GisStorage {
             std::string source_format = "Shapefile";
             std::string source_file;
             std::string creation_date;
-            std::string projection_info;
             // 坐标系统转换信息
             std::string source_coordinate_system; // 转换前的坐标系统
             std::string target_coordinate_system; // 转换后的坐标系统
@@ -52,11 +51,9 @@ namespace GisStorage {
             size_t total_features = 0;
             size_t valid_features = 0;
             std::map<std::string, std::string> field_definitions;
-            std::map<std::string, std::string> geometry_types;
             std::map<std::string, size_t> file_sizes;
             std::map<std::string, std::string> checksums;
             std::string compression_info;
-            std::string index_info;
             std::string s2_index_info;
         };
 

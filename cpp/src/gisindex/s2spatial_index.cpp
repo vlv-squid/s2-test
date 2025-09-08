@@ -236,7 +236,7 @@ namespace S2Main {
                 // 显示进度
                 if (processed_count % 500000 == 0 || processed_count == total_features) {
                     double progress = (double)processed_count / total_features * 100.0;
-                    std::cout << "进度: " << std::fixed << std::setprecision(1) << progress << "% (" << processed_count << "/" << total_features << "), 已处理索引条目: " << total_entries << std::endl;
+                    std::cout << "\r进度: " << std::fixed << std::setprecision(1) << progress << "% (" << processed_count << "/" << total_features << "), 已处理索引条目: " << total_entries << std::flush;
                 }
 
                 // 清空当前批次，准备下一批
@@ -376,7 +376,7 @@ namespace S2Main {
                 // 显示进度
                 if ((i - start_idx + 1) % 100000 == 0) {
                     double progress = (double)(i - start_idx + 1) / (end_idx - start_idx) * 100.0;
-                    std::cout << "线程 " << thread_id << " 进度: " << std::fixed << std::setprecision(1) << progress << "% (" << (i - start_idx + 1) << "/" << (end_idx - start_idx) << ")" << std::endl;
+                    std::cout << "\r线程 " << thread_id << " 进度: " << std::fixed << std::setprecision(1) << progress << "% (" << (i - start_idx + 1) << "/" << (end_idx - start_idx) << ")" << std::flush;
                 }
             }
 
