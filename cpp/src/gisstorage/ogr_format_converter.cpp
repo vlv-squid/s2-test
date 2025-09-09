@@ -11,19 +11,18 @@
 #include <algorithm>
 #include <cstring>
 #include <chrono>
-#include <limits>
 #include <iomanip>
 #include <sstream>
 
 namespace GisStorage {
 
     // OGRFormatConverter 实现
-    OGRFormatConverter::OGRFormatConverter(const std::string& shapefile_path, const std::string& output_dir)
-        : shapefile_path_(shapefile_path)
+    OGRFormatConverter::OGRFormatConverter(const std::string& ogr_file_path, const std::string& output_dir)
+        : ogr_file_path_(ogr_file_path)
         , output_dir_(output_dir) {
-        // 提取Shapefile名称
-        std::filesystem::path path(shapefile_path);
-        shapefile_name_ = path.stem().string();
+        // 提取OGR文件名称
+        std::filesystem::path path(ogr_file_path);
+        ogr_file_name_ = path.stem().string();
 
         // 初始化统计信息
         stats_.total_features = 0;
@@ -51,10 +50,10 @@ namespace GisStorage {
         std::filesystem::create_directories(output_dir_);
 
         // 初始化存储对象 - 使用标准扩展名（与GisStorageSystem保持一致）
-        std::string geom_file = output_dir_ + "/" + shapefile_name_ + ".geom";
-        std::string attr_file = output_dir_ + "/" + shapefile_name_ + ".attr";
-        std::string pool_file = output_dir_ + "/" + shapefile_name_ + ".pool";
-        index_file_ = output_dir_ + "/" + shapefile_name_ + ".idx";
+        std::string geom_file = output_dir_ + "/" + ogr_file_name_ + ".geom";
+        std::string attr_file = output_dir_ + "/" + ogr_file_name_ + ".attr";
+        std::string pool_file = output_dir_ + "/" + ogr_file_name_ + ".pool";
+        index_file_ = output_dir_ + "/" + ogr_file_name_ + ".idx";
 
         geometry_storage_ = std::make_unique<GeometryStorage>(geom_file);
         attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
@@ -63,13 +62,13 @@ namespace GisStorage {
     std::vector<uint64_t> OGRFormatConverter::convert() {
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        std::cout << "开始转换OGR格式（优化版本）: " << shapefile_path_ << std::endl;
+        std::cout << "开始转换OGR格式（优化版本）: " << ogr_file_path_ << std::endl;
 
-        // 打开Shapefile
+        // 打开OGR文件
         GDALAllRegister();
-        GDALDataset* dataset = static_cast<GDALDataset*>(GDALOpenEx(shapefile_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        GDALDataset* dataset = static_cast<GDALDataset*>(GDALOpenEx(ogr_file_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!dataset) {
-            throw std::runtime_error("无法打开OGR格式文件: " + shapefile_path_);
+            throw std::runtime_error("无法打开OGR格式文件: " + ogr_file_path_);
         }
 
         OGRLayer* layer = dataset->GetLayer(0);
@@ -186,9 +185,9 @@ namespace GisStorage {
                 // 计算边界框（仅用于几何数据存储）
                 BBox bbox = calculateBBox(coordinates);
 
-                // 调试输出（每1000000个要素输出一次）
-                if (processed_count % 1000000 == 0) {
-                    std::cout << "已处理 " << processed_count << " 个要素" << std::endl;
+                // 调试输出（每100000个要素刷新一次进度）
+                if (processed_count % 100000 == 0) {
+                    std::cout << "\r已处理 " << processed_count << " 个要素" << std::flush;
                 }
 
                 // 压缩坐标数据
@@ -306,6 +305,7 @@ namespace GisStorage {
         stats_.conversion_time_seconds = duration.count() / 1000.0;
 
         // 输出统计信息
+        std::cout << std::endl; // 换行，结束进度显示
         std::cout << "转换完成！" << std::endl;
         std::cout << "  有效要素: " << stats_.valid_features << "/" << stats_.total_features << std::endl;
         std::cout << "  字符串池大小: " << stats_.string_pool_size << " 个唯一字符串" << std::endl;
@@ -536,7 +536,7 @@ namespace GisStorage {
 
     void OGRFormatConverter::saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs) {
         // 创建元数据文件路径
-        std::string metadata_file = output_dir_ + "/" + shapefile_name_ + "_meta.json";
+        std::string metadata_file = output_dir_ + "/" + ogr_file_name_ + "_meta.json";
 
         // 读取现有元数据（如果存在）
         nlohmann::json metadata;
@@ -555,8 +555,22 @@ namespace GisStorage {
         metadata["field_definitions"] = field_info;
 
         // 更新源文件信息
-        metadata["source_file"] = std::filesystem::path(shapefile_path_).filename().string();
-        metadata["source_format"] = "Shapefile";
+        metadata["source_file"] = std::filesystem::path(ogr_file_path_).filename().string();
+
+        // 获取实际的驱动名称
+        std::string source_format = "Unknown";
+        GDALDataset* temp_dataset = static_cast<GDALDataset*>(GDALOpenEx(ogr_file_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
+        if (temp_dataset) {
+            GDALDriver* driver = temp_dataset->GetDriver();
+            if (driver) {
+                const char* driver_name = driver->GetDescription();
+                if (driver_name) {
+                    source_format = std::string(driver_name);
+                }
+            }
+            GDALClose(temp_dataset);
+        }
+        metadata["source_format"] = source_format;
 
         // 更新坐标系统信息
         metadata["source_coordinate_system"] = source_crs;
@@ -599,6 +613,7 @@ namespace GisStorage {
             file << metadata.dump(4);
             file.close();
             std::cout << "元数据已保存到文件: " << metadata_file << std::endl;
+            std::cout << "  源格式: " << source_format << std::endl;
             std::cout << "  字段定义: " << field_info.size() << " 个字段" << std::endl;
             std::cout << "  源坐标系统: " << source_crs << std::endl;
             std::cout << "  目标坐标系统: " << target_crs << std::endl;

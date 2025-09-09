@@ -21,7 +21,7 @@ namespace GisStorage {
     // OGR格式转换器类 - 集成字符串池
     class OGRFormatConverter {
       public:
-        OGRFormatConverter(const std::string& shapefile_path, const std::string& output_dir);
+        OGRFormatConverter(const std::string& ogr_file_path, const std::string& output_dir);
 
         // 转换OGR格式到优化格式
         std::vector<uint64_t> convert();
@@ -51,9 +51,9 @@ namespace GisStorage {
         ConversionStats getConversionStats() const;
 
       private:
-        std::string shapefile_path_;
+        std::string ogr_file_path_;
         std::string output_dir_;
-        std::string shapefile_name_;
+        std::string ogr_file_name_;
         std::unique_ptr<GeometryStorage> geometry_storage_;
         std::unique_ptr<AttributeStorage> attribute_storage_;
         std::string index_file_;
