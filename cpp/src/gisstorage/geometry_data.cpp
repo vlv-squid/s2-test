@@ -50,23 +50,20 @@ namespace GisStorage {
         uint8_t type_flag = coordinates_[16];
         size_t pos = 17;
 
-        if (type_flag == 0) { // short类型
+        if (type_flag == 0) {                  // 量化short类型
+            const float scale_factor = 100.0f; // 1厘米精度
             while (pos + 4 <= coordinates_.size()) {
-                int16_t dx, dy;
-                std::memcpy(&dx, &coordinates_[pos], sizeof(int16_t));
-                std::memcpy(&dy, &coordinates_[pos + 2], sizeof(int16_t));
+                int16_t dx_quantized, dy_quantized;
+                std::memcpy(&dx_quantized, &coordinates_[pos], sizeof(int16_t));
+                std::memcpy(&dy_quantized, &coordinates_[pos + 2], sizeof(int16_t));
+
+                // 反量化
+                float dx = static_cast<float>(dx_quantized) / scale_factor;
+                float dy = static_cast<float>(dy_quantized) / scale_factor;
+
                 Coordinate prev = coordinates.back();
                 coordinates.emplace_back(prev.x + dx, prev.y + dy);
                 pos += 4;
-            }
-        } else if (type_flag == 1) { // int类型
-            while (pos + 8 <= coordinates_.size()) {
-                int32_t dx, dy;
-                std::memcpy(&dx, &coordinates_[pos], sizeof(int32_t));
-                std::memcpy(&dy, &coordinates_[pos + 4], sizeof(int32_t));
-                Coordinate prev = coordinates.back();
-                coordinates.emplace_back(prev.x + dx, prev.y + dy);
-                pos += 8;
             }
         } else if (type_flag == 2) { // float类型
             while (pos + 8 <= coordinates_.size()) {

@@ -71,7 +71,6 @@ namespace GisStorage {
         std::vector<uint8_t> encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates);
 
         // 优化的差分编码
-        std::vector<uint8_t> encodeCoordinatesDeltaOptimized(const std::vector<Coordinate>& coordinates);
 
         // 提取几何坐标
         std::vector<Coordinate> extractGeometryCoordinates(OGRGeometry* geometry);

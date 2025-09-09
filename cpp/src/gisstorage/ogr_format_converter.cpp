@@ -191,7 +191,7 @@ namespace GisStorage {
                 }
 
                 // 压缩坐标数据
-                std::vector<uint8_t> coord_data = encodeCoordinatesDeltaOptimized(coordinates);
+                std::vector<uint8_t> coord_data = encodeCoordinatesDelta(coordinates);
 
                 // 确定几何类型
                 GeometryType geom_type;
@@ -352,65 +352,6 @@ namespace GisStorage {
 
     std::vector<uint8_t> OGRFormatConverter::encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
         return GeometrySerializer::encodeCoordinatesDelta(coordinates);
-    }
-
-    std::vector<uint8_t> OGRFormatConverter::encodeCoordinatesDeltaOptimized(const std::vector<Coordinate>& coordinates) {
-        if (coordinates.empty()) {
-            return {};
-        }
-
-        if (coordinates.size() == 1) {
-            // 单点情况，直接存储绝对坐标
-            std::vector<uint8_t> data(16);
-            std::memcpy(&data[0], &coordinates[0].x, sizeof(double));
-            std::memcpy(&data[8], &coordinates[0].y, sizeof(double));
-            return data;
-        }
-
-        // 计算偏移量范围，决定使用哪种数据类型
-        double max_delta = 0;
-        std::vector<std::pair<float, float>> deltas;
-        for (size_t i = 1; i < coordinates.size(); ++i) {
-            float dx = static_cast<float>(coordinates[i].x - coordinates[i - 1].x);
-            float dy = static_cast<float>(coordinates[i].y - coordinates[i - 1].y);
-            deltas.emplace_back(dx, dy);
-            max_delta = std::max(max_delta, static_cast<double>(std::max(std::abs(dx), std::abs(dy))));
-        }
-
-        // 存储第一个点的绝对坐标
-        std::vector<uint8_t> data(16);
-        std::memcpy(&data[0], &coordinates[0].x, sizeof(double));
-        std::memcpy(&data[8], &coordinates[0].y, sizeof(double));
-
-        // 根据偏移量范围选择合适的存储格式
-        if (max_delta < 32767) { // short类型范围
-            // 使用short类型存储偏移量（2字节/坐标）
-            data.push_back(0); // 标记使用short类型
-            for (const auto& delta : deltas) {
-                int16_t dx = static_cast<int16_t>(delta.first);
-                int16_t dy = static_cast<int16_t>(delta.second);
-                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dx), reinterpret_cast<uint8_t*>(&dx) + sizeof(int16_t));
-                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dy), reinterpret_cast<uint8_t*>(&dy) + sizeof(int16_t));
-            }
-        } else if (max_delta < 2147483647) { // int类型范围
-            // 使用int类型存储偏移量（4字节/坐标）
-            data.push_back(1); // 标记使用int类型
-            for (const auto& delta : deltas) {
-                int32_t dx = static_cast<int32_t>(delta.first);
-                int32_t dy = static_cast<int32_t>(delta.second);
-                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dx), reinterpret_cast<uint8_t*>(&dx) + sizeof(int32_t));
-                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dy), reinterpret_cast<uint8_t*>(&dy) + sizeof(int32_t));
-            }
-        } else {
-            // 使用float类型存储偏移量（4字节/坐标）
-            data.push_back(2); // 标记使用float类型
-            for (const auto& delta : deltas) {
-                data.insert(data.end(), reinterpret_cast<const uint8_t*>(&delta.first), reinterpret_cast<const uint8_t*>(&delta.first) + sizeof(float));
-                data.insert(data.end(), reinterpret_cast<const uint8_t*>(&delta.second), reinterpret_cast<const uint8_t*>(&delta.second) + sizeof(float));
-            }
-        }
-
-        return data;
     }
 
     std::vector<Coordinate> OGRFormatConverter::extractGeometryCoordinates(OGRGeometry* geometry) {

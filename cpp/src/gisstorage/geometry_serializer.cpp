@@ -140,20 +140,47 @@ namespace GisStorage {
             return {};
         }
 
-        std::vector<uint8_t> data;
-        data.reserve(16 + (coordinates.size() - 1) * 8); // 第一个点16字节，后续每点8字节
+        if (coordinates.size() == 1) {
+            // 单点情况，直接存储绝对坐标
+            std::vector<uint8_t> data(16);
+            std::memcpy(&data[0], &coordinates[0].x, sizeof(double));
+            std::memcpy(&data[8], &coordinates[0].y, sizeof(double));
+            return data;
+        }
 
-        // 第一个点存储绝对坐标
-        data.insert(data.end(), reinterpret_cast<const uint8_t*>(&coordinates[0].x), reinterpret_cast<const uint8_t*>(&coordinates[0].x) + sizeof(double));
-        data.insert(data.end(), reinterpret_cast<const uint8_t*>(&coordinates[0].y), reinterpret_cast<const uint8_t*>(&coordinates[0].y) + sizeof(double));
-
-        // 后续点存储相对于前一个点的偏移量
+        // 计算偏移量范围，决定使用哪种数据类型
+        double max_delta = 0;
+        std::vector<std::pair<float, float>> deltas;
         for (size_t i = 1; i < coordinates.size(); ++i) {
             float dx = static_cast<float>(coordinates[i].x - coordinates[i - 1].x);
             float dy = static_cast<float>(coordinates[i].y - coordinates[i - 1].y);
+            deltas.emplace_back(dx, dy);
+            max_delta = std::max(max_delta, static_cast<double>(std::max(std::abs(dx), std::abs(dy))));
+        }
 
-            data.insert(data.end(), reinterpret_cast<uint8_t*>(&dx), reinterpret_cast<uint8_t*>(&dx) + sizeof(float));
-            data.insert(data.end(), reinterpret_cast<uint8_t*>(&dy), reinterpret_cast<uint8_t*>(&dy) + sizeof(float));
+        // 存储第一个点的绝对坐标
+        std::vector<uint8_t> data(16);
+        std::memcpy(&data[0], &coordinates[0].x, sizeof(double));
+        std::memcpy(&data[8], &coordinates[0].y, sizeof(double));
+
+        // 根据偏移量范围选择合适的存储格式
+        if (max_delta < 327.67) { // 量化short类型范围（精度0.01米）
+            // 使用量化short类型存储偏移量（2字节/坐标，精度1厘米）
+            const float scale_factor = 100.0f; // 1厘米精度
+            data.push_back(0);                 // 标记使用量化short类型
+            for (const auto& delta : deltas) {
+                int16_t dx = static_cast<int16_t>(delta.first * scale_factor);
+                int16_t dy = static_cast<int16_t>(delta.second * scale_factor);
+                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dx), reinterpret_cast<uint8_t*>(&dx) + sizeof(int16_t));
+                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dy), reinterpret_cast<uint8_t*>(&dy) + sizeof(int16_t));
+            }
+        } else {
+            // 使用float类型存储偏移量（4字节/坐标）
+            data.push_back(2); // 标记使用float类型
+            for (const auto& delta : deltas) {
+                data.insert(data.end(), reinterpret_cast<const uint8_t*>(&delta.first), reinterpret_cast<const uint8_t*>(&delta.first) + sizeof(float));
+                data.insert(data.end(), reinterpret_cast<const uint8_t*>(&delta.second), reinterpret_cast<const uint8_t*>(&delta.second) + sizeof(float));
+            }
         }
 
         return data;
@@ -173,17 +200,49 @@ namespace GisStorage {
             std::memcpy(&first_point.y, &data[8], sizeof(double));
             coordinates.push_back(first_point);
 
-            // 读取后续点的偏移量
-            size_t offset = 16;
-            while (offset + 8 <= data.size()) {
-                float dx, dy;
-                std::memcpy(&dx, &data[offset], sizeof(float));
-                offset += sizeof(float);
-                std::memcpy(&dy, &data[offset], sizeof(float));
-                offset += sizeof(float);
+            // 检查是否有类型标记
+            if (data.size() > 16) {
+                uint8_t type_flag = data[16];
+                size_t offset = 17;
 
-                Coordinate prev = coordinates.back();
-                coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                if (type_flag == 0) {                  // 量化short类型
+                    const float scale_factor = 100.0f; // 1厘米精度
+                    while (offset + 4 <= data.size()) {
+                        int16_t dx_quantized, dy_quantized;
+                        std::memcpy(&dx_quantized, &data[offset], sizeof(int16_t));
+                        std::memcpy(&dy_quantized, &data[offset + 2], sizeof(int16_t));
+
+                        // 反量化
+                        float dx = static_cast<float>(dx_quantized) / scale_factor;
+                        float dy = static_cast<float>(dy_quantized) / scale_factor;
+
+                        Coordinate prev = coordinates.back();
+                        coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                        offset += 4;
+                    }
+                } else if (type_flag == 2) { // float类型
+                    while (offset + 8 <= data.size()) {
+                        float dx, dy;
+                        std::memcpy(&dx, &data[offset], sizeof(float));
+                        std::memcpy(&dy, &data[offset + 4], sizeof(float));
+                        Coordinate prev = coordinates.back();
+                        coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                        offset += 8;
+                    }
+                }
+            } else {
+                // 兼容旧格式：直接是偏移量（向后兼容）
+                size_t offset = 16;
+                while (offset + 8 <= data.size()) {
+                    float dx, dy;
+                    std::memcpy(&dx, &data[offset], sizeof(float));
+                    offset += sizeof(float);
+                    std::memcpy(&dy, &data[offset], sizeof(float));
+                    offset += sizeof(float);
+
+                    Coordinate prev = coordinates.back();
+                    coordinates.emplace_back(prev.x + dx, prev.y + dy);
+                }
             }
         }
 
