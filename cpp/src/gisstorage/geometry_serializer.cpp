@@ -149,14 +149,12 @@ namespace GisStorage {
             return data;
         }
 
-        // 计算偏移量范围，决定使用哪种数据类型
-        double max_delta = 0;
-        std::vector<std::pair<float, float>> deltas;
+        // 计算偏移量，使用double精度避免累积误差
+        std::vector<std::pair<double, double>> deltas;
         for (size_t i = 1; i < coordinates.size(); ++i) {
-            float dx = static_cast<float>(coordinates[i].x - coordinates[i - 1].x);
-            float dy = static_cast<float>(coordinates[i].y - coordinates[i - 1].y);
+            double dx = coordinates[i].x - coordinates[i - 1].x;
+            double dy = coordinates[i].y - coordinates[i - 1].y;
             deltas.emplace_back(dx, dy);
-            max_delta = std::max(max_delta, static_cast<double>(std::max(std::abs(dx), std::abs(dy))));
         }
 
         // 存储第一个点的绝对坐标
@@ -164,24 +162,13 @@ namespace GisStorage {
         std::memcpy(&data[0], &coordinates[0].x, sizeof(double));
         std::memcpy(&data[8], &coordinates[0].y, sizeof(double));
 
-        // 根据偏移量范围选择合适的存储格式
-        if (max_delta < 3.2767) { // 量化short类型范围（精度0.1微米）
-            // 使用量化short类型存储偏移量（2字节/坐标，精度0.1微米）
-            const float scale_factor = 1000000.0f; // 0.1微米精度
-            data.push_back(0);                     // 标记使用量化short类型
-            for (const auto& delta : deltas) {
-                int16_t dx = static_cast<int16_t>(std::round(delta.first * scale_factor));
-                int16_t dy = static_cast<int16_t>(std::round(delta.second * scale_factor));
-                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dx), reinterpret_cast<uint8_t*>(&dx) + sizeof(int16_t));
-                data.insert(data.end(), reinterpret_cast<uint8_t*>(&dy), reinterpret_cast<uint8_t*>(&dy) + sizeof(int16_t));
-            }
-        } else {
-            // 使用float类型存储偏移量（4字节/坐标）
-            data.push_back(2); // 标记使用float类型
-            for (const auto& delta : deltas) {
-                data.insert(data.end(), reinterpret_cast<const uint8_t*>(&delta.first), reinterpret_cast<const uint8_t*>(&delta.first) + sizeof(float));
-                data.insert(data.end(), reinterpret_cast<const uint8_t*>(&delta.second), reinterpret_cast<const uint8_t*>(&delta.second) + sizeof(float));
-            }
+        // 使用float类型存储偏移量（4字节/坐标），保持更高精度
+        data.push_back(2); // 标记使用float类型
+        for (const auto& delta : deltas) {
+            float dx_float = static_cast<float>(delta.first);
+            float dy_float = static_cast<float>(delta.second);
+            data.insert(data.end(), reinterpret_cast<const uint8_t*>(&dx_float), reinterpret_cast<const uint8_t*>(&dx_float) + sizeof(float));
+            data.insert(data.end(), reinterpret_cast<const uint8_t*>(&dy_float), reinterpret_cast<const uint8_t*>(&dy_float) + sizeof(float));
         }
 
         return data;

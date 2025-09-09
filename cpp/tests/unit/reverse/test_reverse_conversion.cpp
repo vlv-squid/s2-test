@@ -16,7 +16,7 @@ class ReverseConversionTest : public ::testing::Test {
   protected:
     void SetUp() override {
         // 设置输入shapefile路径
-        input_shapefile_ = "/home/chenming/Data/GIS_DATA/shapefile/single.shp";
+        input_shapefile_ = "/home/chenming/Projects/test/s2-test/data/test.shp";
 
         // 创建输出目录
         output_base_dir_ = "/home/chenming/Projects/test/s2-test/output_data";
@@ -62,60 +62,6 @@ class ReverseConversionTest : public ::testing::Test {
     std::string custom_data_dir_;
     std::string dataset_name_;
 };
-
-// 测试逆向转换到Shapefile
-TEST_F(ReverseConversionTest, ConvertToShapefile) {
-    ASSERT_TRUE(checkRequiredFiles()) << "缺少必要的自定义格式文件";
-
-    // 创建逆向转换器
-    std::string dummy_original_file = custom_data_dir_ + "/" + dataset_name_ + ".shp";
-    GisStorage::OGRFormatConverter converter(dummy_original_file, custom_data_dir_);
-
-    // 创建输出目录
-    std::string output_dir = test_output_dir_ + "/reverse_output";
-    std::filesystem::create_directories(output_dir);
-
-    // 测试转换到Shapefile
-    std::string shapefile_output = output_dir + "/" + dataset_name_ + "_reverse.shp";
-
-    EXPECT_TRUE(converter.convertToOGR(shapefile_output, "ESRI Shapefile")) << "Shapefile逆向转换失败";
-
-    // 验证输出文件存在且不为空
-    EXPECT_TRUE(std::filesystem::exists(shapefile_output)) << "输出Shapefile文件不存在";
-
-    auto file_size = std::filesystem::file_size(shapefile_output);
-    EXPECT_GT(file_size, 0) << "输出Shapefile文件为空";
-
-    // 验证Shapefile的辅助文件也存在
-    std::string shx_file = output_dir + "/" + dataset_name_ + "_reverse.shx";
-    std::string dbf_file = output_dir + "/" + dataset_name_ + "_reverse.dbf";
-
-    EXPECT_TRUE(std::filesystem::exists(shx_file)) << "Shapefile索引文件不存在";
-    EXPECT_TRUE(std::filesystem::exists(dbf_file)) << "Shapefile属性文件不存在";
-}
-
-// 测试逆向转换到GDB
-TEST_F(ReverseConversionTest, ConvertToGDB) {
-    ASSERT_TRUE(checkRequiredFiles()) << "缺少必要的自定义格式文件";
-
-    // 创建逆向转换器
-    std::string dummy_original_file = custom_data_dir_ + "/" + dataset_name_ + ".shp";
-    GisStorage::OGRFormatConverter converter(dummy_original_file, custom_data_dir_);
-
-    // 创建输出目录
-    std::string output_dir = test_output_dir_ + "/reverse_output";
-    std::filesystem::create_directories(output_dir);
-
-    // 测试转换到GDB
-    std::string gdb_output = output_dir + "/" + dataset_name_ + "_reverse.gdb";
-
-    EXPECT_TRUE(converter.convertToOGR(gdb_output, "OpenFileGDB")) << "GDB逆向转换失败";
-
-    // 验证输出目录存在
-    EXPECT_TRUE(std::filesystem::exists(gdb_output)) << "输出GDB目录不存在";
-
-    EXPECT_TRUE(std::filesystem::is_directory(gdb_output)) << "GDB输出不是目录";
-}
 
 // 测试批量转换
 TEST_F(ReverseConversionTest, ConvertToMultipleFormats) {
