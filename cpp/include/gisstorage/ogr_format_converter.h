@@ -36,6 +36,12 @@ namespace GisStorage {
         // 获取压缩统计信息
         AttributeSerializer::CompressionStats getCompressionStats() const;
 
+        // 逆向转换：将自定义格式转换回OGR格式
+        bool convertToOGR(const std::string& output_path, const std::string& output_format = "ESRI Shapefile");
+
+        // 批量逆向转换：支持多种输出格式
+        bool convertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats);
+
         // 获取存储统计信息
         struct ConversionStats {
             size_t total_features;
@@ -101,6 +107,19 @@ namespace GisStorage {
 
         // 更新统计信息
         void updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size);
+
+        // 逆向转换私有方法
+        bool loadCustomFormatData();
+        void clearLoadedData();
+        OGRGeometry* createOGRGeometry(const GeometryData& geom_data);
+        OGRFeature* createOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format);
+        nlohmann::json loadMetadata();
+
+        // 存储加载的数据
+        std::map<uint64_t, std::unique_ptr<GeometryData>> loaded_geometries_;
+        std::map<uint64_t, std::unique_ptr<AttributeData>> loaded_attributes_;
+        nlohmann::json metadata_;
+        std::vector<uint64_t> feature_ids_;
     };
 
 } // namespace GisStorage

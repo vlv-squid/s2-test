@@ -8,11 +8,11 @@
 #include <filesystem>
 #include <iostream>
 #include <fstream>
-#include <algorithm>
 #include <cstring>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <set>
 
 namespace GisStorage {
 
@@ -165,8 +165,32 @@ namespace GisStorage {
         int processed_count = 0;
         OGRFeature* feature;
 
+        // 用于跟踪FID映射，避免冲突
+        std::set<uint64_t> used_fids;
+        uint64_t next_available_fid = 1;
+
         while ((feature = layer->GetNextFeature()) != nullptr) {
-            uint64_t fid = feature->GetFID();
+            uint64_t original_fid = feature->GetFID();
+            uint64_t fid = original_fid;
+
+            // 处理FID为0或重复的情况
+            if (fid == 0 || used_fids.find(fid) != used_fids.end()) {
+                // 找到下一个可用的FID
+                while (used_fids.find(next_available_fid) != used_fids.end()) {
+                    next_available_fid++;
+                }
+                fid = next_available_fid;
+                next_available_fid++;
+
+                if (original_fid == 0) {
+                    std::cout << "警告: FID为0的要素映射为 " << fid << std::endl;
+                } else {
+                    std::cout << "警告: 重复FID " << original_fid << " 映射为 " << fid << std::endl;
+                }
+            }
+
+            // 记录使用的FID
+            used_fids.insert(fid);
 
             try {
                 // 提取几何数据
@@ -344,6 +368,212 @@ namespace GisStorage {
 
     OGRFormatConverter::ConversionStats OGRFormatConverter::getConversionStats() const {
         return stats_;
+    }
+
+    bool OGRFormatConverter::convertToOGR(const std::string& output_path, const std::string& output_format) {
+        std::cout << "开始逆向转换到OGR格式: " << output_format << std::endl;
+        std::cout << "输出路径: " << output_path << std::endl;
+
+        try {
+            // 加载自定义格式数据（如果尚未加载）
+            if (loaded_geometries_.empty() || loaded_attributes_.empty() || metadata_.empty()) {
+                if (!loadCustomFormatData()) {
+                    std::cerr << "加载自定义格式数据失败" << std::endl;
+                    return false;
+                }
+            }
+
+            // 注册GDAL驱动
+            GDALAllRegister();
+
+            // 获取输出驱动
+            GDALDriver* driver = GetGDALDriverManager()->GetDriverByName(output_format.c_str());
+            if (!driver) {
+                std::cerr << "不支持的输出格式: " << output_format << std::endl;
+                return false;
+            }
+
+            // 创建输出数据集
+            GDALDataset* dataset = driver->Create(output_path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+            if (!dataset) {
+                std::cerr << "无法创建输出数据集: " << output_path << std::endl;
+                return false;
+            }
+
+            // 创建图层
+            OGRSpatialReference* spatial_ref = nullptr;
+
+            // 尝试从元数据恢复坐标系统
+            if (metadata_.contains("source_coordinate_system")) {
+                std::string crs_info = metadata_["source_coordinate_system"];
+                spatial_ref = new OGRSpatialReference();
+
+                // 尝试解析EPSG代码
+                if (crs_info.find("EPSG:") != std::string::npos) {
+                    size_t pos = crs_info.find("EPSG:");
+                    std::string epsg_code = crs_info.substr(pos + 5);
+                    size_t space_pos = epsg_code.find(' ');
+                    if (space_pos != std::string::npos) {
+                        epsg_code = epsg_code.substr(0, space_pos);
+                    }
+                    try {
+                        int epsg = std::stoi(epsg_code);
+                        spatial_ref->importFromEPSG(epsg);
+                    } catch (const std::exception& e) {
+                        std::cerr << "无法解析EPSG代码: " << epsg_code << std::endl;
+                        delete spatial_ref;
+                        spatial_ref = nullptr;
+                    }
+                }
+            }
+
+            // 确定几何类型（从第一个要素推断）
+            OGRwkbGeometryType geom_type = wkbUnknown;
+            if (!feature_ids_.empty()) {
+                auto geom_it = loaded_geometries_.find(feature_ids_[0]);
+                if (geom_it != loaded_geometries_.end()) {
+                    switch (geom_it->second->getGeometryType()) {
+                        case GeometryType::POINT:
+                            geom_type = wkbPoint;
+                            break;
+                        case GeometryType::LINE:
+                            geom_type = wkbLineString;
+                            break;
+                        case GeometryType::POLYGON:
+                            geom_type = wkbPolygon;
+                            break;
+                        case GeometryType::MULTIPOINT:
+                            geom_type = wkbMultiPoint;
+                            break;
+                        case GeometryType::MULTILINE:
+                            geom_type = wkbMultiLineString;
+                            break;
+                        case GeometryType::MULTIPOLYGON:
+                            geom_type = wkbMultiPolygon;
+                            break;
+                    }
+                }
+            }
+
+            OGRLayer* layer = dataset->CreateLayer(ogr_file_name_.c_str(), spatial_ref, geom_type, nullptr);
+            if (!layer) {
+                std::cerr << "无法创建图层" << std::endl;
+                if (spatial_ref)
+                    delete spatial_ref;
+                GDALClose(dataset);
+                return false;
+            }
+
+            // 创建字段定义
+            if (metadata_.contains("field_definitions")) {
+                auto field_defs = metadata_["field_definitions"];
+                for (auto& [field_name, field_type] : field_defs.items()) {
+                    OGRFieldType ogr_field_type = OFTString; // 默认字符串类型
+
+                    // 根据存储的类型转换为OGR类型
+                    if (field_type.is_number_integer()) {
+                        if (field_type.get<int>() == 0) { // OFTInteger
+                            ogr_field_type = OFTInteger;
+                        } else if (field_type.get<int>() == 1) { // OFTInteger64
+                            ogr_field_type = OFTInteger64;
+                        }
+                    } else if (field_type.is_number_float()) {
+                        ogr_field_type = OFTReal;
+                    }
+
+                    OGRFieldDefn field_defn(field_name.c_str(), ogr_field_type);
+                    if (layer->CreateField(&field_defn) != OGRERR_NONE) {
+                        std::cerr << "创建字段失败: " << field_name << std::endl;
+                    }
+                }
+            }
+
+            // 获取字段定义
+            OGRFeatureDefn* feature_defn = layer->GetLayerDefn();
+
+            // 写入要素
+            int success_count = 0;
+            for (uint64_t fid : feature_ids_) {
+                auto geom_it = loaded_geometries_.find(fid);
+                auto attr_it = loaded_attributes_.find(fid);
+
+                if (geom_it == loaded_geometries_.end() || attr_it == loaded_attributes_.end()) {
+                    continue;
+                }
+
+                OGRFeature* feature = createOGRFeature(*geom_it->second, *attr_it->second, feature_defn, output_format);
+                if (feature) {
+                    OGRErr err = layer->CreateFeature(feature);
+                    if (err == OGRERR_NONE) {
+                        success_count++;
+                    } else {
+                        std::cerr << "创建要素失败，错误代码: " << err << "，FID: " << fid << std::endl;
+                    }
+                    OGRFeature::DestroyFeature(feature);
+                } else {
+                    std::cerr << "创建OGR要素对象失败，FID: " << fid << std::endl;
+                }
+            }
+
+            std::cout << "逆向转换完成！成功转换 " << success_count << " 个要素" << std::endl;
+
+            // 清理
+            if (spatial_ref)
+                delete spatial_ref;
+            GDALClose(dataset);
+
+            return success_count > 0;
+
+        } catch (const std::exception& e) {
+            std::cerr << "逆向转换过程中出错: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    void OGRFormatConverter::clearLoadedData() {
+        loaded_geometries_.clear();
+        loaded_attributes_.clear();
+        feature_ids_.clear();
+        metadata_.clear();
+
+        // 重新初始化存储对象，确保从干净状态开始
+        initializeStorageFiles();
+    }
+
+    bool OGRFormatConverter::convertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats) {
+        std::cout << "开始批量逆向转换到多种格式" << std::endl;
+
+        bool all_success = true;
+        for (size_t i = 0; i < formats.size(); ++i) {
+            const std::string& format = formats[i];
+            std::string output_path;
+
+            // 根据格式确定输出路径和扩展名，为每个格式使用不同的文件名避免冲突
+            if (format == "ESRI Shapefile") {
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".shp";
+            } else if (format == "OpenFileGDB" || format == "FileGDB") {
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".gdb";
+            } else if (format == "GPKG") {
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".gpkg";
+            } else if (format == "GeoJSON") {
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".geojson";
+            } else {
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".out";
+            }
+
+            std::cout << "转换到格式: " << format << " -> " << output_path << std::endl;
+
+            // 为每次转换创建新的转换器实例，确保完全独立的状态
+            std::string dummy_original_file = output_dir_ + "/" + ogr_file_name_ + ".shp";
+            OGRFormatConverter converter(dummy_original_file, output_dir_);
+
+            if (!converter.convertToOGR(output_path, format)) {
+                std::cerr << "转换到 " << format << " 失败" << std::endl;
+                all_success = false;
+            }
+        }
+
+        return all_success;
     }
 
     BBox OGRFormatConverter::calculateBBox(const std::vector<Coordinate>& coordinates) {
@@ -564,6 +794,308 @@ namespace GisStorage {
             std::cout << "  压缩率: " << compression_stats.compression_ratio << "%" << std::endl;
         } else {
             std::cerr << "无法保存元数据文件: " << metadata_file << std::endl;
+        }
+    }
+
+    bool OGRFormatConverter::loadCustomFormatData() {
+        std::cout << "加载自定义格式数据..." << std::endl;
+
+        try {
+            // 清理之前的数据
+            loaded_geometries_.clear();
+            loaded_attributes_.clear();
+            feature_ids_.clear();
+
+            // 加载元数据
+            metadata_ = loadMetadata();
+            if (metadata_.empty()) {
+                std::cerr << "无法加载元数据" << std::endl;
+                return false;
+            }
+
+            // 加载索引数据
+            std::ifstream index_file(index_file_);
+            if (!index_file.is_open()) {
+                std::cerr << "无法打开索引文件: " << index_file_ << std::endl;
+                return false;
+            }
+
+            nlohmann::json index_data;
+            index_file >> index_data;
+            index_file.close();
+
+            // 获取所有要素ID
+            if (index_data.contains("data") && index_data["data"].contains("features")) {
+                auto features = index_data["data"]["features"];
+                for (auto& [fid_str, feature_info] : features.items()) {
+                    uint64_t fid = std::stoull(fid_str);
+                    feature_ids_.push_back(fid);
+                }
+            }
+
+            std::cout << "找到 " << feature_ids_.size() << " 个要素" << std::endl;
+
+            // 批量加载几何和属性数据
+            for (uint64_t fid : feature_ids_) {
+                auto geometry = geometry_storage_->readGeometry(fid);
+                if (geometry) {
+                    loaded_geometries_[fid] = std::move(geometry);
+                }
+
+                auto attribute = attribute_storage_->readAttribute(fid);
+                if (attribute) {
+                    loaded_attributes_[fid] = std::move(attribute);
+                }
+            }
+
+            std::cout << "成功加载 " << loaded_geometries_.size() << " 个几何要素" << std::endl;
+            std::cout << "成功加载 " << loaded_attributes_.size() << " 个属性要素" << std::endl;
+
+            return !loaded_geometries_.empty() && !loaded_attributes_.empty();
+
+        } catch (const std::exception& e) {
+            std::cerr << "加载自定义格式数据时出错: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    OGRGeometry* OGRFormatConverter::createOGRGeometry(const GeometryData& geom_data) {
+        try {
+            // 解码坐标数据
+            std::vector<Coordinate> coordinates = geom_data.decodeCoordinates();
+            if (coordinates.empty()) {
+                std::cerr << "警告: 几何数据解码后为空，数据大小: " << geom_data.getCoordinates().size() << std::endl;
+                return nullptr;
+            }
+
+            // 调试信息
+            if (coordinates.size() == 1) {
+                std::cout << "解码得到单点: (" << coordinates[0].x << ", " << coordinates[0].y << ")，几何类型: " << static_cast<int>(geom_data.getGeometryType()) << std::endl;
+            } else {
+                std::cout << "解码得到 " << coordinates.size() << " 个坐标点，几何类型: " << static_cast<int>(geom_data.getGeometryType()) << std::endl;
+            }
+
+            OGRGeometry* geometry = nullptr;
+
+            switch (geom_data.getGeometryType()) {
+                case GeometryType::POINT: {
+                    if (coordinates.size() >= 1) {
+                        geometry = new OGRPoint(coordinates[0].x, coordinates[0].y);
+                    }
+                    break;
+                }
+                case GeometryType::LINE: {
+                    OGRLineString* line = new OGRLineString();
+                    for (const auto& coord : coordinates) {
+                        line->addPoint(coord.x, coord.y);
+                    }
+                    geometry = line;
+                    break;
+                }
+                case GeometryType::POLYGON: {
+                    if (coordinates.size() >= 3) {
+                        OGRPolygon* polygon = new OGRPolygon();
+                        OGRLinearRing* ring = new OGRLinearRing();
+                        for (const auto& coord : coordinates) {
+                            ring->addPoint(coord.x, coord.y);
+                        }
+                        // 确保环是闭合的
+                        if (coordinates.size() > 0) {
+                            const auto& first = coordinates[0];
+                            const auto& last = coordinates.back();
+                            if (first.x != last.x || first.y != last.y) {
+                                ring->addPoint(first.x, first.y);
+                            }
+                        }
+                        ring->closeRings();
+                        polygon->addRingDirectly(ring);
+                        geometry = polygon;
+                    }
+                    break;
+                }
+                case GeometryType::MULTIPOINT: {
+                    OGRMultiPoint* multi_point = new OGRMultiPoint();
+                    for (const auto& coord : coordinates) {
+                        OGRPoint* point = new OGRPoint(coord.x, coord.y);
+                        multi_point->addGeometryDirectly(point);
+                    }
+                    geometry = multi_point;
+                    break;
+                }
+                case GeometryType::MULTILINE: {
+                    // 简化处理：将所有坐标作为一条线
+                    OGRMultiLineString* multi_line = new OGRMultiLineString();
+                    OGRLineString* line = new OGRLineString();
+                    for (const auto& coord : coordinates) {
+                        line->addPoint(coord.x, coord.y);
+                    }
+                    multi_line->addGeometryDirectly(line);
+                    geometry = multi_line;
+                    break;
+                }
+                case GeometryType::MULTIPOLYGON: {
+                    // 简化处理：将所有坐标作为一个多边形
+                    if (coordinates.size() >= 3) {
+                        OGRMultiPolygon* multi_polygon = new OGRMultiPolygon();
+                        OGRPolygon* polygon = new OGRPolygon();
+                        OGRLinearRing* ring = new OGRLinearRing();
+                        for (const auto& coord : coordinates) {
+                            ring->addPoint(coord.x, coord.y);
+                        }
+                        // 确保环是闭合的
+                        if (coordinates.size() > 0) {
+                            const auto& first = coordinates[0];
+                            const auto& last = coordinates.back();
+                            if (first.x != last.x || first.y != last.y) {
+                                ring->addPoint(first.x, first.y);
+                            }
+                        }
+                        ring->closeRings();
+                        polygon->addRingDirectly(ring);
+                        multi_polygon->addGeometryDirectly(polygon);
+                        geometry = multi_polygon;
+                    }
+                    break;
+                }
+                default:
+                    return nullptr;
+            }
+
+            // 验证几何对象是否有效（对于复杂几何，跳过严格检查）
+            if (geometry && !geometry->IsValid()) {
+                // 对于多边形等复杂几何，OGR的IsValid检查可能过于严格
+                // 我们只对明显错误的几何进行修复
+                if (geometry->getGeometryType() == wkbPolygon || geometry->getGeometryType() == wkbMultiPolygon) {
+                    // 对于多边形，只检查是否为空
+                    if (geometry->IsEmpty()) {
+                        std::cerr << "警告: 多边形几何为空，跳过" << std::endl;
+                        delete geometry;
+                        return nullptr;
+                    }
+                } else {
+                    // 对于其他几何类型，尝试修复
+                    std::cerr << "警告: 创建的几何对象无效，尝试修复..." << std::endl;
+                    OGRGeometry* fixed_geometry = geometry->MakeValid();
+                    if (fixed_geometry) {
+                        delete geometry;
+                        geometry = fixed_geometry;
+                    }
+                }
+            }
+
+            return geometry;
+
+        } catch (const std::exception& e) {
+            std::cerr << "创建OGR几何对象时出错: " << e.what() << std::endl;
+            return nullptr;
+        }
+    }
+
+    OGRFeature* OGRFormatConverter::createOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format) {
+        try {
+            OGRFeature* feature = OGRFeature::CreateFeature(feature_defn);
+            if (!feature) {
+                return nullptr;
+            }
+
+            // 设置FID - 确保FID是32位正整数且从1开始
+            uint64_t fid = geom_data.getFeatureId();
+
+            // 对于所有格式，确保FID不为0且为正整数
+            if (fid == 0) {
+                fid = 1; // 将0映射为1
+            }
+
+            // 确保FID在32位正整数范围内
+            if (fid > 2147483647) {           // 2^31 - 1
+                fid = (fid % 2147483647) + 1; // 映射到有效范围
+            }
+
+            // 对于FileGDB，额外确保FID从1开始
+            if (output_format == "OpenFileGDB" || output_format == "FileGDB") {
+                if (fid < 1) {
+                    fid = 1;
+                }
+            }
+
+            // 注意：这里不需要重新映射FID，因为在正向转换时已经处理了FID冲突
+            // 直接使用存储的FID即可
+
+            feature->SetFID(static_cast<long>(fid));
+
+            // 设置几何
+            OGRGeometry* geometry = createOGRGeometry(geom_data);
+            if (geometry) {
+                feature->SetGeometryDirectly(geometry);
+            }
+
+            // 设置属性
+            const auto& properties = attr_data.getProperties();
+            for (const auto& [field_name, field_value] : properties) {
+                int field_index = feature_defn->GetFieldIndex(field_name.c_str());
+                if (field_index >= 0) {
+                    OGRFieldDefn* field_defn = feature_defn->GetFieldDefn(field_index);
+                    OGRFieldType field_type = field_defn->GetType();
+
+                    switch (field_type) {
+                        case OFTInteger:
+                            try {
+                                feature->SetField(field_index, std::stoi(field_value));
+                            } catch (const std::exception&) {
+                                feature->SetField(field_index, 0);
+                            }
+                            break;
+                        case OFTInteger64:
+                            try {
+                                feature->SetField(field_index, std::stoll(field_value));
+                            } catch (const std::exception&) {
+                                feature->SetField(field_index, 0LL);
+                            }
+                            break;
+                        case OFTReal:
+                            try {
+                                feature->SetField(field_index, std::stod(field_value));
+                            } catch (const std::exception&) {
+                                feature->SetField(field_index, 0.0);
+                            }
+                            break;
+                        default:
+                            feature->SetField(field_index, field_value.c_str());
+                            break;
+                    }
+                }
+            }
+
+            return feature;
+
+        } catch (const std::exception& e) {
+            std::cerr << "创建OGR要素时出错: " << e.what() << std::endl;
+            return nullptr;
+        }
+    }
+
+    std::string OGRFormatConverter::getMetadataFilePath() const {
+        return output_dir_ + "/" + ogr_file_name_ + "_meta.json";
+    }
+
+    nlohmann::json OGRFormatConverter::loadMetadata() {
+        std::string metadata_file = getMetadataFilePath();
+        std::ifstream file(metadata_file);
+
+        if (!file.is_open()) {
+            std::cerr << "无法打开元数据文件: " << metadata_file << std::endl;
+            return nlohmann::json();
+        }
+
+        try {
+            nlohmann::json metadata;
+            file >> metadata;
+            file.close();
+            return metadata;
+        } catch (const std::exception& e) {
+            std::cerr << "解析元数据文件时出错: " << e.what() << std::endl;
+            file.close();
+            return nlohmann::json();
         }
     }
 

@@ -133,7 +133,12 @@ class GisStorageDemo {
             return false;
         }
 
-        // 步骤9: 显示统计信息
+        // 步骤9: 逆向转换演示
+        if (!demonstrateReverseConversion()) {
+            return false;
+        }
+
+        // 步骤10: 显示统计信息
         displayStatistics();
 
         std::cout << "\n=== 处理完成！===" << std::endl;
@@ -769,6 +774,91 @@ class GisStorageDemo {
 
         } catch (const std::exception& e) {
             std::cerr << "  ✗ 瓦片查询演示失败: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    bool demonstrateReverseConversion() {
+        std::cout << "\n步骤9: 逆向转换演示..." << std::endl;
+
+        try {
+            // 创建逆向转换器
+            GisStorage::OGRFormatConverter reverse_converter(input_shapefile_, output_dir_);
+
+            // 创建逆向转换输出目录
+            std::string reverse_output_dir = output_dir_ + "/reverse_conversion";
+            std::filesystem::create_directories(reverse_output_dir);
+
+            std::cout << "  逆向转换输出目录: " << reverse_output_dir << std::endl;
+
+            // 测试转换到Shapefile
+            std::string shapefile_output = reverse_output_dir + "/" + dataset_name_ + "_reverse.shp";
+            std::cout << "  转换到Shapefile: " << shapefile_output << std::endl;
+
+            if (reverse_converter.convertToOGR(shapefile_output, "ESRI Shapefile")) {
+                std::cout << "  ✓ Shapefile逆向转换成功" << std::endl;
+
+                // 验证转换结果
+                if (std::filesystem::exists(shapefile_output)) {
+                    std::cout << "  ✓ 输出文件已生成: " << shapefile_output << std::endl;
+
+                    // 获取文件大小
+                    auto file_size = std::filesystem::file_size(shapefile_output);
+                    std::cout << "  ✓ 输出文件大小: " << file_size << " 字节" << std::endl;
+                } else {
+                    std::cout << "  ⚠ 输出文件未找到" << std::endl;
+                }
+            } else {
+                std::cout << "  ✗ Shapefile逆向转换失败" << std::endl;
+            }
+
+            // 测试转换到GeoPackage
+            std::string gpkg_output = reverse_output_dir + "/" + dataset_name_ + "_reverse.gpkg";
+            std::cout << "  转换到GeoPackage: " << gpkg_output << std::endl;
+
+            if (reverse_converter.convertToOGR(gpkg_output, "GPKG")) {
+                std::cout << "  ✓ GeoPackage逆向转换成功" << std::endl;
+
+                // 验证转换结果
+                if (std::filesystem::exists(gpkg_output)) {
+                    std::cout << "  ✓ 输出文件已生成: " << gpkg_output << std::endl;
+
+                    // 获取文件大小
+                    auto file_size = std::filesystem::file_size(gpkg_output);
+                    std::cout << "  ✓ 输出文件大小: " << file_size << " 字节" << std::endl;
+                } else {
+                    std::cout << "  ⚠ 输出文件未找到" << std::endl;
+                }
+            } else {
+                std::cout << "  ✗ GeoPackage逆向转换失败" << std::endl;
+            }
+
+            // 测试批量转换
+            std::vector<std::string> formats = {"ESRI Shapefile", "OpenFileGDB", "GeoJSON"};
+            std::cout << "  批量转换测试 (Shapefile, GDB, GeoJSON)..." << std::endl;
+
+            if (reverse_converter.convertToMultipleFormats(reverse_output_dir, formats)) {
+                std::cout << "  ✓ 批量逆向转换成功" << std::endl;
+
+                // 列出生成的文件
+                std::cout << "  生成的文件:" << std::endl;
+                for (const auto& entry : std::filesystem::directory_iterator(reverse_output_dir)) {
+                    if (entry.is_regular_file()) {
+                        auto file_size = entry.file_size();
+                        std::cout << "    " << entry.path().filename() << " (" << file_size << " 字节)" << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "  ✗ 批量逆向转换失败" << std::endl;
+            }
+
+            std::cout << "  ✓ 逆向转换演示完成" << std::endl;
+            std::cout << "  💡 提示: 您可以将生成的文件导入QGIS与原始文件进行对比验证" << std::endl;
+
+            return true;
+
+        } catch (const std::exception& e) {
+            std::cerr << "  ✗ 逆向转换演示失败: " << e.what() << std::endl;
             return false;
         }
     }

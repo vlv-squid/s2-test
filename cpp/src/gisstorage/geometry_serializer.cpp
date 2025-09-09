@@ -7,6 +7,7 @@
 #include <cstring>
 #include <algorithm>
 #include <stdexcept>
+#include <cmath>
 
 namespace GisStorage {
 
@@ -164,13 +165,13 @@ namespace GisStorage {
         std::memcpy(&data[8], &coordinates[0].y, sizeof(double));
 
         // 根据偏移量范围选择合适的存储格式
-        if (max_delta < 327.67) { // 量化short类型范围（精度0.01米）
-            // 使用量化short类型存储偏移量（2字节/坐标，精度1厘米）
-            const float scale_factor = 100.0f; // 1厘米精度
-            data.push_back(0);                 // 标记使用量化short类型
+        if (max_delta < 3.2767) { // 量化short类型范围（精度0.1微米）
+            // 使用量化short类型存储偏移量（2字节/坐标，精度0.1微米）
+            const float scale_factor = 1000000.0f; // 0.1微米精度
+            data.push_back(0);                     // 标记使用量化short类型
             for (const auto& delta : deltas) {
-                int16_t dx = static_cast<int16_t>(delta.first * scale_factor);
-                int16_t dy = static_cast<int16_t>(delta.second * scale_factor);
+                int16_t dx = static_cast<int16_t>(std::round(delta.first * scale_factor));
+                int16_t dy = static_cast<int16_t>(std::round(delta.second * scale_factor));
                 data.insert(data.end(), reinterpret_cast<uint8_t*>(&dx), reinterpret_cast<uint8_t*>(&dx) + sizeof(int16_t));
                 data.insert(data.end(), reinterpret_cast<uint8_t*>(&dy), reinterpret_cast<uint8_t*>(&dy) + sizeof(int16_t));
             }
@@ -205,8 +206,8 @@ namespace GisStorage {
                 uint8_t type_flag = data[16];
                 size_t offset = 17;
 
-                if (type_flag == 0) {                  // 量化short类型
-                    const float scale_factor = 100.0f; // 1厘米精度
+                if (type_flag == 0) {                      // 量化short类型
+                    const float scale_factor = 1000000.0f; // 0.1微米精度
                     while (offset + 4 <= data.size()) {
                         int16_t dx_quantized, dy_quantized;
                         std::memcpy(&dx_quantized, &data[offset], sizeof(int16_t));
