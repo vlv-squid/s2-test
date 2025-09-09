@@ -86,7 +86,7 @@ TEST_F(ReverseConversionTest, ConvertToMultipleFormats) {
     }
 
     // 测试批量转换（只测试GDB和Shapefile）
-    std::vector<std::string> formats = {"ESRI Shapefile", "OpenFileGDB"};
+    std::vector<std::string> formats = {"ESRI Shapefile", "OpenFileGDB", "GeoJSON"};
 
     EXPECT_TRUE(converter.convertToMultipleFormats(output_dir, formats)) << "批量逆向转换失败";
 
