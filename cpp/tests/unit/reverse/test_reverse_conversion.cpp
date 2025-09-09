@@ -1,98 +1,50 @@
 //
-// 逆向转换功能单元测试 - 使用Google Test框架
+// 逆向转换功能单元测试
 //
 
 #include <gtest/gtest.h>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
-#include <memory>
 #include <cstdlib>
 #include <ctime>
 
 #include "gisstorage/ogr_format_converter.h"
-#include "gisstorage/gis_storage_system.h"
 #include <ogrsf_frmts.h>
 
 class ReverseConversionTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        // 创建临时测试目录
-        test_dir_ = "/tmp/reverse_conversion_test_" + std::to_string(std::time(nullptr));
-        std::filesystem::create_directories(test_dir_);
+        // 设置输入shapefile路径
+        input_shapefile_ = "/home/chenming/Data/GIS_DATA/shapefile/single.shp";
+
+        // 创建输出目录
+        output_base_dir_ = "/home/chenming/Projects/test/s2-test/output_data";
+        test_output_dir_ = output_base_dir_ + "/reverse_conversion_test_" + std::to_string(std::time(nullptr));
+        std::filesystem::create_directories(test_output_dir_);
+
+        // 验证输入文件存在
+        ASSERT_TRUE(std::filesystem::exists(input_shapefile_)) << "输入shapefile不存在: " << input_shapefile_;
 
         // 创建测试数据
         createTestData();
     }
 
     void TearDown() override {
-        // 清理测试目录
-        if (std::filesystem::exists(test_dir_)) {
-            std::filesystem::remove_all(test_dir_);
-        }
+        // 注意：不删除输出目录，保留测试结果供检查
+        // 如果需要清理，可以手动删除 /home/chenming/Projects/test/s2-test/output_data 目录
     }
 
     void createTestData() {
-        // 创建简单的测试Shapefile数据
-        std::string test_shapefile = test_dir_ + "/test_data.shp";
-        createSimpleShapefile(test_shapefile);
-
-        // 转换为自定义格式
-        GisStorage::OGRFormatConverter converter(test_shapefile, test_dir_);
+        // 使用指定的shapefile转换为自定义格式
+        GisStorage::OGRFormatConverter converter(input_shapefile_, test_output_dir_);
         converter.convert();
 
         // 设置自定义格式数据目录
-        custom_data_dir_ = test_dir_;
-        dataset_name_ = "test_data";
-    }
-
-    void createSimpleShapefile(const std::string& shapefile_path) {
-        // 使用GDAL创建简单的测试Shapefile
-        GDALAllRegister();
-
-        GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
-        ASSERT_NE(driver, nullptr) << "无法获取Shapefile驱动";
-
-        GDALDataset* dataset = driver->Create(shapefile_path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
-        ASSERT_NE(dataset, nullptr) << "无法创建测试Shapefile";
-
-        OGRSpatialReference* spatial_ref = new OGRSpatialReference();
-        spatial_ref->importFromEPSG(4326); // WGS84
-
-        OGRLayer* layer = dataset->CreateLayer("test_layer", spatial_ref, wkbPoint, nullptr);
-        ASSERT_NE(layer, nullptr) << "无法创建测试图层";
-
-        // 创建字段
-        OGRFieldDefn* name_field = new OGRFieldDefn("name", OFTString);
-        name_field->SetWidth(50);
-        layer->CreateField(name_field);
-
-        OGRFieldDefn* value_field = new OGRFieldDefn("value", OFTInteger);
-        layer->CreateField(value_field);
-
-        // 创建测试要素
-        for (int i = 0; i < 10; ++i) {
-            OGRFeature* feature = OGRFeature::CreateFeature(layer->GetLayerDefn());
-
-            // 设置几何
-            OGRPoint* point = new OGRPoint(100.0 + i * 0.1, 20.0 + i * 0.1);
-            feature->SetGeometry(point);
-
-            // 设置属性
-            feature->SetField("name", ("test_point_" + std::to_string(i)).c_str());
-            feature->SetField("value", i);
-
-            // 创建要素
-            OGRErr err = layer->CreateFeature(feature);
-            if (err != OGRERR_NONE) {
-                std::cerr << "创建要素失败，错误代码: " << err << std::endl;
-            }
-            OGRFeature::DestroyFeature(feature);
-        }
-
-        GDALClose(dataset);
-        delete spatial_ref;
+        custom_data_dir_ = test_output_dir_;
+        // 从输入文件名提取数据集名称（去掉路径和扩展名）
+        std::filesystem::path input_path(input_shapefile_);
+        dataset_name_ = input_path.stem().string();
     }
 
     bool checkRequiredFiles() {
@@ -104,7 +56,9 @@ class ReverseConversionTest : public ::testing::Test {
         return std::filesystem::exists(geom_file) && std::filesystem::exists(attr_file) && std::filesystem::exists(idx_file) && std::filesystem::exists(meta_file);
     }
 
-    std::string test_dir_;
+    std::string input_shapefile_;
+    std::string output_base_dir_;
+    std::string test_output_dir_;
     std::string custom_data_dir_;
     std::string dataset_name_;
 };
@@ -118,7 +72,7 @@ TEST_F(ReverseConversionTest, ConvertToShapefile) {
     GisStorage::OGRFormatConverter converter(dummy_original_file, custom_data_dir_);
 
     // 创建输出目录
-    std::string output_dir = test_dir_ + "/reverse_output";
+    std::string output_dir = test_output_dir_ + "/reverse_output";
     std::filesystem::create_directories(output_dir);
 
     // 测试转换到Shapefile
@@ -149,7 +103,7 @@ TEST_F(ReverseConversionTest, ConvertToGDB) {
     GisStorage::OGRFormatConverter converter(dummy_original_file, custom_data_dir_);
 
     // 创建输出目录
-    std::string output_dir = test_dir_ + "/reverse_output";
+    std::string output_dir = test_output_dir_ + "/reverse_output";
     std::filesystem::create_directories(output_dir);
 
     // 测试转换到GDB
@@ -172,8 +126,18 @@ TEST_F(ReverseConversionTest, ConvertToMultipleFormats) {
     GisStorage::OGRFormatConverter converter(dummy_original_file, custom_data_dir_);
 
     // 创建输出目录
-    std::string output_dir = test_dir_ + "/reverse_output";
+    std::string output_dir = test_output_dir_ + "/reverse_output";
     std::filesystem::create_directories(output_dir);
+
+    // 清理可能存在的旧文件
+    std::string shapefile_output = output_dir + "/" + dataset_name_ + "_reverse.shp";
+    std::string gdb_output = output_dir + "/" + dataset_name_ + "_reverse.gdb";
+    if (std::filesystem::exists(shapefile_output)) {
+        std::filesystem::remove(shapefile_output);
+    }
+    if (std::filesystem::exists(gdb_output)) {
+        std::filesystem::remove_all(gdb_output);
+    }
 
     // 测试批量转换（只测试GDB和Shapefile）
     std::vector<std::string> formats = {"ESRI Shapefile", "OpenFileGDB"};
@@ -181,8 +145,6 @@ TEST_F(ReverseConversionTest, ConvertToMultipleFormats) {
     EXPECT_TRUE(converter.convertToMultipleFormats(output_dir, formats)) << "批量逆向转换失败";
 
     // 验证生成的文件（批量转换使用带索引的文件名）
-    std::string shapefile_output = output_dir + "/" + dataset_name_ + "_reverse_0.shp";
-    std::string gdb_output = output_dir + "/" + dataset_name_ + "_reverse_1.gdb";
 
     EXPECT_TRUE(std::filesystem::exists(shapefile_output)) << "批量转换生成的Shapefile不存在";
     EXPECT_TRUE(std::filesystem::exists(gdb_output)) << "批量转换生成的GDB不存在";
@@ -196,7 +158,7 @@ TEST_F(ReverseConversionTest, ErrorHandling) {
 
     GisStorage::OGRFormatConverter converter(dummy_file, non_existent_dir);
 
-    std::string output_dir = test_dir_ + "/error_test";
+    std::string output_dir = test_output_dir_ + "/error_test";
     std::filesystem::create_directories(output_dir);
     std::string output_file = output_dir + "/test.shp";
 
