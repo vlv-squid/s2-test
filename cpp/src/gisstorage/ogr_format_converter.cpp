@@ -543,31 +543,35 @@ namespace GisStorage {
     bool OGRFormatConverter::convertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats) {
         std::cout << "开始批量逆向转换到多种格式" << std::endl;
 
+        // 确保数据已加载
+        if (loaded_geometries_.empty() || loaded_attributes_.empty() || metadata_.empty()) {
+            if (!loadCustomFormatData()) {
+                std::cerr << "加载自定义格式数据失败" << std::endl;
+                return false;
+            }
+        }
+
         bool all_success = true;
-        for (size_t i = 0; i < formats.size(); ++i) {
-            const std::string& format = formats[i];
+        for (const std::string& format : formats) {
             std::string output_path;
 
-            // 根据格式确定输出路径和扩展名，为每个格式使用不同的文件名避免冲突
+            // 根据格式确定输出路径和扩展名，使用格式名称作为后缀
             if (format == "ESRI Shapefile") {
-                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".shp";
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse.shp";
             } else if (format == "OpenFileGDB" || format == "FileGDB") {
-                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".gdb";
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse.gdb";
             } else if (format == "GPKG") {
-                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".gpkg";
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse.gpkg";
             } else if (format == "GeoJSON") {
-                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".geojson";
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse.geojson";
             } else {
-                output_path = output_dir + "/" + ogr_file_name_ + "_reverse_" + std::to_string(i) + ".out";
+                output_path = output_dir + "/" + ogr_file_name_ + "_reverse.out";
             }
 
             std::cout << "转换到格式: " << format << " -> " << output_path << std::endl;
 
-            // 为每次转换创建新的转换器实例，确保完全独立的状态
-            std::string dummy_original_file = output_dir_ + "/" + ogr_file_name_ + ".shp";
-            OGRFormatConverter converter(dummy_original_file, output_dir_);
-
-            if (!converter.convertToOGR(output_path, format)) {
+            // 直接使用当前实例进行转换，避免重复创建转换器
+            if (!convertToOGR(output_path, format)) {
                 std::cerr << "转换到 " << format << " 失败" << std::endl;
                 all_success = false;
             }

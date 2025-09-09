@@ -55,7 +55,7 @@ class GisStorageDemo {
     }
 
     // 仅瓦片查询演示构造函数
-    GisStorageDemo(const std::string& existing_data_dir, const std::string& dataset_name, bool is_tile_query)
+    GisStorageDemo(const std::string& existing_data_dir, const std::string& dataset_name, bool /* is_tile_query */)
         : output_dir_(existing_data_dir)
         , mode_(DemoMode::TILE_QUERY_ONLY) {
         // 初始化GDAL
@@ -791,51 +791,9 @@ class GisStorageDemo {
 
             std::cout << "  逆向转换输出目录: " << reverse_output_dir << std::endl;
 
-            // 测试转换到Shapefile
-            std::string shapefile_output = reverse_output_dir + "/" + dataset_name_ + "_reverse.shp";
-            std::cout << "  转换到Shapefile: " << shapefile_output << std::endl;
-
-            if (reverse_converter.convertToOGR(shapefile_output, "ESRI Shapefile")) {
-                std::cout << "  ✓ Shapefile逆向转换成功" << std::endl;
-
-                // 验证转换结果
-                if (std::filesystem::exists(shapefile_output)) {
-                    std::cout << "  ✓ 输出文件已生成: " << shapefile_output << std::endl;
-
-                    // 获取文件大小
-                    auto file_size = std::filesystem::file_size(shapefile_output);
-                    std::cout << "  ✓ 输出文件大小: " << file_size << " 字节" << std::endl;
-                } else {
-                    std::cout << "  ⚠ 输出文件未找到" << std::endl;
-                }
-            } else {
-                std::cout << "  ✗ Shapefile逆向转换失败" << std::endl;
-            }
-
-            // 测试转换到GeoPackage
-            std::string gpkg_output = reverse_output_dir + "/" + dataset_name_ + "_reverse.gpkg";
-            std::cout << "  转换到GeoPackage: " << gpkg_output << std::endl;
-
-            if (reverse_converter.convertToOGR(gpkg_output, "GPKG")) {
-                std::cout << "  ✓ GeoPackage逆向转换成功" << std::endl;
-
-                // 验证转换结果
-                if (std::filesystem::exists(gpkg_output)) {
-                    std::cout << "  ✓ 输出文件已生成: " << gpkg_output << std::endl;
-
-                    // 获取文件大小
-                    auto file_size = std::filesystem::file_size(gpkg_output);
-                    std::cout << "  ✓ 输出文件大小: " << file_size << " 字节" << std::endl;
-                } else {
-                    std::cout << "  ⚠ 输出文件未找到" << std::endl;
-                }
-            } else {
-                std::cout << "  ✗ GeoPackage逆向转换失败" << std::endl;
-            }
-
-            // 测试批量转换
-            std::vector<std::string> formats = {"ESRI Shapefile", "OpenFileGDB", "GeoJSON"};
-            std::cout << "  批量转换测试 (Shapefile, GDB, GeoJSON)..." << std::endl;
+            // 测试批量转换到多种格式（避免重复转换）
+            std::vector<std::string> formats = {"ESRI Shapefile", "GPKG", "GeoJSON"};
+            std::cout << "  批量转换测试 (Shapefile, GeoPackage, GeoJSON)..." << std::endl;
 
             if (reverse_converter.convertToMultipleFormats(reverse_output_dir, formats)) {
                 std::cout << "  ✓ 批量逆向转换成功" << std::endl;
