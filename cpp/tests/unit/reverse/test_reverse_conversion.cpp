@@ -203,7 +203,7 @@ TEST_F(ReverseConversionTest, ErrorHandling) {
     EXPECT_FALSE(converter.convertToOGR(output_file, "ESRI Shapefile")) << "应该处理不存在的输入数据";
 }
 
-int main() {
-    ::testing::InitGoogleTest();
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
