@@ -256,9 +256,8 @@ namespace GisStorage {
 
         std::vector<Coordinate> coordinates;
 
-        // 检查数据格式
+        // FileGDB风格压缩格式：偏移量、分辨率、第一个点坐标、差分数据
         if (data.size() >= 40) {
-            // 新格式：偏移量、分辨率、第一个点坐标、差分数据
             double min_x, min_y, scale;
             std::memcpy(&min_x, &data[0], sizeof(double));
             std::memcpy(&min_y, &data[8], sizeof(double));
@@ -278,25 +277,6 @@ namespace GisStorage {
 
                 Coordinate prev = coordinates.back();
                 coordinates.emplace_back(prev.x + dx * scale, prev.y + dy * scale);
-            }
-        } else if (data.size() >= 16) {
-            // 旧格式：直接存储绝对坐标
-            Coordinate first_point;
-            std::memcpy(&first_point.x, &data[0], sizeof(double));
-            std::memcpy(&first_point.y, &data[8], sizeof(double));
-            coordinates.push_back(first_point);
-
-            // 解码后续点的差值
-            size_t offset = 16;
-            while (offset + 8 <= data.size()) {
-                float dx, dy;
-                std::memcpy(&dx, &data[offset], sizeof(float));
-                offset += sizeof(float);
-                std::memcpy(&dy, &data[offset], sizeof(float));
-                offset += sizeof(float);
-
-                Coordinate prev = coordinates.back();
-                coordinates.emplace_back(prev.x + dx, prev.y + dy);
             }
         }
 
