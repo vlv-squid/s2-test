@@ -114,6 +114,7 @@ namespace GisStorage {
         OGRGeometry* createOGRGeometry(const GeometryData& geom_data);
         OGRFeature* createOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format);
         nlohmann::json loadMetadata();
+        void createCPGFile(const std::string& shapefile_path);
 
         // 存储加载的数据
         std::map<uint64_t, std::unique_ptr<GeometryData>> loaded_geometries_;

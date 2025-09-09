@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <sstream>
 #include <set>
+#include <algorithm>
 
 namespace GisStorage {
 
@@ -66,6 +67,17 @@ namespace GisStorage {
 
         // 打开OGR文件
         GDALAllRegister();
+
+        // 设置字符编码选项，特别是对于Shapefile格式
+        std::string file_extension = std::filesystem::path(ogr_file_path_).extension().string();
+        std::transform(file_extension.begin(), file_extension.end(), file_extension.begin(), ::tolower);
+
+        if (file_extension == ".shp") {
+            // 设置Shapefile的字符编码为UTF-8
+            CPLSetConfigOption("SHAPE_ENCODING", "UTF-8");
+            std::cout << "设置输入Shapefile字符编码为UTF-8" << std::endl;
+        }
+
         GDALDataset* dataset = static_cast<GDALDataset*>(GDALOpenEx(ogr_file_path_.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
         if (!dataset) {
             throw std::runtime_error("无法打开OGR格式文件: " + ogr_file_path_);
@@ -386,6 +398,13 @@ namespace GisStorage {
             // 注册GDAL驱动
             GDALAllRegister();
 
+            // 设置字符编码选项，特别是对于Shapefile格式
+            if (output_format == "ESRI Shapefile") {
+                // 设置Shapefile的字符编码为UTF-8
+                CPLSetConfigOption("SHAPE_ENCODING", "UTF-8");
+                std::cout << "设置Shapefile字符编码为UTF-8" << std::endl;
+            }
+
             // 获取输出驱动
             GDALDriver* driver = GetGDALDriverManager()->GetDriverByName(output_format.c_str());
             if (!driver) {
@@ -516,6 +535,11 @@ namespace GisStorage {
             }
 
             std::cout << "逆向转换完成！成功转换 " << success_count << " 个要素" << std::endl;
+
+            // 对于Shapefile格式，生成CPG文件以指定字符编码
+            if (output_format == "ESRI Shapefile") {
+                createCPGFile(output_path);
+            }
 
             // 清理
             if (spatial_ref)
@@ -1100,6 +1124,26 @@ namespace GisStorage {
             std::cerr << "解析元数据文件时出错: " << e.what() << std::endl;
             file.close();
             return nlohmann::json();
+        }
+    }
+
+    void OGRFormatConverter::createCPGFile(const std::string& shapefile_path) {
+        try {
+            // 从shapefile路径生成CPG文件路径
+            std::filesystem::path path(shapefile_path);
+            std::string cpg_path = path.parent_path().string() + "/" + path.stem().string() + ".cpg";
+
+            // 创建CPG文件，指定UTF-8编码
+            std::ofstream cpg_file(cpg_path);
+            if (cpg_file.is_open()) {
+                cpg_file << "UTF-8";
+                cpg_file.close();
+                std::cout << "已创建CPG文件: " << cpg_path << " (编码: UTF-8)" << std::endl;
+            } else {
+                std::cerr << "无法创建CPG文件: " << cpg_path << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "创建CPG文件时出错: " << e.what() << std::endl;
         }
     }
 
