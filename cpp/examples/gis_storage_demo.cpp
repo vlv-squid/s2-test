@@ -792,8 +792,8 @@ class GisStorageDemo {
             std::cout << "  逆向转换输出目录: " << reverse_output_dir << std::endl;
 
             // 测试批量转换到多种格式（避免重复转换）
-            std::vector<std::string> formats = {"ESRI Shapefile", "GPKG", "GeoJSON"};
-            std::cout << "  批量转换测试 (Shapefile, GeoPackage, GeoJSON)..." << std::endl;
+            std::vector<std::string> formats = {"OpenFileGDB"};
+            std::cout << "  批量转换测试 (OpenFileGDB)..." << std::endl;
 
             if (reverse_converter.convertToMultipleFormats(reverse_output_dir, formats)) {
                 std::cout << "  ✓ 批量逆向转换成功" << std::endl;

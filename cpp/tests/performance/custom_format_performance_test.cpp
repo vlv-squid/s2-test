@@ -82,9 +82,9 @@ class CustomFormatPerformanceTest {
     }
 
     // 测试随机读取指定数量的要素（轻量级模式：随机空间查询）
-    double testRandomReadFeatures(int num_reads = 1000) {
+    std::pair<double, size_t> testRandomReadFeatures(int num_reads = 1000) {
         if (!isValid() || total_features_ == 0)
-            return -1.0;
+            return {-1.0, 0};
 
         std::random_device rd;
         std::mt19937 gen(rd());
@@ -93,6 +93,7 @@ class CustomFormatPerformanceTest {
         std::uniform_real_distribution<double> size_dis(0.001, 0.01); // 很小的查询范围
 
         auto start_time = std::chrono::high_resolution_clock::now();
+        size_t total_features_found = 0;
 
         for (int i = 0; i < num_reads; ++i) {
             // 生成随机小范围查询
@@ -103,13 +104,14 @@ class CustomFormatPerformanceTest {
             GisStorage::BBox query_bbox(center_x - range, center_y - range, center_x + range, center_y + range);
 
             auto result_ids = storage_system_->queryS2Index(query_bbox);
+            total_features_found += result_ids.size();
             // 在轻量级模式下，我们只测试S2索引查询，不实际读取几何数据
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
 
-        return duration.count() / 1000.0; // 返回毫秒
+        return {duration.count() / 1000.0, total_features_found}; // 返回毫秒和找到的要素总数
     }
 
     // 测试空间查询 - 边界框查询
@@ -385,14 +387,33 @@ TEST_F(CustomFormatPerformanceTestFixture, CustomFormatValid) {
             std::cout << std::endl;
         }
 
-        // 显示存储统计信息
+        // 显示存储统计信息（参考demo中的逻辑）
         auto stats = test.getStorageStats();
         std::cout << "  存储统计:" << std::endl;
-        std::cout << "    总文件大小: " << test.formatFileSize(stats.total_size_bytes) << std::endl;
-        std::cout << "    几何数据大小: " << test.formatFileSize(stats.geometry_size_bytes) << std::endl;
-        std::cout << "    属性数据大小: " << test.formatFileSize(stats.attribute_size_bytes) << std::endl;
-        std::cout << "    S2索引大小: " << test.formatFileSize(stats.s2_index_size_bytes) << std::endl;
-        std::cout << "    压缩比: " << std::fixed << std::setprecision(2) << stats.compression_ratio << std::endl;
+        std::cout << "    几何数据: " << test.formatFileSize(stats.geometry_size_bytes) << std::endl;
+        std::cout << "    属性数据: " << test.formatFileSize(stats.attribute_size_bytes) << std::endl;
+        std::cout << "    字符串池: " << test.formatFileSize(stats.string_pool_size_bytes) << std::endl;
+        std::cout << "    索引数据: " << test.formatFileSize(stats.index_size_bytes) << std::endl;
+        std::cout << "    S2索引: " << test.formatFileSize(stats.s2_index_size_bytes) << std::endl;
+        std::cout << "    总大小: " << test.formatFileSize(stats.total_size_bytes) << std::endl;
+
+        // 显示生成的文件列表（参考demo中的逻辑）
+        std::cout << "  生成的文件:" << std::endl;
+        std::vector<std::pair<std::string, std::string>> files = {{"几何数据", data_dir + "/" + dataset_name + ".geom"},
+                                                                  {"属性数据", data_dir + "/" + dataset_name + ".attr"},
+                                                                  {"字符串池", data_dir + "/" + dataset_name + ".str"},
+                                                                  {"索引数据", data_dir + "/" + dataset_name + ".idx"},
+                                                                  {"元数据", data_dir + "/" + dataset_name + "_meta.json"},
+                                                                  {"S2索引", data_dir + "/" + dataset_name + ".s2idx"}};
+
+        for (const auto& [type, path] : files) {
+            if (std::filesystem::exists(path)) {
+                auto size = std::filesystem::file_size(path);
+                std::cout << "    " << type << ": " << std::filesystem::path(path).filename() << " (" << test.formatFileSize(size) << ")" << std::endl;
+            } else {
+                std::cout << "    " << type << ": " << std::filesystem::path(path).filename() << " (文件不存在)" << std::endl;
+            }
+        }
     }
 }
 
@@ -432,15 +453,21 @@ TEST_F(CustomFormatPerformanceTestFixture, RandomReadPerformance) {
     }
 
     int num_reads = 1000;
-    double read_time = test.testRandomReadFeatures(num_reads);
+    auto [read_time, features_found] = test.testRandomReadFeatures(num_reads);
     EXPECT_GT(read_time, 0) << "随机读取失败";
 
     std::cout << "随机读取性能测试 (轻量级模式 - 随机S2查询, " << num_reads << "次):" << std::endl;
     std::cout << "  查询时间: " << read_time << " ms" << std::endl;
+    std::cout << "  找到要素总数: " << features_found << std::endl;
 
     if (read_time > 0) {
         double queries_per_second = num_reads / (read_time / 1000.0);
         std::cout << "  查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
+
+        if (features_found > 0) {
+            double features_per_second = features_found / (read_time / 1000.0);
+            std::cout << "  要素查询速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+        }
     }
 }
 
