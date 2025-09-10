@@ -245,7 +245,7 @@ class GisStorageDemo {
 
         try {
             GisStorage::OGRFormatConverter converter(input_shapefile_, output_dir_);
-            auto feature_ids = converter.convert();
+            auto feature_ids = converter.Convert();
 
             auto end_time = std::chrono::high_resolution_clock::now();
             stats_.conversion_time = std::chrono::duration<double>(end_time - start_time).count();
@@ -253,7 +253,7 @@ class GisStorageDemo {
             stats_.valid_features = feature_ids.size();
 
             // 获取转换统计信息
-            auto conversion_stats = converter.getConversionStats();
+            auto conversion_stats = converter.GetConversionStats();
             stats_.compression_ratio = conversion_stats.compression_ratio;
 
             std::cout << "  ✓ 转换完成" << std::endl;
@@ -275,13 +275,13 @@ class GisStorageDemo {
 
         try {
             storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(output_dir_);
-            storage_system_->initializeStorageFiles(input_shapefile_);
+            storage_system_->InitializeStorageFiles(input_shapefile_);
 
             std::cout << "  ✓ 存储系统初始化完成" << std::endl;
-            std::cout << "  几何文件: " << storage_system_->getGeometryFilePath() << std::endl;
-            std::cout << "  属性文件: " << storage_system_->getAttributeFilePath() << std::endl;
-            std::cout << "  索引文件: " << storage_system_->getIndexFilePath() << std::endl;
-            std::cout << "  元数据文件: " << storage_system_->getMetadataFilePath() << std::endl;
+            std::cout << "  几何文件: " << storage_system_->GetGeometryFilePath() << std::endl;
+            std::cout << "  属性文件: " << storage_system_->GetAttributeFilePath() << std::endl;
+            std::cout << "  索引文件: " << storage_system_->GetIndexFilePath() << std::endl;
+            std::cout << "  元数据文件: " << storage_system_->GetMetadataFilePath() << std::endl;
 
             return true;
 
@@ -299,23 +299,23 @@ class GisStorageDemo {
 
         try {
             // 初始化S2索引
-            storage_system_->initializeS2Index(15); // 使用分辨率15
+            storage_system_->InitializeS2Index(15); // 使用分辨率15
 
             // 构建索引
-            bool success = storage_system_->buildS2IndexFromDataset(input_shapefile_, 1000);
+            bool success = storage_system_->BuildS2IndexFromDataset(input_shapefile_, 1000);
 
             auto end_time = std::chrono::high_resolution_clock::now();
             stats_.index_build_time = std::chrono::duration<double>(end_time - start_time).count();
 
             if (success) {
-                stats_.s2_index_size = storage_system_->getS2IndexSize();
+                stats_.s2_index_size = storage_system_->GetS2IndexSize();
                 std::cout << "  ✓ S2索引构建完成" << std::endl;
-                std::cout << "  索引大小: " << storage_system_->getS2IndexSize() << " 个单元格" << std::endl;
-                std::cout << "  要素数量: " << storage_system_->getS2TotalFeatureCount() << std::endl;
+                std::cout << "  索引大小: " << storage_system_->GetS2IndexSize() << " 个单元格" << std::endl;
+                std::cout << "  要素数量: " << storage_system_->GetS2TotalFeatureCount() << std::endl;
                 std::cout << "  构建时间: " << std::fixed << std::setprecision(3) << stats_.index_build_time << " 秒" << std::endl;
 
                 // 保存索引
-                storage_system_->saveS2Index();
+                storage_system_->SaveS2Index();
                 std::cout << "  ✓ S2索引已保存" << std::endl;
 
                 return true;
@@ -336,18 +336,18 @@ class GisStorageDemo {
 
         try {
             // 更新文件大小信息
-            storage_system_->updateFileSizes();
+            storage_system_->UpdateFileSizes();
 
             // 更新校验和
-            storage_system_->updateChecksums();
+            storage_system_->UpdateChecksums();
 
             // 保存元数据
-            storage_system_->saveMetadata();
+            storage_system_->SaveMetadata();
 
             std::cout << "  ✓ 元数据生成完成" << std::endl;
 
             // 显示元数据信息
-            const auto& metadata = storage_system_->getMetadata();
+            const auto& metadata = storage_system_->GetMetadata();
             std::cout << "  格式版本: " << metadata.format_version << std::endl;
             std::cout << "  源格式: " << metadata.source_format << std::endl;
             std::cout << "  创建时间: " << metadata.creation_date << std::endl;
@@ -376,12 +376,12 @@ class GisStorageDemo {
 
         try {
             // 检查所有必需文件是否存在
-            std::vector<std::string> required_files = {storage_system_->getGeometryFilePath(),
-                                                       storage_system_->getAttributeFilePath(),
-                                                       storage_system_->getStringPoolFilePath(),
-                                                       storage_system_->getIndexFilePath(),
-                                                       storage_system_->getMetadataFilePath(),
-                                                       storage_system_->getS2IndexFilePath()};
+            std::vector<std::string> required_files = {storage_system_->GetGeometryFilePath(),
+                                                       storage_system_->GetAttributeFilePath(),
+                                                       storage_system_->GetStringPoolFilePath(),
+                                                       storage_system_->GetIndexFilePath(),
+                                                       storage_system_->GetMetadataFilePath(),
+                                                       storage_system_->GetS2IndexFilePath()};
 
             for (const auto& file : required_files) {
                 if (!std::filesystem::exists(file)) {
@@ -391,7 +391,7 @@ class GisStorageDemo {
             }
 
             // 获取文件大小统计
-            auto storage_stats = storage_system_->getStorageStats();
+            auto storage_stats = storage_system_->GetStorageStats();
             stats_.geometry_size = storage_stats.geometry_size_bytes;
             stats_.attribute_size = storage_stats.attribute_size_bytes;
             stats_.string_pool_size = storage_stats.string_pool_size_bytes;
@@ -420,7 +420,7 @@ class GisStorageDemo {
 
         try {
             // 获取所有要素ID
-            auto all_feature_ids = storage_system_->getAllFeatureIds();
+            auto all_feature_ids = storage_system_->GetAllFeatureIds();
             if (all_feature_ids.empty()) {
                 std::cerr << "  ✗ 没有找到任何要素" << std::endl;
                 return false;
@@ -437,15 +437,15 @@ class GisStorageDemo {
 
                 try {
                     // 读取几何数据
-                    auto geometry = storage_system_->readGeometry(fid);
+                    auto geometry = storage_system_->ReadGeometry(fid);
                     if (geometry) {
-                        std::cout << "    FID " << fid << ": " << geometry->getCoordinates().size() << " 个坐标点" << std::endl;
+                        std::cout << "    FID " << fid << ": " << geometry->GetCoordinates().size() << " 个坐标点" << std::endl;
                     }
 
                     // 读取属性数据
-                    auto attributes = storage_system_->readAttribute(fid);
+                    auto attributes = storage_system_->ReadAttribute(fid);
                     if (attributes) {
-                        std::cout << "    FID " << fid << ": " << attributes->getProperties().size() << " 个属性字段" << std::endl;
+                        std::cout << "    FID " << fid << ": " << attributes->GetProperties().size() << " 个属性字段" << std::endl;
                     }
 
                 } catch (const std::exception& e) {
@@ -454,14 +454,14 @@ class GisStorageDemo {
             }
 
             // 演示S2空间查询
-            if (storage_system_->isS2IndexValid()) {
+            if (storage_system_->IsS2IndexValid()) {
                 std::cout << "  S2空间索引查询演示:" << std::endl;
 
                 // 创建一个测试查询范围（这里使用示例坐标，实际使用时需要根据数据范围调整）
                 // 注意：这里需要根据实际的BBox和S2接口进行调整
                 std::cout << "    S2索引状态: 有效" << std::endl;
-                std::cout << "    S2单元格数: " << storage_system_->getS2IndexSize() << std::endl;
-                std::cout << "    索引要素数: " << storage_system_->getS2TotalFeatureCount() << std::endl;
+                std::cout << "    S2单元格数: " << storage_system_->GetS2IndexSize() << std::endl;
+                std::cout << "    索引要素数: " << storage_system_->GetS2TotalFeatureCount() << std::endl;
             } else {
                 std::cout << "  S2空间索引: 无效" << std::endl;
             }
@@ -503,10 +503,10 @@ class GisStorageDemo {
             storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(output_dir_);
 
             // 手动设置数据集名称（轻量级模式）
-            storage_system_->setDatasetNameLightweight(detected_dataset_name);
+            storage_system_->SetDatasetNameLightweight(detected_dataset_name);
 
             // 获取元数据信息
-            const auto& metadata = storage_system_->getMetadata();
+            const auto& metadata = storage_system_->GetMetadata();
             stats_.total_features = metadata.total_features;
             stats_.valid_features = metadata.valid_features;
 
@@ -516,15 +516,15 @@ class GisStorageDemo {
 
             // 检查S2索引状态
             std::cout << "  ✓ S2索引加载完成" << std::endl;
-            std::cout << "  S2索引文件: " << storage_system_->getS2IndexFilePath() << std::endl;
-            std::cout << "  S2索引状态: " << (storage_system_->isS2IndexValid() ? "有效" : "无效") << std::endl;
-            if (storage_system_->isS2IndexValid()) {
-                std::cout << "  S2单元格数: " << storage_system_->getS2IndexSize() << std::endl;
-                std::cout << "  索引要素数: " << storage_system_->getS2TotalFeatureCount() << std::endl;
+            std::cout << "  S2索引文件: " << storage_system_->GetS2IndexFilePath() << std::endl;
+            std::cout << "  S2索引状态: " << (storage_system_->IsS2IndexValid() ? "有效" : "无效") << std::endl;
+            if (storage_system_->IsS2IndexValid()) {
+                std::cout << "  S2单元格数: " << storage_system_->GetS2IndexSize() << std::endl;
+                std::cout << "  索引要素数: " << storage_system_->GetS2TotalFeatureCount() << std::endl;
             }
 
             // 获取文件大小统计（不加载实际数据）
-            auto storage_stats = storage_system_->getStorageStats();
+            auto storage_stats = storage_system_->GetStorageStats();
             stats_.geometry_size = storage_stats.geometry_size_bytes;
             stats_.attribute_size = storage_stats.attribute_size_bytes;
             stats_.string_pool_size = storage_stats.string_pool_size_bytes;
@@ -571,17 +571,17 @@ class GisStorageDemo {
             storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(output_dir_);
 
             // 手动设置数据集名称
-            storage_system_->setDatasetName(detected_dataset_name);
+            storage_system_->SetDatasetName(detected_dataset_name);
 
             // 加载元数据
-            storage_system_->loadMetadata();
+            storage_system_->LoadMetadata();
 
             std::cout << "  ✓ 存储系统加载完成" << std::endl;
-            std::cout << "  几何文件: " << storage_system_->getGeometryFilePath() << std::endl;
-            std::cout << "  属性文件: " << storage_system_->getAttributeFilePath() << std::endl;
-            std::cout << "  索引文件: " << storage_system_->getIndexFilePath() << std::endl;
-            std::cout << "  元数据文件: " << storage_system_->getMetadataFilePath() << std::endl;
-            std::cout << "  S2索引文件: " << storage_system_->getS2IndexFilePath() << std::endl;
+            std::cout << "  几何文件: " << storage_system_->GetGeometryFilePath() << std::endl;
+            std::cout << "  属性文件: " << storage_system_->GetAttributeFilePath() << std::endl;
+            std::cout << "  索引文件: " << storage_system_->GetIndexFilePath() << std::endl;
+            std::cout << "  元数据文件: " << storage_system_->GetMetadataFilePath() << std::endl;
+            std::cout << "  S2索引文件: " << storage_system_->GetS2IndexFilePath() << std::endl;
 
             return true;
 
@@ -622,12 +622,12 @@ class GisStorageDemo {
 
         try {
             // 检查所有必需文件是否存在
-            std::vector<std::string> required_files = {storage_system_->getGeometryFilePath(),
-                                                       storage_system_->getAttributeFilePath(),
-                                                       storage_system_->getStringPoolFilePath(),
-                                                       storage_system_->getIndexFilePath(),
-                                                       storage_system_->getMetadataFilePath(),
-                                                       storage_system_->getS2IndexFilePath()};
+            std::vector<std::string> required_files = {storage_system_->GetGeometryFilePath(),
+                                                       storage_system_->GetAttributeFilePath(),
+                                                       storage_system_->GetStringPoolFilePath(),
+                                                       storage_system_->GetIndexFilePath(),
+                                                       storage_system_->GetMetadataFilePath(),
+                                                       storage_system_->GetS2IndexFilePath()};
 
             for (const auto& file : required_files) {
                 if (!std::filesystem::exists(file)) {
@@ -637,12 +637,12 @@ class GisStorageDemo {
             }
 
             // 获取元数据信息
-            const auto& metadata = storage_system_->getMetadata();
+            const auto& metadata = storage_system_->GetMetadata();
             stats_.total_features = metadata.total_features;
             stats_.valid_features = metadata.valid_features;
 
             // 获取文件大小统计
-            auto storage_stats = storage_system_->getStorageStats();
+            auto storage_stats = storage_system_->GetStorageStats();
             stats_.geometry_size = storage_stats.geometry_size_bytes;
             stats_.attribute_size = storage_stats.attribute_size_bytes;
             stats_.string_pool_size = storage_stats.string_pool_size_bytes;
@@ -660,10 +660,10 @@ class GisStorageDemo {
             std::cout << "  S2索引: " << formatFileSize(stats_.s2_index_size) << std::endl;
 
             // 检查S2索引状态
-            if (storage_system_->isS2IndexValid()) {
+            if (storage_system_->IsS2IndexValid()) {
                 std::cout << "  S2索引状态: 有效" << std::endl;
-                std::cout << "  S2单元格数: " << storage_system_->getS2IndexSize() << std::endl;
-                std::cout << "  索引要素数: " << storage_system_->getS2TotalFeatureCount() << std::endl;
+                std::cout << "  S2单元格数: " << storage_system_->GetS2IndexSize() << std::endl;
+                std::cout << "  索引要素数: " << storage_system_->GetS2TotalFeatureCount() << std::endl;
             } else {
                 std::cout << "  S2索引状态: 无效" << std::endl;
             }
@@ -681,7 +681,7 @@ class GisStorageDemo {
         std::cout << "\n步骤8: 云南全省瓦片查询演示..." << std::endl;
 
         try {
-            if (!storage_system_->isS2IndexValid()) {
+            if (!storage_system_->IsS2IndexValid()) {
                 std::cout << "  S2索引无效，跳过瓦片查询演示" << std::endl;
                 return true;
             }
@@ -795,7 +795,7 @@ class GisStorageDemo {
             std::vector<std::string> formats = {"OpenFileGDB"};
             std::cout << "  批量转换测试 (OpenFileGDB)..." << std::endl;
 
-            if (reverse_converter.convertToMultipleFormats(reverse_output_dir, formats)) {
+            if (reverse_converter.ConvertToMultipleFormats(reverse_output_dir, formats)) {
                 std::cout << "  ✓ 批量逆向转换成功" << std::endl;
 
                 // 列出生成的文件
@@ -825,7 +825,7 @@ class GisStorageDemo {
     std::vector<uint64_t> queryS2IndexForBBox(double min_lng, double min_lat, double max_lng, double max_lat) {
         std::vector<uint64_t> results;
 
-        if (!storage_system_->isS2IndexValid()) {
+        if (!storage_system_->IsS2IndexValid()) {
             return results;
         }
 
@@ -837,7 +837,7 @@ class GisStorageDemo {
             query_bbox.max_x = max_lng;
             query_bbox.max_y = max_lat;
 
-            results = storage_system_->queryS2Index(query_bbox, 15); // 使用默认分辨率15
+            results = storage_system_->QueryS2Index(query_bbox, 15); // 使用默认分辨率15
 
         } catch (const std::exception& e) {
             std::cerr << "    S2查询错误: " << e.what() << std::endl;
@@ -851,7 +851,7 @@ class GisStorageDemo {
         try {
             // 演示1: 查询dlbm字段值为0101的要素
             std::cout << "    演示1: 查询dlbm字段值为'0101'的要素" << std::endl;
-            auto dlbm_results = storage_system_->queryByAttributeEfficient("dlbm", "0101");
+            auto dlbm_results = storage_system_->QueryByAttributeEfficient("dlbm", "0101");
             std::cout << "      找到 " << dlbm_results.size() << " 个匹配的要素" << std::endl;
 
             if (!dlbm_results.empty()) {
@@ -866,10 +866,10 @@ class GisStorageDemo {
 
                 // 显示第一个匹配要素的详细信息
                 if (!dlbm_results.empty()) {
-                    auto attr = storage_system_->readAttribute(dlbm_results[0]);
+                    auto attr = storage_system_->ReadAttribute(dlbm_results[0]);
                     if (attr) {
                         std::cout << "      要素 " << dlbm_results[0] << " 的属性信息:" << std::endl;
-                        const auto& properties = attr->getProperties();
+                        const auto& properties = attr->GetProperties();
                         size_t prop_count = 0;
                         for (const auto& [key, value] : properties) {
                             if (prop_count < 5) { // 只显示前5个属性
@@ -886,7 +886,7 @@ class GisStorageDemo {
 
             // 演示1.5: 并行查询dlbm字段值为0101的要素（性能对比）
             std::cout << "    演示1.5: 并行查询dlbm字段值为'0101'的要素（性能对比）" << std::endl;
-            auto dlbm_results_parallel = storage_system_->queryByAttributeParallel("dlbm", "0101");
+            auto dlbm_results_parallel = storage_system_->QueryByAttributeParallel("dlbm", "0101");
             std::cout << "      并行查询找到 " << dlbm_results_parallel.size() << " 个匹配的要素" << std::endl;
 
             // 验证结果一致性
@@ -899,12 +899,12 @@ class GisStorageDemo {
 
             // 演示2: 查询dlbm字段包含"01"的要素（模式匹配）
             std::cout << "    演示2: 查询dlbm字段包含'01'的要素" << std::endl;
-            auto pattern_results = storage_system_->queryByAttributePattern("dlbm", "01");
+            auto pattern_results = storage_system_->QueryByAttributePattern("dlbm", "01");
             std::cout << "      找到 " << pattern_results.size() << " 个匹配的要素" << std::endl;
 
             // 演示3: 获取dlbm字段的所有不同值
             std::cout << "    演示3: 获取dlbm字段的所有不同值" << std::endl;
-            auto dlbm_values = storage_system_->queryAttributeValues("dlbm");
+            auto dlbm_values = storage_system_->QueryAttributeValues("dlbm");
             std::cout << "      找到 " << dlbm_values.size() << " 个有dlbm值的要素" << std::endl;
 
             if (!dlbm_values.empty()) {
@@ -934,9 +934,9 @@ class GisStorageDemo {
             std::cout << "      尝试读取第一个要素 (FID: 1) 的属性..." << std::endl;
 
             try {
-                auto attr = storage_system_->readAttribute(1);
+                auto attr = storage_system_->ReadAttribute(1);
                 if (attr) {
-                    const auto& properties = attr->getProperties();
+                    const auto& properties = attr->GetProperties();
                     std::cout << "      数据集包含 " << properties.size() << " 个字段:" << std::endl;
 
                     size_t field_count = 0;
@@ -1008,12 +1008,12 @@ class GisStorageDemo {
 
         // 显示生成的文件列表
         std::cout << "\n生成的文件:" << std::endl;
-        std::vector<std::pair<std::string, std::string>> files = {{"几何数据", storage_system_->getGeometryFilePath()},
-                                                                  {"属性数据", storage_system_->getAttributeFilePath()},
-                                                                  {"字符串池", storage_system_->getStringPoolFilePath()},
-                                                                  {"索引数据", storage_system_->getIndexFilePath()},
-                                                                  {"元数据", storage_system_->getMetadataFilePath()},
-                                                                  {"S2索引", storage_system_->getS2IndexFilePath()}};
+        std::vector<std::pair<std::string, std::string>> files = {{"几何数据", storage_system_->GetGeometryFilePath()},
+                                                                  {"属性数据", storage_system_->GetAttributeFilePath()},
+                                                                  {"字符串池", storage_system_->GetStringPoolFilePath()},
+                                                                  {"索引数据", storage_system_->GetIndexFilePath()},
+                                                                  {"元数据", storage_system_->GetMetadataFilePath()},
+                                                                  {"S2索引", storage_system_->GetS2IndexFilePath()}};
 
         for (const auto& [type, path] : files) {
             if (std::filesystem::exists(path)) {

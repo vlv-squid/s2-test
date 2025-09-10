@@ -38,7 +38,7 @@ class ReverseConversionTest : public ::testing::Test {
     void createTestData() {
         // 使用指定的shapefile转换为自定义格式
         GisStorage::OGRFormatConverter converter(input_shapefile_, test_output_dir_);
-        converter.convert();
+        converter.Convert();
 
         // 设置自定义格式数据目录
         custom_data_dir_ = test_output_dir_;
@@ -88,7 +88,7 @@ TEST_F(ReverseConversionTest, ConvertToMultipleFormats) {
     // 测试批量转换（只测试GDB和Shapefile）
     std::vector<std::string> formats = {"ESRI Shapefile", "OpenFileGDB", "GeoJSON"};
 
-    EXPECT_TRUE(converter.convertToMultipleFormats(output_dir, formats)) << "批量逆向转换失败";
+    EXPECT_TRUE(converter.ConvertToMultipleFormats(output_dir, formats)) << "批量逆向转换失败";
 
     // 验证生成的文件（批量转换使用带索引的文件名）
 
@@ -108,7 +108,7 @@ TEST_F(ReverseConversionTest, ErrorHandling) {
     std::filesystem::create_directories(output_dir);
     std::string output_file = output_dir + "/test.shp";
 
-    EXPECT_FALSE(converter.convertToOGR(output_file, "ESRI Shapefile")) << "应该处理不存在的输入数据";
+    EXPECT_FALSE(converter.ConvertToOGR(output_file, "ESRI Shapefile")) << "应该处理不存在的输入数据";
 }
 
 int main(int argc, char** argv) {

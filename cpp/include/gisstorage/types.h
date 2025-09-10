@@ -36,7 +36,7 @@ namespace GisStorage {
             , max_x(max_x)
             , max_y(max_y) {}
 
-        bool isValid() const { return min_x <= max_x && min_y <= max_y; }
+        bool IsValid() const { return min_x <= max_x && min_y <= max_y; }
     };
 
 } // namespace GisStorage

@@ -16,12 +16,12 @@ namespace GisStorage {
         , coordinates_(coordinates)
         , bbox_(bbox) {}
 
-    std::vector<Coordinate> GeometryData::decodeCoordinates() const {
+    std::vector<Coordinate> GeometryData::DecodeCoordinates() const {
         // 使用GeometrySerializer的解码方法，避免重复实现
-        return GeometrySerializer::decodeCoordinatesDelta(coordinates_);
+        return GeometrySerializer::DecodeCoordinatesDelta(coordinates_);
     }
 
-    size_t GeometryData::getSerializedSize() const {
+    size_t GeometryData::GetSerializedSize() const {
         // feature_id(8) + geometry_type(1) + 7字节填充 + bbox(32) + coord_size(4) + coordinates
         return 8 + 1 + 7 + 32 + 4 + coordinates_.size();
     }

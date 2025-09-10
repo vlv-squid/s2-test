@@ -26,33 +26,33 @@ namespace S2Main {
         S2SpatialIndex(const std::string& filePath, int level);
         ~S2SpatialIndex();
 
-        void build(const std::vector<std::pair<int64_t, int>>& entries);
-        void addBatch(const std::vector<std::pair<int64_t, int>>& entries);
-        void clear();
-        void save() const;
-        void load();
+        void Build(const std::vector<std::pair<int64_t, int>>& entries);
+        void AddBatch(const std::vector<std::pair<int64_t, int>>& entries);
+        void Clear();
+        void Save() const;
+        void Load();
 
         // 智能索引管理
-        bool smartLoadOrBuild(const std::string& dataset_path, int batch_size = 50000);
-        bool isIndexValid() const;
-        size_t getIndexSize() const;         // 返回S2单元格数量
-        size_t getTotalFeatureCount() const; // 返回总要素数量
-        bool buildFromDataset(const std::string& dataset_path, int batch_size = 50000);
+        bool SmartLoadOrBuild(const std::string& dataset_path, int batch_size = 50000);
+        bool IsIndexValid() const;
+        size_t GetIndexSize() const;         // 返回S2单元格数量
+        size_t GetTotalFeatureCount() const; // 返回总要素数量
+        bool BuildFromDataset(const std::string& dataset_path, int batch_size = 50000);
 
         // 多线程构建方法
-        bool buildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size = 50000, int num_threads = 4);
+        bool BuildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size = 50000, int num_threads = 4);
 
         // 索引完整性验证
-        bool isIndexComplete(const std::string& dataset_path) const;
-        int64_t getDatasetFeatureCount(const std::string& dataset_path) const;
+        bool IsIndexComplete(const std::string& dataset_path) const;
+        int64_t GetDatasetFeatureCount(const std::string& dataset_path) const;
 
         // 优化的查询方法
-        std::vector<int> query(const S2LatLngRect& rect, int level) const;
+        std::vector<int> Query(const S2LatLngRect& rect, int level) const;
 
         // 高性能批量查询
-        void queryBatch(const std::vector<S2LatLngRect>& rects, int level, std::vector<std::vector<int>>& results) const;
+        void QueryBatch(const std::vector<S2LatLngRect>& rects, int level, std::vector<std::vector<int>>& results) const;
 
-        bool exists() const;
+        bool Exists() const;
 
       private:
         std::string filePath_;

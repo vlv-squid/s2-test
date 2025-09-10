@@ -21,7 +21,7 @@ namespace GisStorage {
         std::filesystem::create_directories(file_path.parent_path());
     }
 
-    int64_t GeometryStorage::writeGeometry(const GeometryData& geometry) {
+    int64_t GeometryStorage::WriteGeometry(const GeometryData& geometry) {
         // 使用追加模式，如果文件不存在则创建新文件
         std::ofstream file(geometry_file_, std::ios::binary | std::ios::app);
         if (!file) {
@@ -29,7 +29,7 @@ namespace GisStorage {
         }
 
         int64_t offset = file.tellp();
-        std::vector<uint8_t> geom_binary = GeometrySerializer::serializeGeometry(geometry);
+        std::vector<uint8_t> geom_binary = GeometrySerializer::SerializeGeometry(geometry);
 
         if (!geom_binary.empty()) {
             file.write(reinterpret_cast<const char*>(geom_binary.data()), geom_binary.size());
@@ -39,12 +39,12 @@ namespace GisStorage {
             index_built_ = false;
             return offset;
         } else {
-            throw std::runtime_error("几何数据序列化失败 for FID " + std::to_string(geometry.getFeatureId()));
+            throw std::runtime_error("几何数据序列化失败 for FID " + std::to_string(geometry.GetFeatureId()));
         }
     }
 
-    std::unique_ptr<GeometryData> GeometryStorage::readGeometry(uint64_t feature_id) {
-        const auto& offsets = getOffsetIndex();
+    std::unique_ptr<GeometryData> GeometryStorage::ReadGeometry(uint64_t feature_id) {
+        const auto& offsets = GetOffsetIndex();
         auto it = offsets.find(feature_id);
         if (it == offsets.end()) {
             throw std::runtime_error("Feature ID " + std::to_string(feature_id) + " not found");
@@ -82,11 +82,11 @@ namespace GisStorage {
         geom_data.insert(geom_data.end(), reinterpret_cast<uint8_t*>(&coord_size), reinterpret_cast<uint8_t*>(&coord_size) + sizeof(uint32_t));
         geom_data.insert(geom_data.end(), coord_data.begin(), coord_data.end());
 
-        return GeometrySerializer::deserializeGeometry(geom_data);
+        return GeometrySerializer::DeserializeGeometry(geom_data);
     }
 
-    std::vector<uint64_t> GeometryStorage::getAllFeatureIds() {
-        const auto& offsets = getOffsetIndex();
+    std::vector<uint64_t> GeometryStorage::GetAllFeatureIds() {
+        const auto& offsets = GetOffsetIndex();
         std::vector<uint64_t> feature_ids;
         feature_ids.reserve(offsets.size());
         for (const auto& pair : offsets) {
@@ -95,17 +95,17 @@ namespace GisStorage {
         return feature_ids;
     }
 
-    bool GeometryStorage::hasFeature(uint64_t feature_id) {
-        const auto& offsets = getOffsetIndex();
+    bool GeometryStorage::HasFeature(uint64_t feature_id) {
+        const auto& offsets = GetOffsetIndex();
         return offsets.find(feature_id) != offsets.end();
     }
 
-    void GeometryStorage::clearCache() {
+    void GeometryStorage::ClearCache() {
         offset_index_.clear();
         index_built_ = false;
     }
 
-    void GeometryStorage::buildOffsetIndex() {
+    void GeometryStorage::BuildOffsetIndex() {
         offset_index_.clear();
 
         std::ifstream file(geometry_file_, std::ios::binary);
@@ -147,15 +147,15 @@ namespace GisStorage {
         }
     }
 
-    const std::unordered_map<uint64_t, int64_t>& GeometryStorage::getOffsetIndex() {
+    const std::unordered_map<uint64_t, int64_t>& GeometryStorage::GetOffsetIndex() {
         if (!index_built_) {
-            buildOffsetIndex();
+            BuildOffsetIndex();
             index_built_ = true;
         }
         return offset_index_;
     }
 
-    void GeometryStorage::loadIndexFromFile(const std::string& index_file) {
+    void GeometryStorage::LoadIndexFromFile(const std::string& index_file) {
         if (!std::filesystem::exists(index_file)) {
             std::cout << "索引文件不存在: " << index_file << std::endl;
             return;

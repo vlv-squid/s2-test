@@ -60,67 +60,67 @@ namespace GisStorage {
         explicit GisStorageSystem(const std::string& output_dir);
 
         // 读取几何数据
-        std::unique_ptr<GeometryData> readGeometry(uint64_t feature_id);
+        std::unique_ptr<GeometryData> ReadGeometry(uint64_t feature_id);
 
         // 读取属性数据
-        std::unique_ptr<AttributeData> readAttribute(uint64_t feature_id);
+        std::unique_ptr<AttributeData> ReadAttribute(uint64_t feature_id);
 
         // 获取所有要素ID
-        std::vector<uint64_t> getAllFeatureIds();
+        std::vector<uint64_t> GetAllFeatureIds();
 
         // 批量读取几何数据
-        std::map<uint64_t, std::unique_ptr<GeometryData>> readGeometries(const std::vector<uint64_t>& feature_ids);
+        std::map<uint64_t, std::unique_ptr<GeometryData>> ReadGeometries(const std::vector<uint64_t>& feature_ids);
 
         // 批量读取属性数据
-        std::map<uint64_t, std::unique_ptr<AttributeData>> readAttributes(const std::vector<uint64_t>& feature_ids);
+        std::map<uint64_t, std::unique_ptr<AttributeData>> ReadAttributes(const std::vector<uint64_t>& feature_ids);
 
         // 属性查询方法
-        std::vector<uint64_t> queryByAttributePattern(const std::string& field_name, const std::string& pattern);
-        std::vector<std::pair<uint64_t, std::string>> queryAttributeValues(const std::string& field_name);
+        std::vector<uint64_t> QueryByAttributePattern(const std::string& field_name, const std::string& pattern);
+        std::vector<std::pair<uint64_t, std::string>> QueryAttributeValues(const std::string& field_name);
 
         // 高效的属性查询方法（基于字符串池）
-        std::vector<uint64_t> queryByAttributeEfficient(const std::string& field_name, const std::string& field_value);
+        std::vector<uint64_t> QueryByAttributeEfficient(const std::string& field_name, const std::string& field_value);
 
         // 并行属性查询方法（使用TBB）
-        std::vector<uint64_t> queryByAttributeParallel(const std::string& field_name, const std::string& field_value);
+        std::vector<uint64_t> QueryByAttributeParallel(const std::string& field_name, const std::string& field_value);
 
         // 高效的复合查询方法（空间+属性）
-        std::vector<uint64_t> querySpatialAttributeEfficient(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value);
+        std::vector<uint64_t> QuerySpatialAttributeEfficient(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value);
 
         // 初始化存储文件
-        void initializeStorageFiles(const std::string& shapefile_path);
+        void InitializeStorageFiles(const std::string& shapefile_path);
 
         // 设置数据集名称（用于加载现有数据）
-        void setDatasetName(const std::string& dataset_name);
+        void SetDatasetName(const std::string& dataset_name);
 
         // 轻量级设置数据集名称（仅加载S2索引和元数据，不加载几何和属性索引）
-        void setDatasetNameLightweight(const std::string& dataset_name);
+        void SetDatasetNameLightweight(const std::string& dataset_name);
 
         // S2索引管理
-        void initializeS2Index(int resolution = 15);
-        bool buildS2IndexFromDataset(const std::string& dataset_path, int max_features_per_cell = 1000);
-        std::vector<uint64_t> queryS2Index(const BBox& query_bbox, int resolution = 15);
-        void saveS2Index();
-        void loadS2Index();
-        bool isS2IndexValid() const;
-        size_t getS2IndexSize() const;
-        size_t getS2TotalFeatureCount() const;
+        void InitializeS2Index(int resolution = 15);
+        bool BuildS2IndexFromDataset(const std::string& dataset_path, int max_features_per_cell = 1000);
+        std::vector<uint64_t> QueryS2Index(const BBox& query_bbox, int resolution = 15);
+        void SaveS2Index();
+        void LoadS2Index();
+        bool IsS2IndexValid() const;
+        size_t GetS2IndexSize() const;
+        size_t GetS2TotalFeatureCount() const;
 
         // 元数据管理
-        const Metadata& getMetadata() const { return metadata_; }
-        void updateMetadata(const Metadata& metadata);
-        void saveMetadata();
-        void loadMetadata();
-        void updateFileSizes();
-        void updateChecksums();
+        const Metadata& GetMetadata() const { return metadata_; }
+        void UpdateMetadata(const Metadata& metadata);
+        void SaveMetadata();
+        void LoadMetadata();
+        void UpdateFileSizes();
+        void UpdateChecksums();
 
         // 文件路径管理
-        std::string getGeometryFilePath() const;
-        std::string getAttributeFilePath() const;
-        std::string getStringPoolFilePath() const;
-        std::string getIndexFilePath() const;
-        std::string getMetadataFilePath() const;
-        std::string getS2IndexFilePath() const;
+        std::string GetGeometryFilePath() const;
+        std::string GetAttributeFilePath() const;
+        std::string GetStringPoolFilePath() const;
+        std::string GetIndexFilePath() const;
+        std::string GetMetadataFilePath() const;
+        std::string GetS2IndexFilePath() const;
 
         // 存储统计信息
         struct StorageStats {
@@ -134,7 +134,7 @@ namespace GisStorage {
             double compression_ratio = 0.0;
             size_t string_pool_saved_bytes = 0;
         };
-        StorageStats getStorageStats() const;
+        StorageStats GetStorageStats() const;
 
       private:
         std::string output_dir_;
@@ -155,11 +155,11 @@ namespace GisStorage {
         Metadata metadata_;
 
         // 私有方法
-        void initializeFilePaths();
-        void createMetadataFromShapefile(const std::string& shapefile_path);
-        void updateMetadataStats();
-        std::string calculateFileChecksum(const std::string& file_path);
-        std::string getCurrentTimestamp();
+        void InitializeFilePaths();
+        void CreateMetadataFromShapefile(const std::string& shapefile_path);
+        void UpdateMetadataStats();
+        std::string CalculateFileChecksum(const std::string& file_path);
+        std::string GetCurrentTimestamp();
     };
 
 } // namespace GisStorage

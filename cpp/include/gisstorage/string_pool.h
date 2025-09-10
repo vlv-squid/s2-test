@@ -19,23 +19,23 @@ namespace GisStorage {
         StringPool();
 
         // 获取字符串ID（如果不存在则添加）
-        uint32_t getStringId(const std::string& str);
+        uint32_t GetStringId(const std::string& str);
 
         // 根据ID获取字符串
-        std::string getString(uint32_t id) const;
+        std::string GetString(uint32_t id) const;
 
         // 序列化字符串池
-        std::vector<uint8_t> serialize() const;
+        std::vector<uint8_t> Serialize() const;
 
         // 反序列化字符串池
-        void deserialize(const std::vector<uint8_t>& data);
+        void Deserialize(const std::vector<uint8_t>& data);
 
         // 获取统计信息
-        size_t getPoolSize() const { return string_table_.size(); }
-        size_t getTotalSize() const { return total_size_; }
+        size_t GetPoolSize() const { return string_table_.size(); }
+        size_t GetTotalSize() const { return total_size_; }
 
         // 清空池
-        void clear();
+        void Clear();
 
       private:
         std::unordered_map<std::string, uint32_t> string_to_id_;
@@ -44,7 +44,7 @@ namespace GisStorage {
         mutable std::mutex mutex_;
 
         // 计算字符串在池中的存储大小
-        size_t calculateStringSize(const std::string& str) const;
+        size_t CalculateStringSize(const std::string& str) const;
     };
 
 } // namespace GisStorage

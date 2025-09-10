@@ -16,7 +16,7 @@ namespace helper {
 
     // 通用容器序列化辅助函数
     template<typename Container>
-    void serializeContainer(std::ofstream& file, const Container& container) {
+    void SerializeContainer(std::ofstream& file, const Container& container) {
         size_t size = container.size();
         file.write(reinterpret_cast<const char*>(&size), sizeof(size));
 
@@ -26,7 +26,7 @@ namespace helper {
     }
 
     template<typename Container>
-    void deserializeContainer(std::ifstream& file, Container& container) {
+    void DeserializeContainer(std::ifstream& file, Container& container) {
         size_t size;
         file.read(reinterpret_cast<char*>(&size), sizeof(size));
 
@@ -42,7 +42,7 @@ namespace helper {
 
     // 特化版本：std::unordered_map + std::vector
     template<>
-    bool saveS2IndexToFile(const std::string& filepath, const std::unordered_map<int64_t, std::vector<int>>& s2IndexMap) {
+    bool SaveS2IndexToFile(const std::string& filepath, const std::unordered_map<int64_t, std::vector<int>>& s2IndexMap) {
         std::ofstream file(filepath, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "无法打开文件进行写入: " << filepath << std::endl;
@@ -55,7 +55,7 @@ namespace helper {
 
             for (const auto& [cellId, fids] : s2IndexMap) {
                 file.write(reinterpret_cast<const char*>(&cellId), sizeof(cellId));
-                serializeContainer(file, fids);
+                SerializeContainer(file, fids);
             }
 
             file.close();
@@ -68,7 +68,7 @@ namespace helper {
     }
 
     template<>
-    bool loadS2IndexFromFile(const std::string& filepath, std::unordered_map<int64_t, std::vector<int>>& s2IndexMap) {
+    bool LoadS2IndexFromFile(const std::string& filepath, std::unordered_map<int64_t, std::vector<int>>& s2IndexMap) {
         std::ifstream file(filepath, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "无法打开文件进行读取: " << filepath << std::endl;
@@ -87,7 +87,7 @@ namespace helper {
                 file.read(reinterpret_cast<char*>(&cellId), sizeof(cellId));
 
                 std::vector<int> fids;
-                deserializeContainer(file, fids);
+                DeserializeContainer(file, fids);
 
                 s2IndexMap.emplace(cellId, std::move(fids));
             }
@@ -103,7 +103,7 @@ namespace helper {
 
     // 特化版本：absl::flat_hash_map + absl::InlinedVector
     template<>
-    bool saveS2IndexToFile(const std::string& filepath, const absl::flat_hash_map<int64_t, absl::InlinedVector<int, 8>>& s2IndexMap) {
+    bool SaveS2IndexToFile(const std::string& filepath, const absl::flat_hash_map<int64_t, absl::InlinedVector<int, 8>>& s2IndexMap) {
         std::ofstream file(filepath, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "无法打开文件进行写入: " << filepath << std::endl;
@@ -116,7 +116,7 @@ namespace helper {
 
             for (const auto& [cellId, fids] : s2IndexMap) {
                 file.write(reinterpret_cast<const char*>(&cellId), sizeof(cellId));
-                serializeContainer(file, fids);
+                SerializeContainer(file, fids);
             }
 
             file.close();
@@ -129,7 +129,7 @@ namespace helper {
     }
 
     template<>
-    bool loadS2IndexFromFile(const std::string& filepath, absl::flat_hash_map<int64_t, absl::InlinedVector<int, 8>>& s2IndexMap) {
+    bool LoadS2IndexFromFile(const std::string& filepath, absl::flat_hash_map<int64_t, absl::InlinedVector<int, 8>>& s2IndexMap) {
         std::ifstream file(filepath, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "无法打开文件进行读取: " << filepath << std::endl;
@@ -148,7 +148,7 @@ namespace helper {
                 file.read(reinterpret_cast<char*>(&cellId), sizeof(cellId));
 
                 absl::InlinedVector<int, 8> fids;
-                deserializeContainer(file, fids);
+                DeserializeContainer(file, fids);
 
                 s2IndexMap.emplace(cellId, std::move(fids));
             }
@@ -164,7 +164,7 @@ namespace helper {
 
     // 通用模板实现（用于其他兼容的容器类型）
     template<typename MapType>
-    bool saveS2IndexToFile(const std::string& filepath, const MapType& s2IndexMap) {
+    bool SaveS2IndexToFile(const std::string& filepath, const MapType& s2IndexMap) {
         std::ofstream file(filepath, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "无法打开文件进行写入: " << filepath << std::endl;
@@ -177,7 +177,7 @@ namespace helper {
 
             for (const auto& [cellId, fids] : s2IndexMap) {
                 file.write(reinterpret_cast<const char*>(&cellId), sizeof(cellId));
-                serializeContainer(file, fids);
+                SerializeContainer(file, fids);
             }
 
             file.close();
@@ -190,7 +190,7 @@ namespace helper {
     }
 
     template<typename MapType>
-    bool loadS2IndexFromFile(const std::string& filepath, MapType& s2IndexMap) {
+    bool LoadS2IndexFromFile(const std::string& filepath, MapType& s2IndexMap) {
         std::ifstream file(filepath, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "无法打开文件进行读取: " << filepath << std::endl;
@@ -212,7 +212,7 @@ namespace helper {
                 file.read(reinterpret_cast<char*>(&cellId), sizeof(cellId));
 
                 typename MapType::mapped_type fids;
-                deserializeContainer(file, fids);
+                DeserializeContainer(file, fids);
 
                 s2IndexMap.emplace(cellId, std::move(fids));
             }

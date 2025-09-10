@@ -13,12 +13,12 @@ namespace GisStorage {
         : feature_id_(feature_id)
         , properties_(properties) {}
 
-    std::string AttributeData::getProperty(const std::string& key, const std::string& default_value) const {
+    std::string AttributeData::GetProperty(const std::string& key, const std::string& default_value) const {
         auto it = properties_.find(key);
         return (it != properties_.end()) ? it->second : default_value;
     }
 
-    size_t AttributeData::getSerializedSize() const {
+    size_t AttributeData::GetSerializedSize() const {
         // 计算JSON字符串长度
         std::ostringstream oss;
         oss << "{";

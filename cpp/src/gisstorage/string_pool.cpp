@@ -11,7 +11,7 @@ namespace GisStorage {
     StringPool::StringPool()
         : total_size_(0) {}
 
-    uint32_t StringPool::getStringId(const std::string& str) {
+    uint32_t StringPool::GetStringId(const std::string& str) {
         std::lock_guard<std::mutex> lock(mutex_);
 
         auto it = string_to_id_.find(str);
@@ -23,12 +23,12 @@ namespace GisStorage {
         uint32_t new_id = static_cast<uint32_t>(string_table_.size());
         string_to_id_[str] = new_id;
         string_table_.push_back(str);
-        total_size_ += calculateStringSize(str);
+        total_size_ += CalculateStringSize(str);
 
         return new_id;
     }
 
-    std::string StringPool::getString(uint32_t id) const {
+    std::string StringPool::GetString(uint32_t id) const {
         std::lock_guard<std::mutex> lock(mutex_);
 
         if (id < string_table_.size()) {
@@ -37,7 +37,7 @@ namespace GisStorage {
         return "";
     }
 
-    std::vector<uint8_t> StringPool::serialize() const {
+    std::vector<uint8_t> StringPool::Serialize() const {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // 预计算总大小以提高性能
@@ -63,10 +63,10 @@ namespace GisStorage {
         return data;
     }
 
-    void StringPool::deserialize(const std::vector<uint8_t>& data) {
+    void StringPool::Deserialize(const std::vector<uint8_t>& data) {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        clear();
+        Clear();
 
         if (data.size() < sizeof(uint32_t)) {
             return;
@@ -110,13 +110,13 @@ namespace GisStorage {
         }
     }
 
-    void StringPool::clear() {
+    void StringPool::Clear() {
         string_to_id_.clear();
         string_table_.clear();
         total_size_ = 0;
     }
 
-    size_t StringPool::calculateStringSize(const std::string& str) const {
+    size_t StringPool::CalculateStringSize(const std::string& str) const {
         // 计算字符串在池中的存储大小：长度(4) + 字符串内容
         return sizeof(uint32_t) + str.length();
     }

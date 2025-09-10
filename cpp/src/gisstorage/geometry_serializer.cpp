@@ -42,16 +42,16 @@ namespace GisStorage {
     }
 
     // GeometrySerializer 实现
-    std::vector<uint8_t> GeometrySerializer::serializeGeometry(const GeometryData& geometry) {
+    std::vector<uint8_t> GeometrySerializer::SerializeGeometry(const GeometryData& geometry) {
         std::vector<uint8_t> data;
-        data.reserve(geometry.getSerializedSize());
+        data.reserve(geometry.GetSerializedSize());
 
         // 写入feature_id (8字节)
-        uint64_t feature_id = geometry.getFeatureId();
+        uint64_t feature_id = geometry.GetFeatureId();
         data.insert(data.end(), reinterpret_cast<uint8_t*>(&feature_id), reinterpret_cast<uint8_t*>(&feature_id) + sizeof(uint64_t));
 
         // 写入geometry_type (1字节)
-        uint8_t geom_type = static_cast<uint8_t>(geometry.getGeometryType());
+        uint8_t geom_type = static_cast<uint8_t>(geometry.GetGeometryType());
         data.push_back(geom_type);
 
         // 写入7字节填充（与Python版本保持一致）
@@ -59,24 +59,24 @@ namespace GisStorage {
         data.insert(data.end(), padding.begin(), padding.end());
 
         // 写入bbox (32字节)
-        const BBox& bbox = geometry.getBBox();
+        const BBox& bbox = geometry.GetBBox();
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.min_x), reinterpret_cast<const uint8_t*>(&bbox.min_x) + sizeof(double));
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.min_y), reinterpret_cast<const uint8_t*>(&bbox.min_y) + sizeof(double));
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.max_x), reinterpret_cast<const uint8_t*>(&bbox.max_x) + sizeof(double));
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.max_y), reinterpret_cast<const uint8_t*>(&bbox.max_y) + sizeof(double));
 
         // 写入坐标数据大小 (4字节)
-        uint32_t coord_size = static_cast<uint32_t>(geometry.getCoordinates().size());
+        uint32_t coord_size = static_cast<uint32_t>(geometry.GetCoordinates().size());
         data.insert(data.end(), reinterpret_cast<uint8_t*>(&coord_size), reinterpret_cast<uint8_t*>(&coord_size) + sizeof(uint32_t));
 
         // 写入坐标数据
-        const auto& coords = geometry.getCoordinates();
+        const auto& coords = geometry.GetCoordinates();
         data.insert(data.end(), coords.begin(), coords.end());
 
         return data;
     }
 
-    std::unique_ptr<GeometryData> GeometrySerializer::deserializeGeometry(const std::vector<uint8_t>& data) {
+    std::unique_ptr<GeometryData> GeometrySerializer::DeserializeGeometry(const std::vector<uint8_t>& data) {
         if (data.size() < 48) {
             throw std::runtime_error("数据长度不足，无法反序列化几何对象");
         }
@@ -123,7 +123,7 @@ namespace GisStorage {
         return std::make_unique<GeometryData>(feature_id, geometry_type, coordinates, bbox);
     }
 
-    std::vector<uint8_t> GeometrySerializer::serializeCoordinates(const std::vector<Coordinate>& coordinates) {
+    std::vector<uint8_t> GeometrySerializer::SerializeCoordinates(const std::vector<Coordinate>& coordinates) {
         std::vector<uint8_t> data;
         data.reserve(4 + coordinates.size() * 16); // 4字节数量 + 每个坐标16字节
 
@@ -140,7 +140,7 @@ namespace GisStorage {
         return data;
     }
 
-    std::vector<Coordinate> GeometrySerializer::deserializeCoordinates(const std::vector<uint8_t>& data) {
+    std::vector<Coordinate> GeometrySerializer::DeserializeCoordinates(const std::vector<uint8_t>& data) {
         if (data.size() < 4) {
             return {};
         }
@@ -166,7 +166,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    std::vector<uint8_t> GeometrySerializer::encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
+    std::vector<uint8_t> GeometrySerializer::EncodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
         if (coordinates.empty()) {
             return {};
         }
@@ -249,7 +249,7 @@ namespace GisStorage {
         return data;
     }
 
-    std::vector<Coordinate> GeometrySerializer::decodeCoordinatesDelta(const std::vector<uint8_t>& data) {
+    std::vector<Coordinate> GeometrySerializer::DecodeCoordinatesDelta(const std::vector<uint8_t>& data) {
         if (data.empty()) {
             return {};
         }
@@ -283,7 +283,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    BBox GeometrySerializer::calculateBBox(const std::vector<Coordinate>& coordinates) {
+    BBox GeometrySerializer::CalculateBBox(const std::vector<Coordinate>& coordinates) {
         if (coordinates.empty()) {
             return BBox();
         }

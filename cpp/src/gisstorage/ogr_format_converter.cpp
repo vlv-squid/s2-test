@@ -43,10 +43,10 @@ namespace GisStorage {
         dataset_spatial_extent_.max_y = 0.0;
 
         // 初始化存储文件
-        initializeStorageFiles();
+        InitializeStorageFiles();
     }
 
-    void OGRFormatConverter::initializeStorageFiles() {
+    void OGRFormatConverter::InitializeStorageFiles() {
         // 创建输出目录
         std::filesystem::create_directories(output_dir_);
 
@@ -60,7 +60,7 @@ namespace GisStorage {
         attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
     }
 
-    std::vector<uint64_t> OGRFormatConverter::convert() {
+    std::vector<uint64_t> OGRFormatConverter::Convert() {
         auto start_time = std::chrono::high_resolution_clock::now();
 
         std::cout << "开始转换OGR格式（优化版本）: " << ogr_file_path_ << std::endl;
@@ -212,14 +212,14 @@ namespace GisStorage {
                     continue;
                 }
 
-                std::vector<Coordinate> coordinates = extractGeometryCoordinates(geometry);
+                std::vector<Coordinate> coordinates = ExtractGeometryCoordinates(geometry);
                 if (coordinates.empty()) {
                     OGRFeature::DestroyFeature(feature);
                     continue;
                 }
 
                 // 计算边界框（仅用于几何数据存储）
-                BBox bbox = calculateBBox(coordinates);
+                BBox bbox = CalculateBBox(coordinates);
 
                 // 调试输出（每100000个要素刷新一次进度）
                 if (processed_count % 100000 == 0) {
@@ -227,7 +227,7 @@ namespace GisStorage {
                 }
 
                 // 压缩坐标数据
-                std::vector<uint8_t> coord_data = encodeCoordinatesDelta(coordinates);
+                std::vector<uint8_t> coord_data = EncodeCoordinatesDelta(coordinates);
 
                 // 确定几何类型
                 GeometryType geom_type;
@@ -265,7 +265,7 @@ namespace GisStorage {
                 GeometryData geom_data(fid, geom_type, coord_data, bbox);
 
                 // 写入几何数据
-                int64_t geom_offset = geometry_storage_->writeGeometry(geom_data);
+                int64_t geom_offset = geometry_storage_->WriteGeometry(geom_data);
 
                 // 提取属性数据
                 std::map<std::string, std::string> properties;
@@ -305,7 +305,7 @@ namespace GisStorage {
                 AttributeData attr_data(fid, properties);
 
                 // 写入属性数据（使用字符串池优化）
-                int64_t attr_offset = attribute_storage_->writeAttribute(attr_data);
+                int64_t attr_offset = attribute_storage_->WriteAttribute(attr_data);
 
                 // 添加到索引
                 std::string fid_str = std::to_string(fid);
@@ -323,14 +323,14 @@ namespace GisStorage {
         }
 
         // 保存索引数据
-        saveIndexData(index_data);
+        SaveIndexData(index_data);
 
         // 保存字符串池
-        saveStringPool();
+        SaveStringPool();
 
         // 更新统计信息
         stats_.valid_features = valid_fids.size();
-        auto compression_stats = attribute_storage_->getCompressionStats();
+        auto compression_stats = attribute_storage_->GetCompressionStats();
         stats_.string_pool_size = compression_stats.unique_strings;
         stats_.string_pool_saved_bytes = compression_stats.original_size - compression_stats.compressed_size;
         stats_.compression_ratio = compression_stats.compression_ratio;
@@ -353,43 +353,43 @@ namespace GisStorage {
         GDALClose(dataset);
 
         // 保存元数据（包括字段定义、空间范围和坐标系统信息）
-        saveMetadata(field_info, source_crs_info, target_crs_info);
+        SaveMetadata(field_info, source_crs_info, target_crs_info);
 
         return valid_fids;
     }
 
-    std::string OGRFormatConverter::getGeometryFilePath() const {
-        return geometry_storage_->getGeometryFilePath();
+    std::string OGRFormatConverter::GetGeometryFilePath() const {
+        return geometry_storage_->GetGeometryFilePath();
     }
 
-    std::string OGRFormatConverter::getAttributeFilePath() const {
-        return attribute_storage_->getAttributeFilePath();
+    std::string OGRFormatConverter::GetAttributeFilePath() const {
+        return attribute_storage_->GetAttributeFilePath();
     }
 
-    std::string OGRFormatConverter::getIndexFilePath() const {
+    std::string OGRFormatConverter::GetIndexFilePath() const {
         return index_file_;
     }
 
-    std::string OGRFormatConverter::getStringPoolFilePath() const {
-        return attribute_storage_->getStringPoolFilePath();
+    std::string OGRFormatConverter::GetStringPoolFilePath() const {
+        return attribute_storage_->GetStringPoolFilePath();
     }
 
-    AttributeSerializer::CompressionStats OGRFormatConverter::getCompressionStats() const {
-        return attribute_storage_->getCompressionStats();
+    AttributeSerializer::CompressionStats OGRFormatConverter::GetCompressionStats() const {
+        return attribute_storage_->GetCompressionStats();
     }
 
-    OGRFormatConverter::ConversionStats OGRFormatConverter::getConversionStats() const {
+    OGRFormatConverter::ConversionStats OGRFormatConverter::GetConversionStats() const {
         return stats_;
     }
 
-    bool OGRFormatConverter::convertToOGR(const std::string& output_path, const std::string& output_format) {
+    bool OGRFormatConverter::ConvertToOGR(const std::string& output_path, const std::string& output_format) {
         std::cout << "开始逆向转换到OGR格式: " << output_format << std::endl;
         std::cout << "输出路径: " << output_path << std::endl;
 
         try {
             // 加载自定义格式数据（如果尚未加载）
             if (loaded_geometries_.empty() || loaded_attributes_.empty() || metadata_.empty()) {
-                if (!loadCustomFormatData()) {
+                if (!LoadCustomFormatData()) {
                     std::cerr << "加载自定义格式数据失败" << std::endl;
                     return false;
                 }
@@ -451,7 +451,7 @@ namespace GisStorage {
             if (!feature_ids_.empty()) {
                 auto geom_it = loaded_geometries_.find(feature_ids_[0]);
                 if (geom_it != loaded_geometries_.end()) {
-                    switch (geom_it->second->getGeometryType()) {
+                    switch (geom_it->second->GetGeometryType()) {
                         case GeometryType::POINT:
                             geom_type = wkbPoint;
                             break;
@@ -520,7 +520,7 @@ namespace GisStorage {
                     continue;
                 }
 
-                OGRFeature* feature = createOGRFeature(*geom_it->second, *attr_it->second, feature_defn, output_format);
+                OGRFeature* feature = CreateOGRFeature(*geom_it->second, *attr_it->second, feature_defn, output_format);
                 if (feature) {
                     OGRErr err = layer->CreateFeature(feature);
                     if (err == OGRERR_NONE) {
@@ -538,7 +538,7 @@ namespace GisStorage {
 
             // 对于Shapefile格式，生成CPG文件以指定字符编码
             if (output_format == "ESRI Shapefile") {
-                createCPGFile(output_path);
+                CreateCPGFile(output_path);
             }
 
             // 清理
@@ -554,22 +554,22 @@ namespace GisStorage {
         }
     }
 
-    void OGRFormatConverter::clearLoadedData() {
+    void OGRFormatConverter::ClearLoadedData() {
         loaded_geometries_.clear();
         loaded_attributes_.clear();
         feature_ids_.clear();
         metadata_.clear();
 
         // 重新初始化存储对象，确保从干净状态开始
-        initializeStorageFiles();
+        InitializeStorageFiles();
     }
 
-    bool OGRFormatConverter::convertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats) {
+    bool OGRFormatConverter::ConvertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats) {
         std::cout << "开始批量逆向转换到多种格式" << std::endl;
 
         // 确保数据已加载
         if (loaded_geometries_.empty() || loaded_attributes_.empty() || metadata_.empty()) {
-            if (!loadCustomFormatData()) {
+            if (!LoadCustomFormatData()) {
                 std::cerr << "加载自定义格式数据失败" << std::endl;
                 return false;
             }
@@ -595,7 +595,7 @@ namespace GisStorage {
             std::cout << "转换到格式: " << format << " -> " << output_path << std::endl;
 
             // 直接使用当前实例进行转换，避免重复创建转换器
-            if (!convertToOGR(output_path, format)) {
+            if (!ConvertToOGR(output_path, format)) {
                 std::cerr << "转换到 " << format << " 失败" << std::endl;
                 all_success = false;
             }
@@ -604,25 +604,25 @@ namespace GisStorage {
         return all_success;
     }
 
-    BBox OGRFormatConverter::calculateBBox(const std::vector<Coordinate>& coordinates) {
-        return GeometrySerializer::calculateBBox(coordinates);
+    BBox OGRFormatConverter::CalculateBBox(const std::vector<Coordinate>& coordinates) {
+        return GeometrySerializer::CalculateBBox(coordinates);
     }
 
-    std::vector<uint8_t> OGRFormatConverter::encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
-        return GeometrySerializer::encodeCoordinatesDelta(coordinates);
+    std::vector<uint8_t> OGRFormatConverter::EncodeCoordinatesDelta(const std::vector<Coordinate>& coordinates) {
+        return GeometrySerializer::EncodeCoordinatesDelta(coordinates);
     }
 
-    std::vector<Coordinate> OGRFormatConverter::extractGeometryCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::ExtractGeometryCoordinates(OGRGeometry* geometry) {
         if (!geometry) {
             return {};
         }
 
         std::vector<Coordinate> coordinates;
-        extractCoordinatesRecursive(geometry, coordinates);
+        ExtractCoordinatesRecursive(geometry, coordinates);
         return coordinates;
     }
 
-    std::vector<Coordinate> OGRFormatConverter::extractPointCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::ExtractPointCoordinates(OGRGeometry* geometry) {
         if (!geometry || geometry->getGeometryType() != wkbPoint) {
             return {};
         }
@@ -631,7 +631,7 @@ namespace GisStorage {
         return {{point->getX(), point->getY()}};
     }
 
-    std::vector<Coordinate> OGRFormatConverter::extractLineCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::ExtractLineCoordinates(OGRGeometry* geometry) {
         if (!geometry || geometry->getGeometryType() != wkbLineString) {
             return {};
         }
@@ -647,7 +647,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    std::vector<Coordinate> OGRFormatConverter::extractPolygonCoordinates(OGRGeometry* geometry) {
+    std::vector<Coordinate> OGRFormatConverter::ExtractPolygonCoordinates(OGRGeometry* geometry) {
         if (!geometry || geometry->getGeometryType() != wkbPolygon) {
             return {};
         }
@@ -669,7 +669,7 @@ namespace GisStorage {
         return coordinates;
     }
 
-    void OGRFormatConverter::extractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates) {
+    void OGRFormatConverter::ExtractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates) {
         if (!geometry) {
             return;
         }
@@ -679,19 +679,19 @@ namespace GisStorage {
         switch (geom_type) {
             case wkbPoint:
             case wkbPoint25D: {
-                auto point_coords = extractPointCoordinates(geometry);
+                auto point_coords = ExtractPointCoordinates(geometry);
                 coordinates.insert(coordinates.end(), point_coords.begin(), point_coords.end());
                 break;
             }
             case wkbLineString:
             case wkbLineString25D: {
-                auto line_coords = extractLineCoordinates(geometry);
+                auto line_coords = ExtractLineCoordinates(geometry);
                 coordinates.insert(coordinates.end(), line_coords.begin(), line_coords.end());
                 break;
             }
             case wkbPolygon:
             case wkbPolygon25D: {
-                auto polygon_coords = extractPolygonCoordinates(geometry);
+                auto polygon_coords = ExtractPolygonCoordinates(geometry);
                 coordinates.insert(coordinates.end(), polygon_coords.begin(), polygon_coords.end());
                 break;
             }
@@ -703,7 +703,7 @@ namespace GisStorage {
             case wkbMultiPolygon25D: {
                 OGRGeometryCollection* collection = static_cast<OGRGeometryCollection*>(geometry);
                 for (int i = 0; i < collection->getNumGeometries(); ++i) {
-                    extractCoordinatesRecursive(collection->getGeometryRef(i), coordinates);
+                    ExtractCoordinatesRecursive(collection->getGeometryRef(i), coordinates);
                 }
                 break;
             }
@@ -712,7 +712,7 @@ namespace GisStorage {
         }
     }
 
-    void OGRFormatConverter::saveIndexData(const nlohmann::json& index_data) {
+    void OGRFormatConverter::SaveIndexData(const nlohmann::json& index_data) {
         std::ofstream file(index_file_);
         if (file.is_open()) {
             file << index_data.dump(4);
@@ -723,17 +723,17 @@ namespace GisStorage {
         }
     }
 
-    void OGRFormatConverter::saveStringPool() {
-        attribute_storage_->saveStringPool();
+    void OGRFormatConverter::SaveStringPool() {
+        attribute_storage_->SaveStringPool();
     }
 
-    void OGRFormatConverter::updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size) {
+    void OGRFormatConverter::UpdateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size) {
         stats_.geometry_size += geom_size;
         stats_.attribute_original_size += attr_original_size;
         stats_.attribute_compressed_size += attr_compressed_size;
     }
 
-    void OGRFormatConverter::saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs) {
+    void OGRFormatConverter::SaveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs) {
         // 创建元数据文件路径
         std::string metadata_file = output_dir_ + "/" + ogr_file_name_ + "_meta.json";
 
@@ -791,7 +791,7 @@ namespace GisStorage {
         metadata["creation_date"] = ss.str();
 
         // 添加压缩信息
-        auto compression_stats = attribute_storage_->getCompressionStats();
+        auto compression_stats = attribute_storage_->GetCompressionStats();
         nlohmann::json compression_info;
         compression_info["compression_ratio"] = compression_stats.compression_ratio;
         compression_info["original_size"] = compression_stats.original_size;
@@ -825,7 +825,7 @@ namespace GisStorage {
         }
     }
 
-    bool OGRFormatConverter::loadCustomFormatData() {
+    bool OGRFormatConverter::LoadCustomFormatData() {
         std::cout << "加载自定义格式数据..." << std::endl;
 
         try {
@@ -835,7 +835,7 @@ namespace GisStorage {
             feature_ids_.clear();
 
             // 加载元数据
-            metadata_ = loadMetadata();
+            metadata_ = LoadMetadata();
             if (metadata_.empty()) {
                 std::cerr << "无法加载元数据" << std::endl;
                 return false;
@@ -865,12 +865,12 @@ namespace GisStorage {
 
             // 批量加载几何和属性数据
             for (uint64_t fid : feature_ids_) {
-                auto geometry = geometry_storage_->readGeometry(fid);
+                auto geometry = geometry_storage_->ReadGeometry(fid);
                 if (geometry) {
                     loaded_geometries_[fid] = std::move(geometry);
                 }
 
-                auto attribute = attribute_storage_->readAttribute(fid);
+                auto attribute = attribute_storage_->ReadAttribute(fid);
                 if (attribute) {
                     loaded_attributes_[fid] = std::move(attribute);
                 }
@@ -887,25 +887,25 @@ namespace GisStorage {
         }
     }
 
-    OGRGeometry* OGRFormatConverter::createOGRGeometry(const GeometryData& geom_data) {
+    OGRGeometry* OGRFormatConverter::CreateOGRGeometry(const GeometryData& geom_data) {
         try {
             // 解码坐标数据
-            std::vector<Coordinate> coordinates = geom_data.decodeCoordinates();
+            std::vector<Coordinate> coordinates = geom_data.DecodeCoordinates();
             if (coordinates.empty()) {
-                std::cerr << "警告: 几何数据解码后为空，数据大小: " << geom_data.getCoordinates().size() << std::endl;
+                std::cerr << "警告: 几何数据解码后为空，数据大小: " << geom_data.GetCoordinates().size() << std::endl;
                 return nullptr;
             }
 
             // 调试信息
             if (coordinates.size() == 1) {
-                std::cout << "解码得到单点: (" << coordinates[0].x << ", " << coordinates[0].y << ")，几何类型: " << static_cast<int>(geom_data.getGeometryType()) << std::endl;
+                std::cout << "解码得到单点: (" << coordinates[0].x << ", " << coordinates[0].y << ")，几何类型: " << static_cast<int>(geom_data.GetGeometryType()) << std::endl;
             } else {
-                std::cout << "解码得到 " << coordinates.size() << " 个坐标点，几何类型: " << static_cast<int>(geom_data.getGeometryType()) << std::endl;
+                std::cout << "解码得到 " << coordinates.size() << " 个坐标点，几何类型: " << static_cast<int>(geom_data.GetGeometryType()) << std::endl;
             }
 
             OGRGeometry* geometry = nullptr;
 
-            switch (geom_data.getGeometryType()) {
+            switch (geom_data.GetGeometryType()) {
                 case GeometryType::POINT: {
                     if (coordinates.size() >= 1) {
                         geometry = new OGRPoint(coordinates[0].x, coordinates[0].y);
@@ -1019,7 +1019,7 @@ namespace GisStorage {
         }
     }
 
-    OGRFeature* OGRFormatConverter::createOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format) {
+    OGRFeature* OGRFormatConverter::CreateOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format) {
         try {
             OGRFeature* feature = OGRFeature::CreateFeature(feature_defn);
             if (!feature) {
@@ -1027,7 +1027,7 @@ namespace GisStorage {
             }
 
             // 设置FID - 确保FID是32位正整数且从1开始
-            uint64_t fid = geom_data.getFeatureId();
+            uint64_t fid = geom_data.GetFeatureId();
 
             // 对于所有格式，确保FID不为0且为正整数
             if (fid == 0) {
@@ -1052,13 +1052,13 @@ namespace GisStorage {
             feature->SetFID(static_cast<long>(fid));
 
             // 设置几何
-            OGRGeometry* geometry = createOGRGeometry(geom_data);
+            OGRGeometry* geometry = CreateOGRGeometry(geom_data);
             if (geometry) {
                 feature->SetGeometryDirectly(geometry);
             }
 
             // 设置属性
-            const auto& properties = attr_data.getProperties();
+            const auto& properties = attr_data.GetProperties();
             for (const auto& [field_name, field_value] : properties) {
                 int field_index = feature_defn->GetFieldIndex(field_name.c_str());
                 if (field_index >= 0) {
@@ -1102,12 +1102,12 @@ namespace GisStorage {
         }
     }
 
-    std::string OGRFormatConverter::getMetadataFilePath() const {
+    std::string OGRFormatConverter::GetMetadataFilePath() const {
         return output_dir_ + "/" + ogr_file_name_ + "_meta.json";
     }
 
-    nlohmann::json OGRFormatConverter::loadMetadata() {
-        std::string metadata_file = getMetadataFilePath();
+    nlohmann::json OGRFormatConverter::LoadMetadata() {
+        std::string metadata_file = GetMetadataFilePath();
         std::ifstream file(metadata_file);
 
         if (!file.is_open()) {
@@ -1127,7 +1127,7 @@ namespace GisStorage {
         }
     }
 
-    void OGRFormatConverter::createCPGFile(const std::string& shapefile_path) {
+    void OGRFormatConverter::CreateCPGFile(const std::string& shapefile_path) {
         try {
             // 从shapefile路径生成CPG文件路径
             std::filesystem::path path(shapefile_path);

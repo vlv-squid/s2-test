@@ -21,38 +21,38 @@ namespace GisStorage {
         explicit AttributeStorage(const std::string& attribute_file, const std::string& string_pool_file);
 
         // 写入属性数据
-        int64_t writeAttribute(const AttributeData& attribute);
+        int64_t WriteAttribute(const AttributeData& attribute);
 
         // 读取属性数据
-        std::unique_ptr<AttributeData> readAttribute(uint64_t feature_id);
+        std::unique_ptr<AttributeData> ReadAttribute(uint64_t feature_id);
 
         // 获取所有要素ID
-        std::vector<uint64_t> getAllFeatureIds();
+        std::vector<uint64_t> GetAllFeatureIds();
 
         // 检查要素是否存在
-        bool hasFeature(uint64_t feature_id);
+        bool HasFeature(uint64_t feature_id);
 
         // 清除缓存
-        void clearCache();
+        void ClearCache();
 
         // 获取文件路径
-        std::string getAttributeFilePath() const { return attribute_file_; }
-        std::string getStringPoolFilePath() const { return string_pool_file_; }
+        std::string GetAttributeFilePath() const { return attribute_file_; }
+        std::string GetStringPoolFilePath() const { return string_pool_file_; }
 
         // 从索引文件加载索引
-        void loadIndexFromFile(const std::string& index_file);
+        void LoadIndexFromFile(const std::string& index_file);
 
         // 保存索引到二进制文件
-        void saveIndexToFile(const std::string& index_file);
+        void SaveIndexToFile(const std::string& index_file);
 
         // 保存字符串池到文件
-        void saveStringPool();
+        void SaveStringPool();
 
         // 加载字符串池从文件
-        void loadStringPool();
+        void LoadStringPool();
 
         // 获取压缩统计信息
-        AttributeSerializer::CompressionStats getCompressionStats() const;
+        AttributeSerializer::CompressionStats GetCompressionStats() const;
 
         // 获取存储统计信息
         struct StorageStats {
@@ -63,7 +63,7 @@ namespace GisStorage {
             size_t string_pool_size;
             size_t string_pool_saved_bytes;
         };
-        StorageStats getStorageStats() const;
+        StorageStats GetStorageStats() const;
 
       private:
         std::string attribute_file_;
@@ -74,10 +74,10 @@ namespace GisStorage {
         AttributeSerializer serializer_;
 
         // 构建偏移索引
-        void buildOffsetIndex();
+        void BuildOffsetIndex();
 
         // 获取偏移索引
-        const std::unordered_map<uint64_t, int64_t>& getOffsetIndex();
+        const std::unordered_map<uint64_t, int64_t>& GetOffsetIndex();
     };
 
 } // namespace GisStorage

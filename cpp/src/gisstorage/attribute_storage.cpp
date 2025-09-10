@@ -28,11 +28,11 @@ namespace GisStorage {
 
         // 尝试加载字符串池
         if (std::filesystem::exists(string_pool_file_)) {
-            loadStringPool();
+            LoadStringPool();
         }
     }
 
-    int64_t AttributeStorage::writeAttribute(const AttributeData& attribute) {
+    int64_t AttributeStorage::WriteAttribute(const AttributeData& attribute) {
         // 使用追加模式
         std::ofstream file(attribute_file_, std::ios::binary | std::ios::app);
         if (!file) {
@@ -40,7 +40,7 @@ namespace GisStorage {
         }
 
         int64_t offset = file.tellp();
-        std::vector<uint8_t> attr_binary = serializer_.serializeAttributes(attribute);
+        std::vector<uint8_t> attr_binary = serializer_.SerializeAttributes(attribute);
 
         if (!attr_binary.empty()) {
             file.write(reinterpret_cast<const char*>(attr_binary.data()), attr_binary.size());
@@ -50,12 +50,12 @@ namespace GisStorage {
             index_built_ = false;
             return offset;
         } else {
-            throw std::runtime_error("属性数据序列化失败 for FID " + std::to_string(attribute.getFeatureId()));
+            throw std::runtime_error("属性数据序列化失败 for FID " + std::to_string(attribute.GetFeatureId()));
         }
     }
 
-    std::unique_ptr<AttributeData> AttributeStorage::readAttribute(uint64_t feature_id) {
-        const auto& offsets = getOffsetIndex();
+    std::unique_ptr<AttributeData> AttributeStorage::ReadAttribute(uint64_t feature_id) {
+        const auto& offsets = GetOffsetIndex();
         auto it = offsets.find(feature_id);
         if (it == offsets.end()) {
             throw std::runtime_error("Feature ID " + std::to_string(feature_id) + " not found");
@@ -92,11 +92,11 @@ namespace GisStorage {
             throw std::runtime_error("属性数据不完整 for FID " + std::to_string(feature_id));
         }
 
-        return serializer_.deserializeAttributes(data);
+        return serializer_.DeserializeAttributes(data);
     }
 
-    std::vector<uint64_t> AttributeStorage::getAllFeatureIds() {
-        const auto& offsets = getOffsetIndex();
+    std::vector<uint64_t> AttributeStorage::GetAllFeatureIds() {
+        const auto& offsets = GetOffsetIndex();
         std::vector<uint64_t> feature_ids;
         feature_ids.reserve(offsets.size());
         for (const auto& pair : offsets) {
@@ -105,17 +105,17 @@ namespace GisStorage {
         return feature_ids;
     }
 
-    bool AttributeStorage::hasFeature(uint64_t feature_id) {
-        const auto& offsets = getOffsetIndex();
+    bool AttributeStorage::HasFeature(uint64_t feature_id) {
+        const auto& offsets = GetOffsetIndex();
         return offsets.find(feature_id) != offsets.end();
     }
 
-    void AttributeStorage::clearCache() {
+    void AttributeStorage::ClearCache() {
         offset_index_.clear();
         index_built_ = false;
     }
 
-    void AttributeStorage::loadIndexFromFile(const std::string& index_file) {
+    void AttributeStorage::LoadIndexFromFile(const std::string& index_file) {
         if (!std::filesystem::exists(index_file)) {
             std::cout << "索引文件不存在: " << index_file << std::endl;
             return;
@@ -220,8 +220,8 @@ namespace GisStorage {
         }
     }
 
-    void AttributeStorage::saveIndexToFile(const std::string& index_file) {
-        const auto& offsets = getOffsetIndex();
+    void AttributeStorage::SaveIndexToFile(const std::string& index_file) {
+        const auto& offsets = GetOffsetIndex();
         if (offsets.empty()) {
             std::cout << "没有索引数据需要保存" << std::endl;
             return;
@@ -264,8 +264,8 @@ namespace GisStorage {
         }
     }
 
-    void AttributeStorage::saveStringPool() {
-        std::vector<uint8_t> pool_data = serializer_.serializeStringPool();
+    void AttributeStorage::SaveStringPool() {
+        std::vector<uint8_t> pool_data = serializer_.SerializeStringPool();
 
         std::ofstream file(string_pool_file_, std::ios::binary);
         if (file.is_open()) {
@@ -277,7 +277,7 @@ namespace GisStorage {
         }
     }
 
-    void AttributeStorage::loadStringPool() {
+    void AttributeStorage::LoadStringPool() {
         if (!std::filesystem::exists(string_pool_file_)) {
             std::cout << "字符串池文件不存在: " << string_pool_file_ << std::endl;
             return;
@@ -299,31 +299,31 @@ namespace GisStorage {
         file.close();
 
         // 反序列化字符串池
-        serializer_.deserializeStringPool(pool_data);
+        serializer_.DeserializeStringPool(pool_data);
 
-        auto stats = serializer_.getCompressionStats();
+        auto stats = serializer_.GetCompressionStats();
         std::cout << "字符串池已加载: " << stats.unique_strings << " 个唯一字符串" << std::endl;
     }
 
-    AttributeSerializer::CompressionStats AttributeStorage::getCompressionStats() const {
-        return serializer_.getCompressionStats();
+    AttributeSerializer::CompressionStats AttributeStorage::GetCompressionStats() const {
+        return serializer_.GetCompressionStats();
     }
 
-    AttributeStorage::StorageStats AttributeStorage::getStorageStats() const {
+    AttributeStorage::StorageStats AttributeStorage::GetStorageStats() const {
         StorageStats stats;
-        auto compression_stats = serializer_.getCompressionStats();
+        auto compression_stats = serializer_.GetCompressionStats();
 
         stats.total_features = offset_index_.size();
         stats.total_original_size = compression_stats.original_size;
         stats.total_compressed_size = compression_stats.compressed_size;
         stats.compression_ratio = compression_stats.compression_ratio;
-        stats.string_pool_size = serializer_.getPoolSize();
+        stats.string_pool_size = serializer_.GetPoolSize();
         stats.string_pool_saved_bytes = compression_stats.original_size - compression_stats.compressed_size;
 
         return stats;
     }
 
-    void AttributeStorage::buildOffsetIndex() {
+    void AttributeStorage::BuildOffsetIndex() {
         if (index_built_) {
             return;
         }
@@ -364,9 +364,9 @@ namespace GisStorage {
         std::cout << "构建了 " << offset_index_.size() << " 个属性索引条目" << std::endl;
     }
 
-    const std::unordered_map<uint64_t, int64_t>& AttributeStorage::getOffsetIndex() {
+    const std::unordered_map<uint64_t, int64_t>& AttributeStorage::GetOffsetIndex() {
         if (!index_built_) {
-            buildOffsetIndex();
+            BuildOffsetIndex();
         }
         return offset_index_;
     }

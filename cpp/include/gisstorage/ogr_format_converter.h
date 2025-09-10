@@ -24,23 +24,23 @@ namespace GisStorage {
         OGRFormatConverter(const std::string& ogr_file_path, const std::string& output_dir);
 
         // 转换OGR格式到优化格式
-        std::vector<uint64_t> convert();
+        std::vector<uint64_t> Convert();
 
         // 获取转换后的文件路径
-        std::string getGeometryFilePath() const;
-        std::string getAttributeFilePath() const;
-        std::string getIndexFilePath() const;
-        std::string getStringPoolFilePath() const;
-        std::string getMetadataFilePath() const;
+        std::string GetGeometryFilePath() const;
+        std::string GetAttributeFilePath() const;
+        std::string GetIndexFilePath() const;
+        std::string GetStringPoolFilePath() const;
+        std::string GetMetadataFilePath() const;
 
         // 获取压缩统计信息
-        AttributeSerializer::CompressionStats getCompressionStats() const;
+        AttributeSerializer::CompressionStats GetCompressionStats() const;
 
         // 逆向转换：将自定义格式转换回OGR格式
-        bool convertToOGR(const std::string& output_path, const std::string& output_format = "ESRI Shapefile");
+        bool ConvertToOGR(const std::string& output_path, const std::string& output_format = "ESRI Shapefile");
 
         // 批量逆向转换：支持多种输出格式
-        bool convertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats);
+        bool ConvertToMultipleFormats(const std::string& output_dir, const std::vector<std::string>& formats);
 
         // 获取存储统计信息
         struct ConversionStats {
@@ -54,7 +54,7 @@ namespace GisStorage {
             size_t string_pool_saved_bytes;
             double conversion_time_seconds;
         };
-        ConversionStats getConversionStats() const;
+        ConversionStats GetConversionStats() const;
 
       private:
         std::string ogr_file_path_;
@@ -71,50 +71,50 @@ namespace GisStorage {
         BBox dataset_spatial_extent_;
 
         // 计算边界框
-        BBox calculateBBox(const std::vector<Coordinate>& coordinates);
+        BBox CalculateBBox(const std::vector<Coordinate>& coordinates);
 
         // 差分编码压缩坐标
-        std::vector<uint8_t> encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates);
+        std::vector<uint8_t> EncodeCoordinatesDelta(const std::vector<Coordinate>& coordinates);
 
         // 优化的差分编码
 
         // 提取几何坐标
-        std::vector<Coordinate> extractGeometryCoordinates(OGRGeometry* geometry);
+        std::vector<Coordinate> ExtractGeometryCoordinates(OGRGeometry* geometry);
 
         // 提取点坐标
-        std::vector<Coordinate> extractPointCoordinates(OGRGeometry* geometry);
+        std::vector<Coordinate> ExtractPointCoordinates(OGRGeometry* geometry);
 
         // 提取线坐标
-        std::vector<Coordinate> extractLineCoordinates(OGRGeometry* geometry);
+        std::vector<Coordinate> ExtractLineCoordinates(OGRGeometry* geometry);
 
         // 提取面坐标
-        std::vector<Coordinate> extractPolygonCoordinates(OGRGeometry* geometry);
+        std::vector<Coordinate> ExtractPolygonCoordinates(OGRGeometry* geometry);
 
         // 递归提取坐标
-        void extractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates);
+        void ExtractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates);
 
         // 初始化存储文件
-        void initializeStorageFiles();
+        void InitializeStorageFiles();
 
         // 保存索引数据
-        void saveIndexData(const nlohmann::json& index_data);
+        void SaveIndexData(const nlohmann::json& index_data);
 
         // 保存字符串池
-        void saveStringPool();
+        void SaveStringPool();
 
         // 保存元数据（包括字段定义、空间范围和坐标系统信息）
-        void saveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs);
+        void SaveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs);
 
         // 更新统计信息
-        void updateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size);
+        void UpdateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size);
 
         // 逆向转换私有方法
-        bool loadCustomFormatData();
-        void clearLoadedData();
-        OGRGeometry* createOGRGeometry(const GeometryData& geom_data);
-        OGRFeature* createOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format);
-        nlohmann::json loadMetadata();
-        void createCPGFile(const std::string& shapefile_path);
+        bool LoadCustomFormatData();
+        void ClearLoadedData();
+        OGRGeometry* CreateOGRGeometry(const GeometryData& geom_data);
+        OGRFeature* CreateOGRFeature(const GeometryData& geom_data, const AttributeData& attr_data, OGRFeatureDefn* feature_defn, const std::string& output_format);
+        nlohmann::json LoadMetadata();
+        void CreateCPGFile(const std::string& shapefile_path);
 
         // 存储加载的数据
         std::map<uint64_t, std::unique_ptr<GeometryData>> loaded_geometries_;

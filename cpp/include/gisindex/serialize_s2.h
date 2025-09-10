@@ -20,27 +20,27 @@ namespace helper {
 
     // 模板化的序列化接口
     template<typename MapType>
-    bool saveS2IndexToFile(const std::string& filepath, const MapType& s2IndexMap);
+    bool SaveS2IndexToFile(const std::string& filepath, const MapType& s2IndexMap);
 
     template<typename MapType>
-    bool loadS2IndexFromFile(const std::string& filepath, MapType& s2IndexMap);
+    bool LoadS2IndexFromFile(const std::string& filepath, MapType& s2IndexMap);
 
     // 特化版本：支持std::unordered_map
     template<>
-    bool saveS2IndexToFile(const std::string& filepath, const std::unordered_map<int64_t, std::vector<int>>& s2IndexMap);
+    bool SaveS2IndexToFile(const std::string& filepath, const std::unordered_map<int64_t, std::vector<int>>& s2IndexMap);
 
     template<>
-    bool loadS2IndexFromFile(const std::string& filepath, std::unordered_map<int64_t, std::vector<int>>& s2IndexMap);
+    bool LoadS2IndexFromFile(const std::string& filepath, std::unordered_map<int64_t, std::vector<int>>& s2IndexMap);
 
     // 特化版本：支持absl::flat_hash_map + absl::InlinedVector
     // 注意：这里需要包含absl头文件，但为了避免循环依赖，我们在实现文件中特化
 
     // 通用序列化辅助函数
     template<typename Container>
-    void serializeContainer(std::ofstream& file, const Container& container);
+    void SerializeContainer(std::ofstream& file, const Container& container);
 
     template<typename Container>
-    void deserializeContainer(std::ifstream& file, Container& container);
+    void DeserializeContainer(std::ifstream& file, Container& container);
 
 }; // namespace helper
 

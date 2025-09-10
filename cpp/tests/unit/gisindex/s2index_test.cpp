@@ -37,7 +37,7 @@ class S2IndexTest : public ::testing::Test {
         GDALAllRegister();
 
         // 使用智能索引管理：自动判断是加载还是重新构建
-        s2index->smartLoadOrBuild(gis_dataset_path, 50000);
+        s2index->SmartLoadOrBuild(gis_dataset_path, 50000);
     }
 
     std::string gis_dataset_path;
@@ -49,10 +49,10 @@ class S2IndexTest : public ::testing::Test {
 
 TEST_F(S2IndexTest, S2IndexBuildTest) {
     std::cout << "\n[测试1] S2索引构建测试:" << std::endl;
-    EXPECT_TRUE(s2index->exists()) << "S2索引文件应该存在";
+    EXPECT_TRUE(s2index->Exists()) << "S2索引文件应该存在";
 
     // 验证索引大小
-    size_t index_size = s2index->getIndexSize();
+    size_t index_size = s2index->GetIndexSize();
     std::cout << "索引中的S2单元格数量: " << index_size << std::endl;
     EXPECT_GT(index_size, 0) << "索引应该包含单元格";
 }
@@ -64,7 +64,7 @@ TEST_F(S2IndexTest, S2IndexQueryTest) {
     S2LatLngRect smallQueryRect(S2LatLng::FromDegrees(26.45, 103.26), S2LatLng::FromDegrees(26.46, 103.27));
 
     auto start = std::chrono::high_resolution_clock::now();
-    auto smallResults = s2index->query(smallQueryRect, s2level);
+    auto smallResults = s2index->Query(smallQueryRect, s2level);
     auto end = std::chrono::high_resolution_clock::now();
 
     auto smallTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -75,7 +75,7 @@ TEST_F(S2IndexTest, S2IndexQueryTest) {
     S2LatLngRect mediumQueryRect(S2LatLng::FromDegrees(26.4297, 103.2504), S2LatLng::FromDegrees(26.4747, 103.3028));
 
     start = std::chrono::high_resolution_clock::now();
-    auto mediumResults = s2index->query(mediumQueryRect, s2level);
+    auto mediumResults = s2index->Query(mediumQueryRect, s2level);
     end = std::chrono::high_resolution_clock::now();
 
     auto mediumTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -86,7 +86,7 @@ TEST_F(S2IndexTest, S2IndexQueryTest) {
     S2LatLngRect largeQueryRect(S2LatLng::FromDegrees(26.40, 103.20), S2LatLng::FromDegrees(26.50, 103.35));
 
     start = std::chrono::high_resolution_clock::now();
-    auto largeResults = s2index->query(largeQueryRect, s2level);
+    auto largeResults = s2index->Query(largeQueryRect, s2level);
     end = std::chrono::high_resolution_clock::now();
 
     auto largeTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -117,11 +117,11 @@ TEST_F(S2IndexTest, S2IndexLoadTest) {
 
     // 创建新的索引实例来测试加载
     S2SpatialIndex newIndex(index_file_path, s2level);
-    newIndex.load();
+    newIndex.Load();
 
     // 验证加载后的索引大小
-    size_t loadedIndexSize = newIndex.getIndexSize();
-    size_t originalIndexSize = s2index->getIndexSize();
+    size_t loadedIndexSize = newIndex.GetIndexSize();
+    size_t originalIndexSize = s2index->GetIndexSize();
 
     std::cout << "原始索引要素数量: " << originalIndexSize << std::endl;
     std::cout << "加载后索引要素数量: " << loadedIndexSize << std::endl;
@@ -131,7 +131,7 @@ TEST_F(S2IndexTest, S2IndexLoadTest) {
     // 测试加载后的查询功能
     S2LatLngRect testQueryRect(S2LatLng::FromDegrees(26.45, 103.26), S2LatLng::FromDegrees(26.46, 103.27));
 
-    auto results = newIndex.query(testQueryRect, s2level);
+    auto results = newIndex.Query(testQueryRect, s2level);
     std::cout << "加载后查询结果: " << results.size() << " 个要素" << std::endl;
 
     EXPECT_GE(results.size(), 0) << "加载后查询结果应该非负";
@@ -169,7 +169,7 @@ TEST_F(S2IndexTest, GDALComparisonTest) {
 
     // S2索引查询
     start = std::chrono::high_resolution_clock::now();
-    auto s2Results = s2index->query(queryRect, s2level);
+    auto s2Results = s2index->Query(queryRect, s2level);
     end = std::chrono::high_resolution_clock::now();
 
     auto s2Time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -205,14 +205,14 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
 
     // 创建新的索引实例进行单线程构建
     S2SpatialIndex singleThreadIndex("./test_output/single_thread_test.idx", s2level);
-    bool single_success = singleThreadIndex.buildFromDataset(gis_dataset_path, 50000);
+    bool single_success = singleThreadIndex.BuildFromDataset(gis_dataset_path, 50000);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto singleThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
     if (single_success) {
         std::cout << "单线程构建成功，耗时: " << singleThreadTime << "ms" << std::endl;
-        std::cout << "单线程索引 - S2单元格数量: " << singleThreadIndex.getIndexSize() << ", 总要素数量: " << singleThreadIndex.getTotalFeatureCount() << std::endl;
+        std::cout << "单线程索引 - S2单元格数量: " << singleThreadIndex.GetIndexSize() << ", 总要素数量: " << singleThreadIndex.GetTotalFeatureCount() << std::endl;
     } else {
         std::cout << "单线程构建失败" << std::endl;
         return;
@@ -224,14 +224,14 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
 
     // 创建新的索引实例进行多线程构建
     S2SpatialIndex multiThreadIndex("./test_output/multi_thread_test.idx", s2level);
-    bool multi_success = multiThreadIndex.buildFromDatasetMultiThreaded(gis_dataset_path, 50000, 8);
+    bool multi_success = multiThreadIndex.BuildFromDatasetMultiThreaded(gis_dataset_path, 50000, 8);
 
     end = std::chrono::high_resolution_clock::now();
     auto multiThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
     if (multi_success) {
         std::cout << "多线程构建成功，耗时: " << multiThreadTime << "ms" << std::endl;
-        std::cout << "多线程索引 - S2单元格数量: " << multiThreadIndex.getIndexSize() << ", 总要素数量: " << multiThreadIndex.getTotalFeatureCount() << std::endl;
+        std::cout << "多线程索引 - S2单元格数量: " << multiThreadIndex.GetIndexSize() << ", 总要素数量: " << multiThreadIndex.GetTotalFeatureCount() << std::endl;
 
         // 性能对比
         if (singleThreadTime > 0 && multiThreadTime > 0) {
@@ -246,8 +246,8 @@ TEST_F(S2IndexTest, MultiThreadedBuildTest) {
         }
 
         // 验证索引完整性
-        EXPECT_EQ(singleThreadIndex.getIndexSize(), multiThreadIndex.getIndexSize()) << "单线程和多线程构建的索引S2单元格数量应该一致";
-        EXPECT_EQ(singleThreadIndex.getTotalFeatureCount(), multiThreadIndex.getTotalFeatureCount()) << "单线程和多线程构建的索引总要素数量应该一致";
+        EXPECT_EQ(singleThreadIndex.GetIndexSize(), multiThreadIndex.GetIndexSize()) << "单线程和多线程构建的索引S2单元格数量应该一致";
+        EXPECT_EQ(singleThreadIndex.GetTotalFeatureCount(), multiThreadIndex.GetTotalFeatureCount()) << "单线程和多线程构建的索引总要素数量应该一致";
     } else {
         std::cout << "多线程构建失败" << std::endl;
     }
@@ -261,7 +261,7 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     auto start = std::chrono::high_resolution_clock::now();
 
     S2SpatialIndex singleThreadIndex("./test_output/single_thread_comprehensive.idx", s2level);
-    bool single_success = singleThreadIndex.buildFromDataset(gis_dataset_path, 200000);
+    bool single_success = singleThreadIndex.BuildFromDataset(gis_dataset_path, 200000);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto singleThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -276,7 +276,7 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     start = std::chrono::high_resolution_clock::now();
 
     S2SpatialIndex multiThreadIndex("./test_output/multi_thread_comprehensive.idx", s2level);
-    bool multi_success = multiThreadIndex.buildFromDatasetMultiThreaded(gis_dataset_path, 200000, 16);
+    bool multi_success = multiThreadIndex.BuildFromDatasetMultiThreaded(gis_dataset_path, 200000, 16);
 
     end = std::chrono::high_resolution_clock::now();
     auto multiThreadTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -298,11 +298,11 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
     }
 
     // 验证索引完整性
-    size_t single_cells = singleThreadIndex.getIndexSize();
-    size_t multi_cells = multiThreadIndex.getIndexSize();
+    size_t single_cells = singleThreadIndex.GetIndexSize();
+    size_t multi_cells = multiThreadIndex.GetIndexSize();
 
-    size_t single_features = singleThreadIndex.getTotalFeatureCount();
-    size_t multi_features = multiThreadIndex.getTotalFeatureCount();
+    size_t single_features = singleThreadIndex.GetTotalFeatureCount();
+    size_t multi_features = multiThreadIndex.GetTotalFeatureCount();
 
     std::cout << "\n=== 索引完整性验证 ===" << std::endl;
     std::cout << "单线程索引 - S2单元格数量: " << single_cells << ", 总要素数量: " << single_features << std::endl;
@@ -323,13 +323,13 @@ TEST_F(S2IndexTest, MultiThreadedComprehensiveTest) {
 
         // 单线程索引查询
         auto single_start = std::chrono::high_resolution_clock::now();
-        auto single_results = singleThreadIndex.query(query_rect, s2level);
+        auto single_results = singleThreadIndex.Query(query_rect, s2level);
         auto single_end = std::chrono::high_resolution_clock::now();
         auto single_time = std::chrono::duration_cast<std::chrono::microseconds>(single_end - single_start).count();
 
         // 标准多线程索引查询
         auto multi_start = std::chrono::high_resolution_clock::now();
-        auto multi_results = multiThreadIndex.query(query_rect, s2level);
+        auto multi_results = multiThreadIndex.Query(query_rect, s2level);
         auto multi_end = std::chrono::high_resolution_clock::now();
         auto multi_time = std::chrono::duration_cast<std::chrono::microseconds>(multi_end - multi_start).count();
 

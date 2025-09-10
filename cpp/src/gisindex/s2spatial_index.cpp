@@ -26,42 +26,42 @@ namespace S2Main {
 
     S2SpatialIndex::~S2SpatialIndex() = default;
 
-    void S2SpatialIndex::build(const std::vector<std::pair<int64_t, int>>& entries) {
+    void S2SpatialIndex::Build(const std::vector<std::pair<int64_t, int>>& entries) {
         indexMap_.clear();
-        addBatch(entries);
+        AddBatch(entries);
     }
 
-    void S2SpatialIndex::addBatch(const std::vector<std::pair<int64_t, int>>& entries) {
+    void S2SpatialIndex::AddBatch(const std::vector<std::pair<int64_t, int>>& entries) {
         // 使用absl::flat_hash_map的emplace_back优化插入性能
         for (const auto& [cellId, fid] : entries) {
             indexMap_[cellId].push_back(fid);
         }
     }
 
-    void S2SpatialIndex::clear() {
+    void S2SpatialIndex::Clear() {
         indexMap_.clear();
         // 清空缓存但保留容量
         query_result_cache_.clear();
         last_query_size_ = 0;
     }
 
-    void S2SpatialIndex::save() const {
+    void S2SpatialIndex::Save() const {
         // 需要适配序列化函数以支持absl数据结构
         // 这里暂时使用原有的序列化逻辑，实际使用时需要修改
-        if (!helper::saveS2IndexToFile(filePath_, indexMap_)) {
+        if (!helper::SaveS2IndexToFile(filePath_, indexMap_)) {
             std::cerr << "S2 索引保存失败: " << filePath_ << std::endl;
         }
     }
 
-    void S2SpatialIndex::load() {
+    void S2SpatialIndex::Load() {
         // 需要适配反序列化函数以支持absl数据结构
         // 这里暂时使用原有的反序列化逻辑，实际使用时需要修改
-        if (!helper::loadS2IndexFromFile(filePath_, indexMap_)) {
+        if (!helper::LoadS2IndexFromFile(filePath_, indexMap_)) {
             indexMap_.clear();
         }
     }
 
-    std::vector<int> S2SpatialIndex::query(const S2LatLngRect& rect, int level) const {
+    std::vector<int> S2SpatialIndex::Query(const S2LatLngRect& rect, int level) const {
         // 使用预分配的缓存向量，减少动态分配
         if (query_result_cache_.capacity() < last_query_size_ * 2) {
             query_result_cache_.reserve(last_query_size_ * 2);
@@ -92,7 +92,7 @@ namespace S2Main {
         return query_result_cache_;
     }
 
-    void S2SpatialIndex::queryBatch(const std::vector<S2LatLngRect>& rects, int level, std::vector<std::vector<int>>& results) const {
+    void S2SpatialIndex::QueryBatch(const std::vector<S2LatLngRect>& rects, int level, std::vector<std::vector<int>>& results) const {
         results.clear();
         results.resize(rects.size());
 
@@ -104,31 +104,31 @@ namespace S2Main {
         // 并行处理多个查询
         tbb::parallel_for(tbb::blocked_range<size_t>(0, rects.size()), [&](const tbb::blocked_range<size_t>& range) {
             for (size_t i = range.begin(); i != range.end(); ++i) {
-                results[i] = query(rects[i], level);
+                results[i] = Query(rects[i], level);
             }
         });
     }
 
-    bool S2SpatialIndex::exists() const {
+    bool S2SpatialIndex::Exists() const {
         return std::filesystem::exists(filePath_);
     }
 
     // 智能索引管理方法实现
-    bool S2SpatialIndex::smartLoadOrBuild(const std::string& dataset_path, int batch_size) {
+    bool S2SpatialIndex::SmartLoadOrBuild(const std::string& dataset_path, int batch_size) {
         // 首先尝试加载现有索引
-        if (exists() && isIndexValid()) {
+        if (Exists() && IsIndexValid()) {
             std::cout << "索引文件有效，直接加载使用" << std::endl;
-            load();
+            Load();
             return true;
         }
 
         // 如果索引无效或不存在，重新构建
         std::cout << "索引文件无效或不存在，开始重新构建..." << std::endl;
-        return buildFromDataset(dataset_path, batch_size);
+        return BuildFromDataset(dataset_path, batch_size);
     }
 
-    bool S2SpatialIndex::isIndexValid() const {
-        if (!exists()) {
+    bool S2SpatialIndex::IsIndexValid() const {
+        if (!Exists()) {
             return false;
         }
 
@@ -142,11 +142,11 @@ namespace S2Main {
         }
     }
 
-    size_t S2SpatialIndex::getIndexSize() const {
+    size_t S2SpatialIndex::GetIndexSize() const {
         return indexMap_.size();
     }
 
-    size_t S2SpatialIndex::getTotalFeatureCount() const {
+    size_t S2SpatialIndex::GetTotalFeatureCount() const {
         size_t total_count = 0;
         // 使用absl::flat_hash_map的迭代器优化
         for (const auto& [cell_id, fids] : indexMap_) {
@@ -155,7 +155,7 @@ namespace S2Main {
         return total_count;
     }
 
-    bool S2SpatialIndex::buildFromDataset(const std::string& dataset_path, int batch_size) {
+    bool S2SpatialIndex::BuildFromDataset(const std::string& dataset_path, int batch_size) {
         GDALAllRegister();
 
         GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
@@ -226,10 +226,10 @@ namespace S2Main {
                 // 将当前批次添加到索引（增量构建）
                 if (processed_count <= batch_size) {
                     // 第一批，清空并构建
-                    build(batch_entries);
+                    Build(batch_entries);
                 } else {
                     // 后续批次，增量添加
-                    addBatch(batch_entries);
+                    AddBatch(batch_entries);
                 }
                 total_entries += batch_entries.size();
 
@@ -249,7 +249,7 @@ namespace S2Main {
         }
 
         // 保存最终索引
-        save();
+        Save();
 
         GDALClose(poDS);
         std::cout << "S2索引构建完成，总处理要素: " << processed_count << ", 总索引条目: " << total_entries << std::endl;
@@ -257,7 +257,7 @@ namespace S2Main {
     }
 
     // 多线程构建S2索引
-    bool S2SpatialIndex::buildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size, int num_threads) {
+    bool S2SpatialIndex::BuildFromDatasetMultiThreaded(const std::string& dataset_path, int batch_size, int num_threads) {
         GDALAllRegister();
 
         GDALDataset* poDS = static_cast<GDALDataset*>(GDALOpenEx(dataset_path.c_str(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr));
@@ -425,7 +425,7 @@ namespace S2Main {
         }
 
         // 保存索引
-        save();
+        Save();
 
         GDALClose(poDS);
         std::cout << "多线程S2索引构建完成，总处理要素: " << valid_fids.size() << ", 总索引条目: " << total_entries << std::endl;
@@ -433,12 +433,12 @@ namespace S2Main {
     }
 
     // 其他方法的实现...
-    bool S2SpatialIndex::isIndexComplete(const std::string& dataset_path) const {
+    bool S2SpatialIndex::IsIndexComplete(const std::string& dataset_path) const {
         // 实现索引完整性验证
         return true; // 简化实现
     }
 
-    int64_t S2SpatialIndex::getDatasetFeatureCount(const std::string& dataset_path) const {
+    int64_t S2SpatialIndex::GetDatasetFeatureCount(const std::string& dataset_path) const {
         // 实现获取数据集要素数量
         return 0; // 简化实现
     }

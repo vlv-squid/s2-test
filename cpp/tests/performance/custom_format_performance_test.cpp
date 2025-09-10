@@ -34,17 +34,17 @@ class CustomFormatPerformanceTest {
         storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(data_dir_);
 
         // 设置数据集名称（轻量级加载，只加载S2索引）
-        storage_system_->setDatasetNameLightweight(dataset_name_);
+        storage_system_->SetDatasetNameLightweight(dataset_name_);
 
         // 加载元数据获取基本信息
-        storage_system_->loadMetadata();
-        const auto& metadata = storage_system_->getMetadata();
+        storage_system_->LoadMetadata();
+        const auto& metadata = storage_system_->GetMetadata();
 
         total_features_ = metadata.total_features;
         data_extent_ = metadata.spatial_extent;
 
         // 如果空间范围无效（所有值都是0），尝试从S2索引获取
-        if ((data_extent_.min_x == 0.0 && data_extent_.min_y == 0.0 && data_extent_.max_x == 0.0 && data_extent_.max_y == 0.0) && storage_system_->isS2IndexValid()) {
+        if ((data_extent_.min_x == 0.0 && data_extent_.min_y == 0.0 && data_extent_.max_x == 0.0 && data_extent_.max_y == 0.0) && storage_system_->IsS2IndexValid()) {
             // 使用一个大的查询范围来获取数据的实际范围
             // 这里我们使用一个合理的默认范围，实际应用中应该从S2索引中获取
             data_extent_ = GisStorage::BBox(97.0, 21.0, 106.0, 30.0); // 云南省的大致范围
@@ -72,7 +72,7 @@ class CustomFormatPerformanceTest {
         // 在轻量级模式下，我们只测试S2索引的空间查询性能
         // 使用整个数据范围进行查询来模拟"读取所有要素"
         const auto& extent = data_extent_;
-        auto result_ids = storage_system_->queryS2Index(extent);
+        auto result_ids = storage_system_->QueryS2Index(extent);
         size_t count = result_ids.size();
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -103,7 +103,7 @@ class CustomFormatPerformanceTest {
 
             GisStorage::BBox query_bbox(center_x - range, center_y - range, center_x + range, center_y + range);
 
-            auto result_ids = storage_system_->queryS2Index(query_bbox);
+            auto result_ids = storage_system_->QueryS2Index(query_bbox);
             total_features_found += result_ids.size();
             // 在轻量级模式下，我们只测试S2索引查询，不实际读取几何数据
         }
@@ -127,7 +127,7 @@ class CustomFormatPerformanceTest {
         size_t total_results = 0;
         for (int i = 0; i < num_queries; ++i) {
             // 使用S2索引进行空间查询
-            auto result_ids = storage_system_->queryS2Index(query_bbox);
+            auto result_ids = storage_system_->QueryS2Index(query_bbox);
             total_results += result_ids.size();
         }
 
@@ -148,7 +148,7 @@ class CustomFormatPerformanceTest {
         auto start_time = std::chrono::high_resolution_clock::now();
 
         // 使用S2索引进行空间查询
-        auto result_ids = storage_system_->queryS2Index(query_bbox);
+        auto result_ids = storage_system_->QueryS2Index(query_bbox);
         size_t count = result_ids.size();
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -195,7 +195,7 @@ class CustomFormatPerformanceTest {
 
             // 执行空间查询
             GisStorage::BBox query_bbox(min_x, min_y, max_x, max_y);
-            auto result_ids = storage_system_->queryS2Index(query_bbox);
+            auto result_ids = storage_system_->QueryS2Index(query_bbox);
             total_results += result_ids.size();
         }
 
@@ -214,7 +214,7 @@ class CustomFormatPerformanceTest {
 
         size_t total_results = 0;
         for (int i = 0; i < num_queries; ++i) {
-            auto result_ids = storage_system_->queryByAttributeEfficient(field_name, value);
+            auto result_ids = storage_system_->QueryByAttributeEfficient(field_name, value);
             total_results += result_ids.size();
         }
 
@@ -233,7 +233,7 @@ class CustomFormatPerformanceTest {
 
         size_t total_results = 0;
         for (int i = 0; i < num_queries; ++i) {
-            auto result_ids = storage_system_->queryByAttributePattern(field_name, pattern);
+            auto result_ids = storage_system_->QueryByAttributePattern(field_name, pattern);
             total_results += result_ids.size();
         }
 
@@ -256,7 +256,7 @@ class CustomFormatPerformanceTest {
         size_t total_results = 0;
         for (int i = 0; i < num_queries; ++i) {
             // 使用高效的复合查询方法
-            auto results = storage_system_->querySpatialAttributeEfficient(query_bbox, field_name, value);
+            auto results = storage_system_->QuerySpatialAttributeEfficient(query_bbox, field_name, value);
             total_results += results.size();
         }
 
@@ -272,7 +272,7 @@ class CustomFormatPerformanceTest {
         if (!isValid())
             return field_names;
 
-        const auto& metadata = storage_system_->getMetadata();
+        const auto& metadata = storage_system_->GetMetadata();
         for (const auto& [field_name, field_type] : metadata.field_definitions) {
             field_names.push_back(field_name);
         }
@@ -286,7 +286,7 @@ class CustomFormatPerformanceTest {
         if (!isValid())
             return samples;
 
-        auto all_values = storage_system_->queryAttributeValues(field_name);
+        auto all_values = storage_system_->QueryAttributeValues(field_name);
         for (size_t i = 0; i < std::min(static_cast<size_t>(max_samples), all_values.size()); ++i) {
             samples.push_back(all_values[i].second);
         }
@@ -315,7 +315,7 @@ class CustomFormatPerformanceTest {
         if (!isValid())
             return GisStorage::GisStorageSystem::StorageStats();
 
-        return storage_system_->getStorageStats();
+        return storage_system_->GetStorageStats();
     }
 };
 
