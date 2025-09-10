@@ -83,20 +83,22 @@ class GdalFileGdbPerformanceTest {
     }
 
     // 测试随机读取指定数量的要素
-    double testRandomReadFeatures(int num_reads = 1000) {
+    std::pair<double, size_t> testRandomReadFeatures(int num_reads = 1000) {
         if (!isValid() || total_features_ == 0)
-            return -1.0;
+            return {-1.0, 0};
 
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<size_t> dis(0, total_features_ - 1);
 
         auto start_time = std::chrono::high_resolution_clock::now();
+        size_t successful_reads = 0;
 
         for (int i = 0; i < num_reads; ++i) {
             size_t random_fid = dis(gen);
             OGRFeature* feature = layer_->GetFeature(random_fid);
             if (feature) {
+                successful_reads++;
                 OGRFeature::DestroyFeature(feature);
             }
         }
@@ -104,7 +106,7 @@ class GdalFileGdbPerformanceTest {
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
 
-        return duration.count() / 1000.0; // 返回毫秒
+        return {duration.count() / 1000.0, successful_reads}; // 返回毫秒和成功读取的要素数
     }
 
     // 测试空间查询 - 边界框查询
@@ -453,6 +455,41 @@ class GdalFileGdbPerformanceTest {
         oss << std::fixed << std::setprecision(2) << size << " " << units[unit];
         return oss.str();
     }
+
+    // 获取文件大小统计信息
+    struct FileStats {
+        size_t total_size = 0;
+        size_t file_count = 0;
+    };
+
+    FileStats getFileStats() {
+        FileStats stats;
+        if (!isValid()) {
+            return stats;
+        }
+
+        try {
+            // 如果是目录（FileGDB），计算目录下所有文件的大小
+            if (std::filesystem::is_directory(filegdb_path_)) {
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(filegdb_path_)) {
+                    if (entry.is_regular_file()) {
+                        stats.total_size += entry.file_size();
+                        stats.file_count++;
+                    }
+                }
+            } else {
+                // 如果是单个文件
+                if (std::filesystem::exists(filegdb_path_)) {
+                    stats.total_size = std::filesystem::file_size(filegdb_path_);
+                    stats.file_count = 1;
+                }
+            }
+        } catch (const std::exception& e) {
+            // 忽略文件系统访问错误
+        }
+
+        return stats;
+    }
 };
 
 // Google Test 测试用例
@@ -502,6 +539,7 @@ TEST_F(GdalFileGdbPerformanceTestFixture, FileGdbValid) {
 
     if (test.isValid()) {
         std::cout << "FileGDB信息:" << std::endl;
+        std::cout << "  文件路径: " << filegdb_path << std::endl;
         std::cout << "  总要素数: " << test.getTotalFeatures() << std::endl;
 
         const auto& extent = test.getDataExtent();
@@ -521,6 +559,20 @@ TEST_F(GdalFileGdbPerformanceTestFixture, FileGdbValid) {
                 std::cout << " ...";
             }
             std::cout << std::endl;
+        }
+
+        // 显示文件统计信息
+        auto file_stats = test.getFileStats();
+        std::cout << "  文件统计:" << std::endl;
+        std::cout << "    总大小: " << test.formatFileSize(file_stats.total_size) << std::endl;
+        std::cout << "    文件数量: " << file_stats.file_count << std::endl;
+
+        // 显示文件类型
+        if (std::filesystem::is_directory(filegdb_path)) {
+            std::cout << "    文件类型: FileGDB (目录)" << std::endl;
+        } else {
+            std::string ext = std::filesystem::path(filegdb_path).extension().string();
+            std::cout << "    文件类型: " << ext << " 文件" << std::endl;
         }
     }
 }
@@ -559,15 +611,21 @@ TEST_F(GdalFileGdbPerformanceTestFixture, RandomReadPerformance) {
     }
 
     int num_reads = 1000;
-    double read_time = test.testRandomReadFeatures(num_reads);
+    auto [read_time, successful_reads] = test.testRandomReadFeatures(num_reads);
     EXPECT_GT(read_time, 0) << "随机读取失败";
 
     std::cout << "随机读取性能测试 (" << num_reads << "次):" << std::endl;
     std::cout << "  读取时间: " << read_time << " ms" << std::endl;
+    std::cout << "  成功读取要素数: " << successful_reads << std::endl;
 
     if (read_time > 0) {
         double reads_per_second = num_reads / (read_time / 1000.0);
         std::cout << "  读取速度: " << std::fixed << std::setprecision(0) << reads_per_second << " 次/秒" << std::endl;
+
+        if (successful_reads > 0) {
+            double features_per_second = successful_reads / (read_time / 1000.0);
+            std::cout << "  要素读取速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+        }
     }
 }
 
@@ -628,6 +686,11 @@ TEST_F(GdalFileGdbPerformanceTestFixture, SpatialQueryPerformance) {
 
             // 执行单次查询并统计结果
             auto [query_time, count] = test.testSingleSpatialQuery(min_lng, min_lat, max_lng, max_lat);
+
+            total_features += count;
+            if (count > 0) {
+                successful_queries++;
+            }
 
             std::cout << "    " << region_name << " [" << std::fixed << std::setprecision(4) << min_lng << "," << min_lat << " - " << max_lng << "," << max_lat << "]: " << count << " 个要素" << std::endl;
         }
