@@ -1,64 +1,39 @@
 # 测试构建配置
 
-# 收集源文件
-file(GLOB GISSTORAGE_SOURCES "../src/gisstorage/*.cpp")
-file(GLOB GISINDEX_SOURCES "../src/gisindex/*.cpp")
-
 # 单元测试
 # S2索引单元测试
 add_executable(s2index_test 
     unit/gisindex/s2index_test.cpp
-    ${GISINDEX_SOURCES}
 )
 target_link_libraries(s2index_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
+    gisindex
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    s2::s2
-    TBB::tbb
 )
 
 # GIS存储单元测试
 add_executable(gis_storage_test
     unit/gisstorage/gis_storage_test.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
 )
 target_link_libraries(gis_storage_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
+    gisstorage
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    s2::s2
-    TBB::tbb
 )
 
 # 逆向转换单元测试
 add_executable(reverse_conversion_test
     unit/reverse/test_reverse_conversion.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
 )
 target_link_libraries(reverse_conversion_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
+    gisstorage
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    s2::s2
-    TBB::tbb
 )
 
 # 集成测试
 add_executable(integrated_gis_format_test 
     integration/integrated_gis_format_test.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
 )
 target_link_libraries(integrated_gis_format_test
-    GDAL::GDAL
-    Boost::geometry
-    s2::s2
-    TBB::tbb
+    gisstorage
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
 
@@ -82,16 +57,10 @@ target_link_libraries(gdal_filegdb_performance_test PRIVATE
 # 自定义格式性能测试
 add_executable(custom_format_performance_test
     performance/custom_format_performance_test.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
 )
 target_link_libraries(custom_format_performance_test PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
+    gisstorage
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
-    s2::s2
-    TBB::tbb
 )
 
 # 添加测试到CTest

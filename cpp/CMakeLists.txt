@@ -67,6 +67,7 @@ include_directories(
 )
 
 # 添加子目录
+add_subdirectory(src)
 add_subdirectory(tests)
 add_subdirectory(benchmarks)
 add_subdirectory(examples)

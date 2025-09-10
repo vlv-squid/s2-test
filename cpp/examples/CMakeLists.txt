@@ -1,14 +1,8 @@
 # GIS存储系统演示程序CMakeLists.txt
 
-# 收集源文件
-file(GLOB GISSTORAGE_SOURCES "../src/gisstorage/*.cpp")
-file(GLOB GISINDEX_SOURCES "../src/gisindex/*.cpp")
-
 # 创建演示程序
 add_executable(gis_storage_demo 
     gis_storage_demo.cpp
-    ${GISSTORAGE_SOURCES}
-    ${GISINDEX_SOURCES}
 )
 
 # 设置目标属性
@@ -19,11 +13,7 @@ target_include_directories(gis_storage_demo PRIVATE
 
 # 链接库
 target_link_libraries(gis_storage_demo PRIVATE
-    GDAL::GDAL
-    Boost::geometry
-    s2::s2
-    TBB::tbb
-    nlohmann_json::nlohmann_json
+    gisstorage
 )
 
 # 设置C++标准
