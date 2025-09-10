@@ -252,31 +252,37 @@ class GdalFileGdbPerformanceTest {
         return duration.count() / 1000.0; // 返回毫秒
     }
 
-    // 测试属性查询 - 精确匹配（使用SQL查询）
-    double testAttributeQueryExact(const std::string& field_name, const std::string& value, int num_queries = 10) {
+    // 测试属性查询 - 精确匹配（使用GDAL属性过滤器）
+    std::pair<double, size_t> testAttributeQueryExact(const std::string& field_name, const std::string& value, int num_queries = 10) {
         if (!isValid())
-            return -1.0;
-
-        // 构建SQL查询语句
-        std::string sql = "SELECT * FROM " + std::string(layer_->GetName()) + " WHERE " + field_name + " = '" + value + "'";
+            return {-1.0, 0};
 
         auto start_time = std::chrono::high_resolution_clock::now();
-
         size_t total_results = 0;
+
         for (int i = 0; i < num_queries; ++i) {
-            // 执行SQL查询
-            OGRLayer* result_layer = dataset_->ExecuteSQL(sql.c_str(), nullptr, nullptr);
-            if (result_layer) {
-                size_t count = result_layer->GetFeatureCount();
-                total_results += count;
-                dataset_->ReleaseResultSet(result_layer);
+            // 设置属性过滤器
+            std::string filter = field_name + " = '" + value + "'";
+            layer_->SetAttributeFilter(filter.c_str());
+            layer_->ResetReading();
+
+            // 计算匹配的要素数量
+            size_t count = 0;
+            OGRFeature* feature;
+            while ((feature = layer_->GetNextFeature()) != nullptr) {
+                count++;
+                OGRFeature::DestroyFeature(feature);
             }
+            total_results += count;
         }
+
+        // 清除属性过滤器
+        layer_->SetAttributeFilter(nullptr);
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
 
-        return duration.count() / 1000.0; // 返回毫秒
+        return {duration.count() / 1000.0, total_results}; // 返回毫秒和结果总数
     }
 
     // 测试属性查询 - 精确匹配（传统方式，用于对比）
@@ -316,31 +322,37 @@ class GdalFileGdbPerformanceTest {
         return duration.count() / 1000.0; // 返回毫秒
     }
 
-    // 测试属性查询 - 模式匹配（使用SQL LIKE查询）
-    double testAttributeQueryPattern(const std::string& field_name, const std::string& pattern, int num_queries = 10) {
+    // 测试属性查询 - 模式匹配（使用GDAL属性过滤器）
+    std::pair<double, size_t> testAttributeQueryPattern(const std::string& field_name, const std::string& pattern, int num_queries = 10) {
         if (!isValid())
-            return -1.0;
-
-        // 构建SQL查询语句
-        std::string sql = "SELECT * FROM " + std::string(layer_->GetName()) + " WHERE " + field_name + " LIKE '%" + pattern + "%'";
+            return {-1.0, 0};
 
         auto start_time = std::chrono::high_resolution_clock::now();
-
         size_t total_results = 0;
+
         for (int i = 0; i < num_queries; ++i) {
-            // 执行SQL查询
-            OGRLayer* result_layer = dataset_->ExecuteSQL(sql.c_str(), nullptr, nullptr);
-            if (result_layer) {
-                size_t count = result_layer->GetFeatureCount();
-                total_results += count;
-                dataset_->ReleaseResultSet(result_layer);
+            // 设置属性过滤器（使用LIKE操作符）
+            std::string filter = field_name + " LIKE '%" + pattern + "%'";
+            layer_->SetAttributeFilter(filter.c_str());
+            layer_->ResetReading();
+
+            // 计算匹配的要素数量
+            size_t count = 0;
+            OGRFeature* feature;
+            while ((feature = layer_->GetNextFeature()) != nullptr) {
+                count++;
+                OGRFeature::DestroyFeature(feature);
             }
+            total_results += count;
         }
+
+        // 清除属性过滤器
+        layer_->SetAttributeFilter(nullptr);
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
 
-        return duration.count() / 1000.0; // 返回毫秒
+        return {duration.count() / 1000.0, total_results}; // 返回毫秒和结果总数
     }
 
     // 测试复合查询 - 空间+属性
@@ -749,22 +761,28 @@ TEST_F(GdalFileGdbPerformanceTestFixture, AttributeQueryPerformance) {
     std::cout << "使用字段 '" << test_field << "' 进行属性查询测试" << std::endl;
     std::cout << "使用值 '" << test_value << "' 进行精确匹配测试" << std::endl;
 
-    // 精确匹配查询 - SQL方式
+    // 精确匹配查询 - 使用GDAL属性过滤器
     int num_queries = 10;
-    double exact_time_sql = test.testAttributeQueryExact(test_field, test_value, num_queries);
-    EXPECT_GT(exact_time_sql, 0) << "SQL精确匹配查询失败";
+    auto [exact_time, exact_results] = test.testAttributeQueryExact(test_field, test_value, num_queries);
+    EXPECT_GT(exact_time, 0) << "属性过滤器精确匹配查询失败";
 
     // 精确匹配查询 - 传统方式（用于对比）
     double exact_time_traditional = test.testAttributeQueryExactTraditional(test_field, test_value, num_queries);
     EXPECT_GT(exact_time_traditional, 0) << "传统精确匹配查询失败";
 
     std::cout << "属性查询性能测试:" << std::endl;
-    std::cout << "  SQL精确匹配查询 (" << num_queries << "次): " << exact_time_sql << " ms" << std::endl;
+    std::cout << "  属性过滤器精确匹配查询 (" << num_queries << "次): " << exact_time << " ms" << std::endl;
+    std::cout << "  找到匹配要素总数: " << exact_results << std::endl;
     std::cout << "  传统精确匹配查询 (" << num_queries << "次): " << exact_time_traditional << " ms" << std::endl;
 
-    if (exact_time_sql > 0) {
-        double queries_per_second = num_queries / (exact_time_sql / 1000.0);
-        std::cout << "  SQL查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
+    if (exact_time > 0) {
+        double queries_per_second = num_queries / (exact_time / 1000.0);
+        std::cout << "  属性过滤器查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
+
+        if (exact_results > 0) {
+            double features_per_second = exact_results / (exact_time / 1000.0);
+            std::cout << "  要素查询速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+        }
     }
 
     if (exact_time_traditional > 0) {
@@ -773,22 +791,28 @@ TEST_F(GdalFileGdbPerformanceTestFixture, AttributeQueryPerformance) {
     }
 
     // 计算性能提升
-    if (exact_time_sql > 0 && exact_time_traditional > 0) {
-        double speedup = exact_time_traditional / exact_time_sql;
-        std::cout << "  SQL查询比传统查询快 " << std::fixed << std::setprecision(1) << speedup << " 倍" << std::endl;
+    if (exact_time > 0 && exact_time_traditional > 0) {
+        double speedup = exact_time_traditional / exact_time;
+        std::cout << "  属性过滤器查询比传统查询快 " << std::fixed << std::setprecision(1) << speedup << " 倍" << std::endl;
     }
 
     // 模式匹配查询（使用值的前几个字符）
     if (test_value.length() > 2) {
         std::string pattern = test_value.substr(0, 2);
-        double pattern_time = test.testAttributeQueryPattern(test_field, pattern, num_queries);
+        auto [pattern_time, pattern_results] = test.testAttributeQueryPattern(test_field, pattern, num_queries);
         EXPECT_GT(pattern_time, 0) << "模式匹配查询失败";
 
-        std::cout << "  SQL模式匹配查询 (" << num_queries << "次, 模式: '" << pattern << "'): " << pattern_time << " ms" << std::endl;
+        std::cout << "  属性过滤器模式匹配查询 (" << num_queries << "次, 模式: '" << pattern << "'): " << pattern_time << " ms" << std::endl;
+        std::cout << "  找到匹配要素总数: " << pattern_results << std::endl;
 
         if (pattern_time > 0) {
             double queries_per_second = num_queries / (pattern_time / 1000.0);
             std::cout << "  模式匹配查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
+
+            if (pattern_results > 0) {
+                double features_per_second = pattern_results / (pattern_time / 1000.0);
+                std::cout << "  要素查询速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+            }
         }
     }
 }
