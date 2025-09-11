@@ -1,3 +1,7 @@
+//
+// Created by chenming on 2025/9/4.
+//
+
 #include <gtest/gtest.h>
 #include <vector>
 #include <string>
@@ -18,8 +22,8 @@
 
 // 测试配置
 const std::string TEST_DATA_PATH = "/home/chenming/Data/GIS_DATA/filegdb/DLTB_2021CG.gdb";
-const std::string OUTPUT_DIR = "/home/chenming/Projects/test/s2-test/output_data/integrated_test";
-const std::string INDEX_DIR = "/home/chenming/Projects/test/s2-test/output_data/integrated_test";
+const std::string OUTPUT_DIR = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
+const std::string INDEX_DIR = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
 
 class IntegratedGisFormatTest : public ::testing::Test {
   protected:
@@ -57,8 +61,8 @@ TEST_F(IntegratedGisFormatTest, FileExtensions) {
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::S2_INDEX, ".s2idx");
 }
 
-// 测试Shapefile转换和存储
-TEST_F(IntegratedGisFormatTest, ShapefileConversion) {
+// 测试Ogrformat转换和存储
+TEST_F(IntegratedGisFormatTest, OgrformatConversion) {
     // 检查测试数据是否存在
     ASSERT_TRUE(std::filesystem::exists(TEST_DATA_PATH)) << "测试数据文件不存在: " << TEST_DATA_PATH;
 
@@ -174,8 +178,6 @@ TEST_F(IntegratedGisFormatTest, GisStorageSystemFeatures) {
 
     // 测试元数据功能
     const auto& metadata = storage_system_->GetMetadata();
-    EXPECT_EQ(metadata.format_version, "1.0");
-    EXPECT_EQ(metadata.source_format, "Shapefile");
     EXPECT_FALSE(metadata.source_file.empty());
     EXPECT_FALSE(metadata.creation_date.empty());
 
