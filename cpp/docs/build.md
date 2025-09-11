@@ -9,6 +9,8 @@
 - Boost Geometry
 - Google Test
 - nlohmann/json
+- TBB (Threading Building Blocks)
+- absl (Abseil C++库)
 
 ## 🛠️ 构建步骤
 
@@ -45,8 +47,11 @@ ninja
 ### 测试程序
 - `s2index_test` - S2索引单元测试
 - `gis_storage_test` - GIS存储单元测试
+- `reverse_conversion_test` - 逆向转换测试
 - `integrated_gis_format_test` - 集成测试
-- `file_io_performance_test` - 性能测试
+- `file_io_performance_test` - 文件I/O性能测试
+- `gdal_filegdb_performance_test` - GDAL FileGDB性能测试
+- `custom_format_performance_test` - 自定义格式性能测试
 
 ### 基准测试
 - `spatial_index_benchmark` - 空间索引基准测试
@@ -72,3 +77,23 @@ ninja
 - `build/tests/` - 测试程序
 - `build/benchmarks/` - 基准测试
 - `build/examples/` - 示例程序
+- `build/src/` - 库文件（libgisindex.so, libgisstorage.so）
+
+## 🧪 运行测试
+
+```bash
+# 使用CTest运行所有测试
+cd build
+ctest
+
+# 运行特定类型的测试
+ctest -L unit          # 单元测试
+ctest -L performance   # 性能测试
+ctest -L integration   # 集成测试
+
+# 运行特定测试
+cd build/tests
+./s2index_test
+./gis_storage_test
+./reverse_conversion_test
+```

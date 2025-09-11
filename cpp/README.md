@@ -2,7 +2,7 @@
 
 ## 📋 项目概述
 
-这是一个基于Google S2几何库的高性能GIS数据存储和索引系统。系统提供完整的Shapefile转换、数据存储、空间索引和元数据管理功能，专为大规模GIS数据处理设计。
+这是一个基于Google S2几何库的高性能GIS数据存储和索引系统。系统提供完整的Shapefile/FileGDB转换、数据存储、空间索引和元数据管理功能，专为大规模GIS数据处理设计。支持多种GIS格式的转换，包括Shapefile、FileGDB等，并提供高效的S2空间索引和属性查询功能。
 
 ## 🏗️ 系统架构
 
@@ -17,8 +17,9 @@
    - 几何数据存储 - 高效的几何数据存储和管理
    - 属性数据管理 - 属性数据的存储和查询
    - 字符串池优化 - 字符串数据的去重和优化
-   - Shapefile转换 - 完整的Shapefile格式转换支持
+   - OGR格式转换 - 支持Shapefile、FileGDB等多种格式转换
    - 统一存储系统 - 提供统一的存储和查询接口
+   - 逆向转换 - 支持将自定义格式转换回标准GIS格式
 
 ### 设计特点
 
@@ -45,7 +46,6 @@ cpp/
 ├── benchmarks/          # 基准测试
 ├── tools/               # 工具脚本
 │   ├── build/           # 构建工具
-│   ├── test/            # 测试工具
 │   ├── demo/            # 演示工具
 │   └── benchmark/       # 基准测试工具
 └── docs/                # 文档
@@ -72,11 +72,15 @@ make
 ### 2. 运行测试
 
 ```bash
-# 运行所有测试
-./tools/test/run_tests.sh --all
+# 使用CTest运行所有测试
+cd build
+ctest
 
 # 运行特定测试
-./tools/test/run_tests.sh s2index_test
+cd build/tests
+./s2index_test
+./gis_storage_test
+./integrated_gis_format_test
 ```
 
 ### 3. 运行示例
@@ -95,8 +99,11 @@ cd examples
 ### 测试程序
 - `s2index_test` - S2索引功能测试
 - `gis_storage_test` - GIS存储系统测试
+- `reverse_conversion_test` - 逆向转换测试
 - `integrated_gis_format_test` - 集成测试
 - `file_io_performance_test` - 文件I/O性能测试
+- `gdal_filegdb_performance_test` - GDAL FileGDB性能测试
+- `custom_format_performance_test` - 自定义格式性能测试
 
 ### 基准测试
 - `spatial_index_benchmark` - 空间索引性能基准测试
@@ -110,24 +117,29 @@ cd examples
 
 ```cpp
 #include "gisstorage/gis_storage_system.h"
+#include "gisstorage/ogr_format_converter.h"
 
-// 1. 创建存储系统
+// 1. 转换OGR格式
+GisStorage::OGRFormatConverter converter("input.shp", "output_dir");
+auto feature_ids = converter.Convert();
+
+// 2. 创建存储系统
 GisStorage::GisStorageSystem storage("output_dir");
+storage.InitializeStorageFiles("input.shp");
 
-// 2. 转换OGR格式
-GisStorage::OGRFormatConverter converter;
-converter.convert("input.shp", "output");
+// 3. 构建S2索引
+storage.InitializeS2Index(15);
+storage.BuildS2IndexFromDataset("input.shp", 1000);
 
-// 3. 初始化存储系统
-storage.initializeStorageSystem("output");
+// 4. 生成和保存元数据
+storage.UpdateFileSizes();
+storage.UpdateChecksums();
+storage.SaveMetadata();
 
-// 4. 构建S2索引
-storage.initializeS2Index(16);
-storage.buildS2IndexFromDataset("input.shp", 16);
-
-// 5. 生成元数据
-storage.updateMetadata();
-storage.saveMetadata();
+// 5. 查询数据
+auto features = storage.QueryS2Index(bbox, 15);
+auto geometry = storage.ReadGeometry(feature_id);
+auto attributes = storage.ReadAttribute(feature_id);
 ```
 
 ### 文件格式
@@ -150,6 +162,7 @@ storage.saveMetadata();
 - Google Test
 - nlohmann/json
 - TBB (Threading Building Blocks)
+- absl (Abseil C++库)
 
 ## 📊 性能特点
 
@@ -169,9 +182,12 @@ storage.saveMetadata();
 
 ### 测试工具
 ```bash
-./tools/test/run_tests.sh --all        # 运行所有测试
-./tools/test/run_tests.sh --unit       # 运行单元测试
-./tools/test/run_tests.sh --verbose    # 详细输出
+# 使用CTest运行测试
+cd build
+ctest                           # 运行所有测试
+ctest -L unit                   # 运行单元测试
+ctest -L performance            # 运行性能测试
+ctest --verbose                 # 详细输出
 ```
 
 ### 演示工具
@@ -189,19 +205,27 @@ storage.saveMetadata();
 详细文档请参考 `docs/` 目录：
 - [系统架构](docs/architecture.md) - 系统架构和模块说明
 - [构建指南](docs/build.md) - 构建和配置说明
-- [测试指南](docs/test.md) - 测试运行和编写指南
+- [演示程序](docs/examples.md) - 使用示例和演示
 - [基准测试](docs/benchmark.md) - 性能测试指南
 
 ## 🔍 测试
 
 ```bash
 # 运行所有测试
-./tools/test/run_tests.sh --all
+cd build
+ctest
 
 # 运行特定测试
-./tools/test/run_tests.sh s2index_test
-./tools/test/run_tests.sh gis_storage_test
-./tools/test/run_tests.sh integrated_gis_format_test
+cd build/tests
+./s2index_test
+./gis_storage_test
+./integrated_gis_format_test
+./reverse_conversion_test
+
+# 运行性能测试
+./file_io_performance_test
+./gdal_filegdb_performance_test
+./custom_format_performance_test
 ```
 
 ## 📈 扩展性

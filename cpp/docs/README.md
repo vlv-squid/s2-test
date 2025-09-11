@@ -13,7 +13,6 @@
 
 ### 🛠️ 开发指南
 - [构建指南](build.md) - 如何构建和配置项目
-- [测试指南](test.md) - 如何运行和编写测试
 
 ## 🚀 快速开始
 
@@ -28,10 +27,26 @@ cmake ../cpp
 make
 ```
 
-### 2. 运行示例
+### 2. 运行测试
+```bash
+# 使用CTest运行所有测试
+cd build
+ctest
+
+# 运行特定测试
+cd build/tests
+./s2index_test
+./gis_storage_test
+```
+
+### 3. 运行示例
 ```bash
 # 运行演示程序
 ./tools/demo/run_demo.sh ../../data/test.shp ./output
+
+# 或直接运行演示程序
+cd build/examples
+./gis_storage_demo ../../data/test.shp ./output
 ```
 
 ## 📋 项目结构
@@ -48,4 +63,8 @@ cpp/
 │   ├── demo/        # 演示工具
 │   └── benchmark/   # 基准测试工具
 └── docs/            # 文档
+    ├── architecture.md  # 系统架构
+    ├── build.md         # 构建指南
+    ├── examples.md      # 演示程序
+    └── benchmark.md     # 基准测试
 ```
