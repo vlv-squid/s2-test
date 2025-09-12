@@ -90,6 +90,9 @@ namespace GisStorage {
         // 提取面坐标
         std::vector<Coordinate> ExtractPolygonCoordinates(OGRGeometry* geometry);
 
+        // 提取多环多边形坐标
+        std::vector<std::vector<Coordinate>> ExtractMultiRingPolygonCoordinates(OGRGeometry* geometry);
+
         // 递归提取坐标
         void ExtractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates);
 

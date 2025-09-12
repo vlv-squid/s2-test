@@ -34,6 +34,12 @@ namespace GisStorage {
         // 差分编码坐标解压
         static std::vector<Coordinate> DecodeCoordinatesDelta(const std::vector<uint8_t>& data);
 
+        // 多环多边形序列化
+        static std::vector<uint8_t> SerializeMultiRingPolygon(const std::vector<std::vector<Coordinate>>& rings);
+
+        // 多环多边形反序列化
+        static std::vector<std::vector<Coordinate>> DeserializeMultiRingPolygon(const std::vector<uint8_t>& data);
+
         // 计算边界框
         static BBox CalculateBBox(const std::vector<Coordinate>& coordinates);
     };

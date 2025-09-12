@@ -65,6 +65,16 @@ namespace GisStorage {
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.max_x), reinterpret_cast<const uint8_t*>(&bbox.max_x) + sizeof(double));
         data.insert(data.end(), reinterpret_cast<const uint8_t*>(&bbox.max_y), reinterpret_cast<const uint8_t*>(&bbox.max_y) + sizeof(double));
 
+        // 对于多边形，写入环的数量 (4字节)
+        if (geometry.GetGeometryType() == GeometryType::POLYGON) {
+            uint32_t num_rings = geometry.GetNumRings();
+            data.insert(data.end(), reinterpret_cast<uint8_t*>(&num_rings), reinterpret_cast<uint8_t*>(&num_rings) + sizeof(uint32_t));
+        } else {
+            // 对于非多边形，写入0表示只有一组坐标
+            uint32_t num_rings = 0;
+            data.insert(data.end(), reinterpret_cast<uint8_t*>(&num_rings), reinterpret_cast<uint8_t*>(&num_rings) + sizeof(uint32_t));
+        }
+
         // 写入坐标数据大小 (4字节)
         uint32_t coord_size = static_cast<uint32_t>(geometry.GetCoordinates().size());
         data.insert(data.end(), reinterpret_cast<uint8_t*>(&coord_size), reinterpret_cast<uint8_t*>(&coord_size) + sizeof(uint32_t));
@@ -77,7 +87,7 @@ namespace GisStorage {
     }
 
     std::unique_ptr<GeometryData> GeometrySerializer::DeserializeGeometry(const std::vector<uint8_t>& data) {
-        if (data.size() < 48) {
+        if (data.size() < 52) { // 增加了4字节的环数量字段
             throw std::runtime_error("数据长度不足，无法反序列化几何对象");
         }
 
@@ -108,6 +118,11 @@ namespace GisStorage {
         std::memcpy(&bbox.max_y, &data[offset], sizeof(double));
         offset += sizeof(double);
 
+        // 读取环的数量
+        uint32_t num_rings;
+        std::memcpy(&num_rings, &data[offset], sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+
         // 读取坐标数据大小
         uint32_t coord_size;
         std::memcpy(&coord_size, &data[offset], sizeof(uint32_t));
@@ -120,7 +135,7 @@ namespace GisStorage {
         // 读取坐标数据
         std::vector<uint8_t> coordinates(data.begin() + offset, data.begin() + offset + coord_size);
 
-        return std::make_unique<GeometryData>(feature_id, geometry_type, coordinates, bbox);
+        return std::make_unique<GeometryData>(feature_id, geometry_type, coordinates, bbox, num_rings);
     }
 
     std::vector<uint8_t> GeometrySerializer::SerializeCoordinates(const std::vector<Coordinate>& coordinates) {
@@ -281,6 +296,66 @@ namespace GisStorage {
         }
 
         return coordinates;
+    }
+
+    // 新的多环多边形序列化函数
+    std::vector<uint8_t> GeometrySerializer::SerializeMultiRingPolygon(const std::vector<std::vector<Coordinate>>& rings) {
+        std::vector<uint8_t> data;
+
+        // 写入环的数量
+        uint32_t num_rings = static_cast<uint32_t>(rings.size());
+        data.insert(data.end(), reinterpret_cast<uint8_t*>(&num_rings), reinterpret_cast<uint8_t*>(&num_rings) + sizeof(uint32_t));
+
+        // 为每个环写入坐标数据
+        for (const auto& ring : rings) {
+            auto ring_data = EncodeCoordinatesDelta(ring);
+            // 写入环数据大小
+            uint32_t ring_size = static_cast<uint32_t>(ring_data.size());
+            data.insert(data.end(), reinterpret_cast<uint8_t*>(&ring_size), reinterpret_cast<uint8_t*>(&ring_size) + sizeof(uint32_t));
+            // 写入环数据
+            data.insert(data.end(), ring_data.begin(), ring_data.end());
+        }
+
+        return data;
+    }
+
+    // 新的多环多边形反序列化函数
+    std::vector<std::vector<Coordinate>> GeometrySerializer::DeserializeMultiRingPolygon(const std::vector<uint8_t>& data) {
+        std::vector<std::vector<Coordinate>> rings;
+
+        if (data.size() < 4) {
+            return rings;
+        }
+
+        size_t offset = 0;
+
+        // 读取环的数量
+        uint32_t num_rings;
+        std::memcpy(&num_rings, &data[offset], sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+
+        rings.reserve(num_rings);
+
+        // 读取每个环的数据
+        for (uint32_t i = 0; i < num_rings && offset + 4 <= data.size(); ++i) {
+            // 读取环数据大小
+            uint32_t ring_size;
+            std::memcpy(&ring_size, &data[offset], sizeof(uint32_t));
+            offset += sizeof(uint32_t);
+
+            if (offset + ring_size > data.size()) {
+                break; // 数据不完整
+            }
+
+            // 读取环数据
+            std::vector<uint8_t> ring_data(data.begin() + offset, data.begin() + offset + ring_size);
+            auto coordinates = DecodeCoordinatesDelta(ring_data);
+            rings.push_back(coordinates);
+
+            offset += ring_size;
+        }
+
+        return rings;
     }
 
     BBox GeometrySerializer::CalculateBBox(const std::vector<Coordinate>& coordinates) {

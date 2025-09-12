@@ -57,9 +57,9 @@ namespace GisStorage {
 
         file.seekg(it->second);
 
-        // 先读取头部数据以确定需要读取的总大小（与Python版本保持一致）
-        std::vector<uint8_t> header_data(48);
-        if (!file.read(reinterpret_cast<char*>(header_data.data()), 48)) {
+        // 先读取头部数据以确定需要读取的总大小（新格式：48字节头部 + 4字节环数量）
+        std::vector<uint8_t> header_data(52);
+        if (!file.read(reinterpret_cast<char*>(header_data.data()), 52)) {
             throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
         }
 
@@ -125,10 +125,10 @@ namespace GisStorage {
 
             offset_index_[fid] = current_pos;
 
-            // 手动解析记录结构（与Python版本保持一致）
+            // 手动解析记录结构（新格式：增加了4字节环数量字段）
             try {
-                // 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
-                file.seekg(40, std::ios::cur);
+                // 跳过geometry_type(1B) + 7字节填充 + bbox(32B) + num_rings(4B) = 44字节
+                file.seekg(44, std::ios::cur);
 
                 // 读取坐标大小(4B)
                 uint32_t coord_size;

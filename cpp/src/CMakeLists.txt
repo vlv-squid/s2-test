@@ -5,7 +5,7 @@ file(GLOB GISINDEX_SOURCES "gisindex/*.cpp")
 file(GLOB GISSTORAGE_SOURCES "gisstorage/*.cpp")
 
 # 创建gisindex共享库
-add_library(gisindex SHARED ${GISINDEX_SOURCES})
+add_library(gisindex STATIC ${GISINDEX_SOURCES})
 
 # 设置gisindex库的包含目录
 target_include_directories(gisindex PUBLIC
@@ -28,6 +28,7 @@ target_compile_options(gisindex PRIVATE
     -Wall
     -Wextra
     -O2
+    -fPIC
 )
 
 # 创建gisstorage共享库
@@ -42,11 +43,6 @@ target_include_directories(gisstorage PUBLIC
 # 链接gisstorage库的依赖
 target_link_libraries(gisstorage PUBLIC
     gisindex
-    GDAL::GDAL
-    Boost::geometry
-    nlohmann_json::nlohmann_json
-    s2::s2
-    TBB::tbb
 )
 
 # 设置gisstorage库的编译特性

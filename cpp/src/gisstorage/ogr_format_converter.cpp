@@ -212,23 +212,6 @@ namespace GisStorage {
                     continue;
                 }
 
-                std::vector<Coordinate> coordinates = ExtractGeometryCoordinates(geometry);
-                if (coordinates.empty()) {
-                    OGRFeature::DestroyFeature(feature);
-                    continue;
-                }
-
-                // 计算边界框（仅用于几何数据存储）
-                BBox bbox = CalculateBBox(coordinates);
-
-                // 调试输出（每100000个要素刷新一次进度）
-                if (processed_count % 100000 == 0) {
-                    std::cout << "\r已处理 " << processed_count << " 个要素" << std::flush;
-                }
-
-                // 压缩坐标数据
-                std::vector<uint8_t> coord_data = EncodeCoordinatesDelta(coordinates);
-
                 // 确定几何类型
                 GeometryType geom_type;
                 switch (geometry->getGeometryType()) {
@@ -261,8 +244,53 @@ namespace GisStorage {
                         break;
                 }
 
+                // 根据几何类型提取坐标数据
+                std::vector<uint8_t> coord_data;
+                BBox bbox;
+                uint32_t num_rings = 0;
+
+                if (geom_type == GeometryType::POLYGON) {
+                    // 对于多边形，使用多环提取
+                    auto rings = ExtractMultiRingPolygonCoordinates(geometry);
+                    if (rings.empty()) {
+                        OGRFeature::DestroyFeature(feature);
+                        continue;
+                    }
+
+                    num_rings = static_cast<uint32_t>(rings.size());
+                    coord_data = GeometrySerializer::SerializeMultiRingPolygon(rings);
+
+                    // 计算所有环的边界框
+                    for (const auto& ring : rings) {
+                        BBox ring_bbox = CalculateBBox(ring);
+                        if (bbox.IsValid()) {
+                            bbox.min_x = std::min(bbox.min_x, ring_bbox.min_x);
+                            bbox.min_y = std::min(bbox.min_y, ring_bbox.min_y);
+                            bbox.max_x = std::max(bbox.max_x, ring_bbox.max_x);
+                            bbox.max_y = std::max(bbox.max_y, ring_bbox.max_y);
+                        } else {
+                            bbox = ring_bbox;
+                        }
+                    }
+                } else {
+                    // 对于非多边形，使用原有逻辑
+                    std::vector<Coordinate> coordinates = ExtractGeometryCoordinates(geometry);
+                    if (coordinates.empty()) {
+                        OGRFeature::DestroyFeature(feature);
+                        continue;
+                    }
+
+                    bbox = CalculateBBox(coordinates);
+                    coord_data = EncodeCoordinatesDelta(coordinates);
+                }
+
+                // 调试输出（每100000个要素刷新一次进度）
+                if (processed_count % 100000 == 0) {
+                    std::cout << "\r已处理 " << processed_count << " 个要素" << std::flush;
+                }
+
                 // 创建几何数据对象
-                GeometryData geom_data(fid, geom_type, coord_data, bbox);
+                GeometryData geom_data(fid, geom_type, coord_data, bbox, num_rings);
 
                 // 写入几何数据
                 int64_t geom_offset = geometry_storage_->WriteGeometry(geom_data);
@@ -669,6 +697,46 @@ namespace GisStorage {
         return coordinates;
     }
 
+    // 新的多环多边形坐标提取函数
+    std::vector<std::vector<Coordinate>> OGRFormatConverter::ExtractMultiRingPolygonCoordinates(OGRGeometry* geometry) {
+        std::vector<std::vector<Coordinate>> rings;
+
+        if (!geometry || geometry->getGeometryType() != wkbPolygon) {
+            return rings;
+        }
+
+        OGRPolygon* polygon = static_cast<OGRPolygon*>(geometry);
+
+        // 提取外环
+        OGRLinearRing* exterior_ring = polygon->getExteriorRing();
+        if (exterior_ring) {
+            std::vector<Coordinate> exterior_coords;
+            exterior_coords.reserve(exterior_ring->getNumPoints());
+
+            for (int i = 0; i < exterior_ring->getNumPoints(); ++i) {
+                exterior_coords.push_back({exterior_ring->getX(i), exterior_ring->getY(i)});
+            }
+            rings.push_back(exterior_coords);
+        }
+
+        // 提取内环
+        int num_interior_rings = polygon->getNumInteriorRings();
+        for (int i = 0; i < num_interior_rings; ++i) {
+            OGRLinearRing* interior_ring = polygon->getInteriorRing(i);
+            if (interior_ring) {
+                std::vector<Coordinate> interior_coords;
+                interior_coords.reserve(interior_ring->getNumPoints());
+
+                for (int j = 0; j < interior_ring->getNumPoints(); ++j) {
+                    interior_coords.push_back({interior_ring->getX(j), interior_ring->getY(j)});
+                }
+                rings.push_back(interior_coords);
+            }
+        }
+
+        return rings;
+    }
+
     void OGRFormatConverter::ExtractCoordinatesRecursive(OGRGeometry* geometry, std::vector<Coordinate>& coordinates) {
         if (!geometry) {
             return;
@@ -921,22 +989,40 @@ namespace GisStorage {
                     break;
                 }
                 case GeometryType::POLYGON: {
-                    if (coordinates.size() >= 3) {
+                    // 使用多环解码方法
+                    auto rings = geom_data.DecodeMultiRingCoordinates();
+                    if (!rings.empty() && rings[0].size() >= 3) {
                         OGRPolygon* polygon = new OGRPolygon();
-                        OGRLinearRing* ring = new OGRLinearRing();
-                        for (const auto& coord : coordinates) {
-                            ring->addPoint(coord.x, coord.y);
-                        }
-                        // 确保环是闭合的
-                        if (coordinates.size() > 0) {
-                            const auto& first = coordinates[0];
-                            const auto& last = coordinates.back();
-                            if (first.x != last.x || first.y != last.y) {
-                                ring->addPoint(first.x, first.y);
+
+                        for (size_t ring_idx = 0; ring_idx < rings.size(); ++ring_idx) {
+                            const auto& ring_coords = rings[ring_idx];
+                            if (ring_coords.size() >= 3) {
+                                OGRLinearRing* ring = new OGRLinearRing();
+
+                                for (const auto& coord : ring_coords) {
+                                    ring->addPoint(coord.x, coord.y);
+                                }
+
+                                // 确保环是闭合的
+                                if (ring_coords.size() > 0) {
+                                    const auto& first = ring_coords[0];
+                                    const auto& last = ring_coords.back();
+                                    if (first.x != last.x || first.y != last.y) {
+                                        ring->addPoint(first.x, first.y);
+                                    }
+                                }
+                                ring->closeRings();
+
+                                if (ring_idx == 0) {
+                                    // 第一个环是外环
+                                    polygon->addRingDirectly(ring);
+                                } else {
+                                    // 后续环是内环
+                                    polygon->addRingDirectly(ring);
+                                }
                             }
                         }
-                        ring->closeRings();
-                        polygon->addRingDirectly(ring);
+
                         geometry = polygon;
                     }
                     break;
