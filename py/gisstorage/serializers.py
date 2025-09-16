@@ -32,7 +32,7 @@ class GeometrySerializer:
 
     @staticmethod
     def encode_coordinates_delta(coordinates: List[Tuple[float, float]]) -> bytes:
-        """差分编码压缩坐标，与C++版本兼容"""
+        """FileGDB风格的差分编码压缩坐标，与C++版本兼容"""
         if not coordinates:
             return b""
 
@@ -40,44 +40,69 @@ class GeometrySerializer:
             # 单点情况，直接存储绝对坐标
             return struct.pack("dd", coordinates[0][0], coordinates[0][1])
 
-        # 计算偏移量范围，决定使用哪种数据类型
-        max_delta = 0.0
-        deltas = []
-        for i in range(1, len(coordinates)):
-            dx = float(coordinates[i][0] - coordinates[i - 1][0])
-            dy = float(coordinates[i][1] - coordinates[i - 1][1])
-            deltas.append((dx, dy))
-            max_delta = max(max_delta, abs(dx), abs(dy))
+        # FileGDB风格的整型化和压缩
+        # 1. 计算数据的空间范围
+        min_x = min_y = float('inf')
+        max_x = max_y = float('-inf')
+        
+        for x, y in coordinates:
+            min_x = min(min_x, x)
+            max_x = max(max_x, x)
+            min_y = min(min_y, y)
+            max_y = max(max_y, y)
 
-        # 存储第一个点的绝对坐标
-        data = bytearray(struct.pack("dd", coordinates[0][0], coordinates[0][1]))
-
-        # 对于小偏移量，使用float类型以保持精度
-        if max_delta < 1.0:  # 小偏移量使用float
-            data.append(2)  # 标记使用float类型
-            for dx, dy in deltas:
-                data.extend(struct.pack("ff", dx, dy))
-        elif max_delta < 32767:  # short类型范围
-            # 使用short类型存储偏移量（2字节/坐标）
-            data.append(0)  # 标记使用short类型
-            for dx, dy in deltas:
-                data.extend(struct.pack("hh", int(round(dx)), int(round(dy))))
-        elif max_delta < 2147483647:  # int类型范围
-            # 使用int类型存储偏移量（4字节/坐标）
-            data.append(1)  # 标记使用int类型
-            for dx, dy in deltas:
-                data.extend(struct.pack("ii", int(round(dx)), int(round(dy))))
+        # 2. 计算分辨率，保持足够的精度
+        if max_x == min_x and max_y == min_y:
+            # 所有点都相同，使用固定分辨率
+            scale = 1e-9
         else:
-            # 使用float类型存储偏移量（4字节/坐标）
-            data.append(2)  # 标记使用float类型
-            for dx, dy in deltas:
-                data.extend(struct.pack("ff", dx, dy))
+            # 计算合适的分辨率，确保整型化后不会溢出
+            range_x = max_x - min_x
+            range_y = max_y - min_y
+            max_range = max(range_x, range_y)
+            
+            # 使用1e9作为整型化范围，确保精度
+            scale = max(1e-9, max_range / 1e9)
+
+        # 3. 整型化坐标并计算差分
+        int_coords = []
+        deltas = []
+        
+        for x, y in coordinates:
+            x_int = int((x - min_x) / scale)
+            y_int = int((y - min_y) / scale)
+            int_coords.append((x_int, y_int))
+        
+        # 计算差分（第一个点存储绝对值，后续点存储差值）
+        deltas.append((int_coords[0][0], int_coords[0][1]))
+        for i in range(1, len(int_coords)):
+            dx = int_coords[i][0] - int_coords[i-1][0]
+            dy = int_coords[i][1] - int_coords[i-1][1]
+            deltas.append((dx, dy))
+
+        # 4. 存储数据：偏移量、分辨率、第一个点坐标、差分数据
+        data = bytearray()
+        
+        # 存储偏移量（16字节）
+        data.extend(struct.pack("dd", min_x, min_y))
+        
+        # 存储分辨率（8字节）
+        data.extend(struct.pack("d", scale))
+        
+        # 存储第一个点的绝对坐标（16字节）
+        data.extend(struct.pack("dd", coordinates[0][0], coordinates[0][1]))
+        
+        # 存储差分数据（使用变长整数编码）
+        for i in range(1, len(deltas)):
+            dx, dy = deltas[i]
+            data.extend(GeometrySerializer._encode_varint(dx))
+            data.extend(GeometrySerializer._encode_varint(dy))
 
         return bytes(data)
 
     @staticmethod
     def decode_coordinates_delta(data: bytes) -> List[Tuple[float, float]]:
-        """解码差分编码的坐标，与C++版本兼容"""
+        """解码FileGDB风格的差分编码坐标，与C++版本兼容"""
         if not data:
             return []
 
@@ -86,85 +111,195 @@ class GeometrySerializer:
             x, y = struct.unpack("dd", data)
             return [(x, y)]
 
-        if len(data) < 17:
-            return []
-
         coordinates = []
 
-        # 读取第一个点的绝对坐标
-        x, y = struct.unpack("dd", data[:16])
-        coordinates.append((x, y))
-
-        # 读取数据类型标记
-        type_flag = data[16]
-        pos = 17
-
-        if type_flag == 0:  # short类型
-            while pos + 4 <= len(data):
-                dx, dy = struct.unpack("hh", data[pos : pos + 4])
+        # FileGDB风格压缩格式：偏移量、分辨率、第一个点坐标、差分数据
+        if len(data) >= 40:
+            # 读取偏移量（16字节）
+            min_x, min_y = struct.unpack("dd", data[:16])
+            
+            # 读取分辨率（8字节）
+            scale = struct.unpack("d", data[16:24])[0]
+            
+            # 读取第一个点的绝对坐标（16字节）
+            first_x, first_y = struct.unpack("dd", data[24:40])
+            coordinates.append((first_x, first_y))
+            
+            # 解码差分数据
+            offset = 40
+            while offset < len(data):
+                dx, offset = GeometrySerializer._decode_varint(data, offset)
+                dy, offset = GeometrySerializer._decode_varint(data, offset)
+                
                 prev_x, prev_y = coordinates[-1]
-                coordinates.append((prev_x + dx, prev_y + dy))
-                pos += 4
-        elif type_flag == 1:  # int类型
-            while pos + 8 <= len(data):
-                dx, dy = struct.unpack("ii", data[pos : pos + 8])
-                prev_x, prev_y = coordinates[-1]
-                coordinates.append((prev_x + dx, prev_y + dy))
-                pos += 8
-        elif type_flag == 2:  # float类型
-            while pos + 8 <= len(data):
-                dx, dy = struct.unpack("ff", data[pos : pos + 8])
-                prev_x, prev_y = coordinates[-1]
-                coordinates.append((prev_x + dx, prev_y + dy))
-                pos += 8
+                coordinates.append((prev_x + dx * scale, prev_y + dy * scale))
 
         return coordinates
 
     @staticmethod
+    def _encode_varint(value: int) -> bytes:
+        """变长整数编码辅助函数（类似Protocol Buffers的varint）"""
+        # 使用ZigZag编码处理负数
+        zigzag = (value << 1) ^ (value >> 63)
+        
+        data = bytearray()
+        while zigzag >= 0x80:
+            data.append((zigzag & 0xFF) | 0x80)
+            zigzag >>= 7
+        data.append(zigzag & 0xFF)
+        
+        return bytes(data)
+
+    @staticmethod
+    def _decode_varint(data: bytes, offset: int) -> Tuple[int, int]:
+        """变长整数解码辅助函数"""
+        result = 0
+        shift = 0
+        
+        while offset < len(data):
+            byte = data[offset]
+            offset += 1
+            result |= (byte & 0x7F) << shift
+            
+            if (byte & 0x80) == 0:
+                break
+            shift += 7
+        
+        # ZigZag解码
+        return ((result >> 1) ^ (-(result & 1)), offset)
+
+    @staticmethod
+    def serialize_multi_ring_polygon(rings: List[List[Tuple[float, float]]]) -> bytes:
+        """多环多边形序列化"""
+        data = bytearray()
+        
+        # 写入环的数量
+        num_rings = len(rings)
+        data.extend(struct.pack("I", num_rings))
+        
+        # 为每个环写入坐标数据
+        for ring in rings:
+            ring_data = GeometrySerializer.encode_coordinates_delta(ring)
+            # 写入环数据大小
+            ring_size = len(ring_data)
+            data.extend(struct.pack("I", ring_size))
+            # 写入环数据
+            data.extend(ring_data)
+        
+        return bytes(data)
+
+    @staticmethod
+    def deserialize_multi_ring_polygon(data: bytes) -> List[List[Tuple[float, float]]]:
+        """多环多边形反序列化"""
+        rings = []
+        
+        if len(data) < 4:
+            return rings
+        
+        offset = 0
+        
+        # 读取环的数量
+        num_rings = struct.unpack("I", data[offset:offset+4])[0]
+        offset += 4
+        
+        # 读取每个环的数据
+        for i in range(num_rings):
+            if offset + 4 > len(data):
+                break
+            
+            # 读取环数据大小
+            ring_size = struct.unpack("I", data[offset:offset+4])[0]
+            offset += 4
+            
+            if offset + ring_size > len(data):
+                break
+            
+            # 读取环数据
+            ring_data = data[offset:offset+ring_size]
+            coordinates = GeometrySerializer.decode_coordinates_delta(ring_data)
+            rings.append(coordinates)
+            
+            offset += ring_size
+        
+        return rings
+
+    @staticmethod
     def serialize_geometry(geometry: GeometryData) -> bytes:
         """序列化整个几何对象，与C++版本兼容"""
-        # 格式: feature_id(8) + geometry_type(1) + bbox(32) + coord_size(4) + coords
-        data = struct.pack(
-            "Qbdddd",
-            geometry.feature_id,
-            geometry.geometry_type.value,
+        # 格式: feature_id(8) + geometry_type(1) + padding(7) + bbox(32) + num_rings(4) + coord_size(4) + coords
+        data = bytearray()
+        
+        # 写入feature_id (8字节)
+        data.extend(struct.pack("Q", geometry.feature_id))
+        
+        # 写入geometry_type (1字节)
+        data.extend(struct.pack("B", geometry.geometry_type.value))
+        
+        # 写入7字节填充（与C++版本保持一致）
+        data.extend(b'\x00' * 7)
+        
+        # 写入bbox (32字节)
+        data.extend(struct.pack("dddd", 
             geometry.bbox[0],  # min_x
             geometry.bbox[1],  # min_y
             geometry.bbox[2],  # max_x
-            geometry.bbox[3],  # max_y
-        )
-
-        # 写入坐标数据
+            geometry.bbox[3]   # max_y
+        ))
+        
+        # 对于多边形，写入环的数量 (4字节)
+        if geometry.geometry_type == GeometryType.POLYGON:
+            # 这里需要从geometry对象获取环的数量，暂时使用1
+            num_rings = getattr(geometry, 'num_rings', 1)
+            data.extend(struct.pack("I", num_rings))
+        else:
+            # 对于非多边形，写入0表示只有一组坐标
+            data.extend(struct.pack("I", 0))
+        
+        # 写入坐标数据大小 (4字节)
         coord_size = len(geometry.coordinates)
-        data += struct.pack("I", coord_size)
-        data += geometry.coordinates
-        return data
+        data.extend(struct.pack("I", coord_size))
+        
+        # 写入坐标数据
+        data.extend(geometry.coordinates)
+        
+        return bytes(data)
 
     @staticmethod
     def deserialize_geometry(data: bytes) -> Tuple[GeometryData, int]:
-        """从二进制数据反序列化几何对象，与C++版本兼容"""
-        if len(data) < 48:
+        """从二进制数据反序列化几何对象，使用新格式"""
+        if len(data) < 56:  # 新格式最小长度：feature_id(8) + geometry_type(1) + padding(7) + bbox(32) + num_rings(4) + coord_size(4)
             raise ValueError("数据长度不足，无法反序列化几何对象")
 
-        # 解析基本字段
-        feature_id, geometry_type_val, min_x, min_y, max_x, max_y = struct.unpack(
-            "Qbdddd", data[:48]
-        )
+        offset = 0
 
-        offset = 48
+        # 读取feature_id
+        feature_id = struct.unpack("Q", data[offset:offset+8])[0]
+        offset += 8
 
-        # 检查坐标数据长度
-        if offset + 4 > len(data):
-            raise ValueError("坐标数据长度不足")
+        # 读取geometry_type
+        geometry_type_val = struct.unpack("B", data[offset:offset+1])[0]
+        offset += 1
 
-        coord_size = struct.unpack("I", data[offset : offset + 4])[0]
+        # 跳过7字节填充
+        offset += 7
+
+        # 读取bbox
+        min_x, min_y, max_x, max_y = struct.unpack("dddd", data[offset:offset+32])
+        offset += 32
+
+        # 读取环的数量
+        num_rings = struct.unpack("I", data[offset:offset+4])[0]
+        offset += 4
+
+        # 读取坐标数据大小
+        coord_size = struct.unpack("I", data[offset:offset+4])[0]
         offset += 4
 
         if offset + coord_size > len(data):
             raise ValueError("坐标数据不完整")
 
-        # 获取压缩的坐标数据
-        compressed_coords = data[offset : offset + coord_size]
+        # 读取坐标数据
+        compressed_coords = data[offset:offset+coord_size]
 
         return (
             GeometryData(
@@ -172,6 +307,7 @@ class GeometrySerializer:
                 GeometryType(geometry_type_val),
                 compressed_coords,
                 (min_x, min_y, max_x, max_y),
+                num_rings,
             ),
             offset + coord_size,
         )

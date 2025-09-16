@@ -25,11 +25,11 @@ class ShapefileConverter:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
-        # 构造文件路径
-        geom_file_path = os.path.join(output_dir, f"{shapefile_name}_geom.dat")
-        attr_file_path = os.path.join(output_dir, f"{shapefile_name}_attr.dat")
-        pool_file_path = os.path.join(output_dir, f"{shapefile_name}_pool.dat")
-        self.index_file = os.path.join(output_dir, f"{shapefile_name}_index.dat")
+        # 构造文件路径 - 使用新的文件扩展名
+        geom_file_path = os.path.join(output_dir, f"{shapefile_name}.geom")
+        attr_file_path = os.path.join(output_dir, f"{shapefile_name}.attr")
+        pool_file_path = os.path.join(output_dir, f"{shapefile_name}.pool")
+        self.index_file = os.path.join(output_dir, f"{shapefile_name}.idx")
 
         # 保存shapefile路径和名称
         self.shapefile_path = shapefile_path
@@ -190,6 +190,9 @@ class ShapefileConverter:
 
                 # 创建几何数据对象
                 geom_data = GeometryData(fid, geom_type, coord_data, bbox)
+                # 为多边形设置环数量
+                if geom_type == GeometryType.POLYGON:
+                    geom_data.num_rings = 1  # 默认单环多边形
 
                 # 写入几何数据
                 geom_offset = self.geometry_storage.write_geometry(geom_data)

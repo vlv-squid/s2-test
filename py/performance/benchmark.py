@@ -43,11 +43,11 @@ class GISBenchmark:
         # 初始化自定义GIS存储系统
         self.gis_system = GisStorageSystem(output_dir)
         self.geometry_storage = GeometryStorage(
-            f"{output_dir}/{self.shapefile_name}_geom.dat"
+            f"{output_dir}/{self.shapefile_name}.geom"
         )
         self.attribute_storage = AttributeStorage(
-            f"{output_dir}/{self.shapefile_name}_attr.dat",
-            f"{output_dir}/{self.shapefile_name}_pool.dat",
+            f"{output_dir}/{self.shapefile_name}.attr",
+            f"{output_dir}/{self.shapefile_name}.pool",
         )
 
         # 初始化S2索引
@@ -66,19 +66,19 @@ class GISBenchmark:
 
     def convert_shapefile_if_needed(self):
         """如果需要，转换Shapefile为自定义格式"""
-        geom_file = f"{self.output_dir}/{self.shapefile_name}_geom.dat"
+        geom_file = f"{self.output_dir}/{self.shapefile_name}.geom"
         if not os.path.exists(geom_file):
             print("转换Shapefile为自定义格式...")
             valid_fids = self.gis_system.convert_shapefile(self.shapefile_path)
             print(f"转换完成，有效要素数量: {len(valid_fids)}")
 
             # 转换完成后，重新加载字符串池
-            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}_pool.dat"):
+            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}.pool"):
                 self.attribute_storage.load_string_pool()
         else:
             print("自定义格式文件已存在，跳过转换")
             # 确保字符串池已加载
-            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}_pool.dat"):
+            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}.pool"):
                 self.attribute_storage.load_string_pool()
 
     def run_multiple_tests(self, test_func, *args, **kwargs) -> List[Dict]:

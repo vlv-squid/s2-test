@@ -132,11 +132,13 @@ class GeometryData:
         geometry_type: GeometryType,
         coordinates: bytes,
         bbox: Tuple[float, float, float, float],
+        num_rings: int = 0,
     ):
         self.feature_id = feature_id
         self.geometry_type = geometry_type
         self.coordinates = coordinates  # 压缩的坐标数据
         self.bbox = bbox
+        self.num_rings = num_rings  # 环数量（用于多边形）
 
     def decode_coordinates(self) -> List[Tuple[float, float]]:
         """解码压缩的坐标数据，与C++版本兼容"""

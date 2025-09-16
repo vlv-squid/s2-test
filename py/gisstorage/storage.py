@@ -16,20 +16,20 @@ class GeometryStorage:
 
     @staticmethod
     def calculate_geometry_size(geometry: GeometryData) -> int:
-        """计算几何对象序列化后的大小"""
-        # feature_id(8) + geometry_type(1) + bbox(32) + coord_size(4) + coords
-        return 8 + 1 + 32 + 4 + len(geometry.coordinates)
+        """计算几何对象序列化后的大小（新格式）"""
+        # feature_id(8) + geometry_type(1) + padding(7) + bbox(32) + num_rings(4) + coord_size(4) + coords
+        return 8 + 1 + 7 + 32 + 4 + 4 + len(geometry.coordinates)
 
     @staticmethod
     def get_serialized_size_from_header(data: bytes) -> int:
-        """从数据头部获取完整序列化数据的大小"""
-        if len(data) < 48:  # 最小头部长度
+        """从数据头部获取完整序列化数据的大小（新格式）"""
+        if len(data) < 56:  # 新格式最小长度：52字节头部 + 4字节coord_size
             return 0
 
         # 解析坐标数据长度
-        coord_size = struct.unpack("I", data[44:48])[0]
-        # 总大小 = 头部(48) + 坐标大小字段(4) + 坐标数据(coord_size)
-        return 48 + 4 + coord_size
+        coord_size = struct.unpack("I", data[52:56])[0]
+        # 总大小 = 头部(52) + 坐标大小字段(4) + 坐标数据(coord_size)
+        return 52 + 4 + coord_size
 
     def __init__(self, geometry_file: str):
         self.geometry_file = geometry_file
@@ -64,25 +64,26 @@ class GeometryStorage:
         offset = feature_offsets[feature_id]
         with open(self.geometry_file, "rb") as f:
             f.seek(offset)
-            # 先读取头部数据以确定需要读取的总大小
-            header_data = f.read(48)  # 读取头部信息
-            if len(header_data) < 48:
+            
+            # 读取完整的数据记录（新格式）
+            # 先读取前56字节（包含coord_size字段）
+            header_data = f.read(56)
+            if len(header_data) < 56:
                 raise ValueError(f"几何数据不完整 for FID {feature_id}")
-
-            # 获取坐标数据大小
-            coord_size_data = f.read(4)  # 读取坐标大小字段
-            if len(coord_size_data) < 4:
-                raise ValueError(f"几何数据不完整 for FID {feature_id}")
-
-            coord_size = struct.unpack("I", coord_size_data)[0]
-
+            
+            # 新格式：52字节头部 + 4字节coord_size
+            coord_size = struct.unpack("I", header_data[52:56])[0]
+            header_data = header_data[:52]
+            
             # 读取坐标数据
+            f.seek(offset + 56)  # 跳过52字节头部 + 4字节coord_size
             coord_data = f.read(coord_size)
             if len(coord_data) < coord_size:
                 raise ValueError(f"几何坐标数据不完整 for FID {feature_id}")
 
             # 组合所有数据进行反序列化
-            geom_data = header_data + coord_size_data + coord_data
+            geom_data = header_data + struct.pack("I", coord_size) + coord_data
+            
             # 创建序列化器实例
             serializer = GeometrySerializer()
             geometry, _ = serializer.deserialize_geometry(geom_data)
@@ -110,11 +111,8 @@ class GeometryStorage:
                     break
                 feature_id = struct.unpack("Q", feature_id_data)[0]
 
-                # 跳过geometry_type(1)
-                f.seek(1, 1)
-
-                # 跳过bbox(32)
-                f.seek(32, 1)
+                # 跳过geometry_type(1) + padding(7) + bbox(32) + num_rings(4)
+                f.seek(44, 1)
 
                 # 读取坐标数据大小
                 coord_size_data = f.read(4)

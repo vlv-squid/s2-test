@@ -37,34 +37,35 @@ def threaded_attribute_read(attribute_storage, fid, results, errors):
 
 if __name__ == "__main__":
     # 1. 转换Shapefile
-    # print("=== 转换Shapefile ===")
-    # storage_system = GisStorageSystem("./output_data")
-    # validfid_num = storage_system.convert_shapefile(
-    #     "/home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp")
-    # print(f"转换生成的有效FID数量: {len(validfid_num)}")
+    print("=== 转换Shapefile ===")
+    storage_system = GisStorageSystem("./output_data")
+    validfid_num = storage_system.convert_shapefile(
+        "/home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp")
+    print(f"转换生成的有效FID数量: {len(validfid_num)}")
 
-    # 2. 使用S2索引进行空间查询
-    # shapefile_name = os.path.splitext(
-    #     os.path.basename(
-    #         "./home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp"))[0]
-    # index_file = f"./index_py/s2.pkl"
-    # s2_index = S2SpatialIndex(
-    #     "./home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp",
-    #     index_file,
-    #     resolution=15)
+    # 2. 使用S2索引进行空间查询（暂时注释掉）
+    shapefile_name = os.path.splitext(
+        os.path.basename(
+            "./home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp"))[0]
+    index_file = f"./index_py/s2.pkl"
+    s2_index = S2SpatialIndex(
+        "./home/chenming/Data/GIS_DATA/shapefile/dltb_532300_2020.shp",
+        index_file,
+        resolution=15)
 
-    # print("\n=== 空间查询 ===")
-    # bbox = (103.2504, 26.4297, 103.3028, 26.4747)
-    # candidate_fids = s2_index.query_by_bbox(bbox)
-    # print(f"查询到 {len(candidate_fids)} 个候选要素")
+    print("\n=== 空间查询 ===")
+    bbox = (103.2504, 26.4297, 103.3028, 26.4747)
+    candidate_fids = s2_index.query_by_bbox(bbox)
+    print(f"查询到 {len(candidate_fids)} 个候选要素")
 
     # 3. 解析二进制文件测试
     print("\n=== 解析二进制文件测试 ===")
 
-    # 初始化存储对象
-    geometry_storage = GeometryStorage("./output_data/test_geom.dat")
+    # 使用新的文件扩展名和正确的文件名
+    shapefile_name = "dltb_532300_2020"  # 从转换的shapefile名称获取
+    geometry_storage = GeometryStorage(f"./output_data/{shapefile_name}.geom")
     attribute_storage = AttributeStorage(
-        "./output_data/test_attr.dat", "./output_data/test_pool.dat"
+        f"./output_data/{shapefile_name}.attr", f"./output_data/{shapefile_name}.pool"
     )
 
     # 加载字符串池

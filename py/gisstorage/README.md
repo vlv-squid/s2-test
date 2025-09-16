@@ -184,7 +184,7 @@ storage = GisStorageSystem(
 ```python
 # 创建几何存储
 geom_storage = GeometryStorage(
-    geometry_file="./output/geom.dat",
+    geometry_file="./output/geom.geom",
     use_delta_encoding=True,  # 启用差分编码
     precision=6               # 坐标精度
 )
@@ -195,7 +195,7 @@ geom_storage = GeometryStorage(
 ```python
 # 创建属性存储
 attr_storage = AttributeStorage(
-    attribute_file="./output/attr.dat",
+    attribute_file="./output/attr.attr",
     use_string_pool=True,     # 启用字符串池
     pool_size=10000           # 字符串池大小
 )
@@ -273,7 +273,7 @@ print(f"属性文件大小: {stats['attribute_size']} bytes")
    ```python
    # 调整坐标精度
    geom_storage = GeometryStorage(
-       geometry_file="./output/geom.dat",
+       geometry_file="./output/geom.geom",
        precision=8  # 增加精度
    )
    ```
