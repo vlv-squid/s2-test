@@ -763,7 +763,19 @@ namespace GisStorage {
             metadata_.target_coordinate_system = metadata_json.value("target_coordinate_system", "");
             metadata_.total_features = metadata_json.value("total_features", 0);
             metadata_.valid_features = metadata_json.value("valid_features", 0);
-            metadata_.field_definitions = metadata_json.value("field_definitions", std::map<std::string, std::string>{});
+            // 处理字段定义，支持数字和字符串类型
+            if (metadata_json.contains("field_definitions")) {
+                auto field_defs = metadata_json["field_definitions"];
+                for (auto& [field_name, field_type] : field_defs.items()) {
+                    if (field_type.is_string()) {
+                        metadata_.field_definitions[field_name] = field_type.get<std::string>();
+                    } else if (field_type.is_number()) {
+                        metadata_.field_definitions[field_name] = std::to_string(field_type.get<int>());
+                    } else {
+                        metadata_.field_definitions[field_name] = field_type.dump();
+                    }
+                }
+            }
             metadata_.file_sizes = metadata_json.value("file_sizes", std::map<std::string, size_t>{});
             metadata_.checksums = metadata_json.value("checksums", std::map<std::string, std::string>{});
             // 处理compression_info，它可能是一个JSON对象或字符串
