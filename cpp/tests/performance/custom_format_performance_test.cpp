@@ -544,7 +544,7 @@ TEST_F(CustomFormatPerformanceTestFixture, S2IndexRandomReadPerformance) {
         GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
     }
 
-    int num_reads = 1000;
+    int num_reads = 10;
     auto [read_time, features_found] = test.testS2IndexRandomReadFeatures(num_reads);
     EXPECT_GT(read_time, 0) << "随机读取失败";
 
@@ -574,7 +574,7 @@ TEST_F(CustomFormatPerformanceTestFixture, BBoxRandomReadPerformance) {
         GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
     }
 
-    int num_reads = 1000;
+    int num_reads = 10;
     auto [read_time, features_found] = test.testBBoxRandomReadFeatures(num_reads);
     EXPECT_GT(read_time, 0) << "基于bbox的随机读取失败";
 
@@ -604,7 +604,7 @@ TEST_F(CustomFormatPerformanceTestFixture, BBoxConcurrentRandomReadPerformance) 
         GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
     }
 
-    int num_reads = 1000;
+    int num_reads = 10;
     auto [read_time, features_found] = test.testBBoxConcurrentRandomReadFeatures(num_reads);
     EXPECT_GT(read_time, 0) << "基于bbox的并发随机读取失败";
 

@@ -33,23 +33,42 @@ namespace GisStorage {
 
     std::unique_ptr<GeometryData> GisStorageSystem::ReadGeometry(uint64_t feature_id) {
         if (!geometry_storage_) {
-            throw std::runtime_error("几何存储未初始化");
+            // 轻量级模式：按需初始化几何存储
+            InitializeFilePaths();
+            geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
+            if (std::filesystem::exists(index_file_)) {
+                geometry_storage_->LoadIndexFromFile(index_file_);
+            }
         }
         return geometry_storage_->ReadGeometry(feature_id);
     }
 
     std::unique_ptr<AttributeData> GisStorageSystem::ReadAttribute(uint64_t feature_id) {
         if (!attribute_storage_) {
-            throw std::runtime_error("属性存储未初始化");
+            // 轻量级模式：按需初始化属性存储
+            InitializeFilePaths();
+            attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+            if (std::filesystem::exists(index_file_)) {
+                attribute_storage_->LoadIndexFromFile(index_file_);
+            }
         }
         return attribute_storage_->ReadAttribute(feature_id);
     }
 
     std::vector<uint64_t> GisStorageSystem::GetAllFeatureIds() {
-        if (!geometry_storage_) {
-            return {};
+        if (geometry_storage_) {
+            return geometry_storage_->GetAllFeatureIds();
+        } else {
+            // 轻量级模式：从元数据获取总要素数，生成FID列表
+            const auto& metadata = GetMetadata();
+            size_t valid_features = metadata.valid_features;
+            std::vector<uint64_t> feature_ids;
+            feature_ids.reserve(valid_features);
+            for (size_t i = 1; i <= valid_features; ++i) {
+                feature_ids.push_back(i);
+            }
+            return feature_ids;
         }
-        return geometry_storage_->GetAllFeatureIds();
     }
 
     std::map<uint64_t, std::unique_ptr<GeometryData>> GisStorageSystem::ReadGeometries(const std::vector<uint64_t>& feature_ids) {
