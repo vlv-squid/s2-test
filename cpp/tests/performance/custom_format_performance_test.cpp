@@ -401,7 +401,7 @@ TEST_F(CustomFormatPerformanceTestFixture, CustomFormatValid) {
         std::cout << "  生成的文件:" << std::endl;
         std::vector<std::pair<std::string, std::string>> files = {{"几何数据", data_dir + "/" + dataset_name + ".geom"},
                                                                   {"属性数据", data_dir + "/" + dataset_name + ".attr"},
-                                                                  {"字符串池", data_dir + "/" + dataset_name + ".str"},
+                                                                  {"字符串池", data_dir + "/" + dataset_name + ".pool"},
                                                                   {"索引数据", data_dir + "/" + dataset_name + ".idx"},
                                                                   {"元数据", data_dir + "/" + dataset_name + "_meta.json"},
                                                                   {"S2索引", data_dir + "/" + dataset_name + ".s2idx"}};
