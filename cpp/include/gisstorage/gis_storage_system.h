@@ -106,6 +106,10 @@ namespace GisStorage {
         size_t GetS2IndexSize() const;
         size_t GetS2TotalFeatureCount() const;
 
+        // 基于bbox的空间查询方法（不依赖S2索引）
+        std::vector<uint64_t> QueryByBBox(const BBox& query_bbox);
+        std::vector<uint64_t> QueryByBBoxParallel(const BBox& query_bbox);
+
         // 元数据管理
         const Metadata& GetMetadata() const { return metadata_; }
         void UpdateMetadata(const Metadata& metadata);
@@ -160,6 +164,9 @@ namespace GisStorage {
         void UpdateMetadataStats();
         std::string CalculateFileChecksum(const std::string& file_path);
         std::string GetCurrentTimestamp();
+
+        // bbox相交判断辅助函数
+        bool IsBBoxIntersecting(const BBox& bbox1, const BBox& bbox2) const;
     };
 
 } // namespace GisStorage

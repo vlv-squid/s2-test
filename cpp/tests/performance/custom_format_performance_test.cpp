@@ -33,8 +33,8 @@ class CustomFormatPerformanceTest {
         // 初始化存储系统
         storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(data_dir_);
 
-        // 设置数据集名称（轻量级加载，只加载S2索引）
-        storage_system_->SetDatasetNameLightweight(dataset_name_);
+        // 设置数据集名称（完整加载，包括几何和属性存储）
+        storage_system_->SetDatasetName(dataset_name_);
 
         // 加载元数据获取基本信息
         storage_system_->LoadMetadata();
@@ -63,7 +63,7 @@ class CustomFormatPerformanceTest {
     const GisStorage::BBox& getDataExtent() const { return data_extent_; }
 
     // 测试顺序读取所有要素（轻量级模式：只测试S2索引查询）
-    double testSequentialReadAll() {
+    double testS2IndexSequentialReadAll() {
         if (!isValid())
             return -1.0;
 
@@ -82,7 +82,7 @@ class CustomFormatPerformanceTest {
     }
 
     // 测试随机读取指定数量的要素（轻量级模式：随机空间查询）
-    std::pair<double, size_t> testRandomReadFeatures(int num_reads = 1000) {
+    std::pair<double, size_t> testS2IndexRandomReadFeatures(int num_reads = 1000) {
         if (!isValid() || total_features_ == 0)
             return {-1.0, 0};
 
@@ -114,27 +114,95 @@ class CustomFormatPerformanceTest {
         return {duration.count() / 1000.0, total_features_found}; // 返回毫秒和找到的要素总数
     }
 
-    // 测试空间查询 - 边界框查询
-    double testSpatialQueryBBox(double min_x, double min_y, double max_x, double max_y, int num_queries = 100) {
+    // 测试基于bbox的顺序读取所有要素
+    double testSequentialReadAll() {
         if (!isValid())
             return -1.0;
 
-        // 创建查询边界框
-        GisStorage::BBox query_bbox(min_x, min_y, max_x, max_y);
-
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        size_t total_results = 0;
-        for (int i = 0; i < num_queries; ++i) {
-            // 使用S2索引进行空间查询
-            auto result_ids = storage_system_->QueryS2Index(query_bbox);
-            total_results += result_ids.size();
+        // 直接获取所有要素ID，然后批量读取几何数据
+        auto all_feature_ids = storage_system_->GetAllFeatureIds();
+
+        if (all_feature_ids.empty()) {
+            return 0.0;
         }
+
+        // 限制读取数量以避免测试时间过长（对于大数据集）
+        size_t max_features = std::min(all_feature_ids.size(), size_t(10000));
+        std::vector<uint64_t> limited_ids(all_feature_ids.begin(), all_feature_ids.begin() + max_features);
+
+        auto geometries = storage_system_->ReadGeometries(limited_ids);
+        size_t count = geometries.size();
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
 
         return duration.count() / 1000.0; // 返回毫秒
+    }
+
+    // 测试基于bbox的随机读取指定数量的要素
+    std::pair<double, size_t> testBBoxRandomReadFeatures(int num_reads = 1000) {
+        if (!isValid() || total_features_ == 0)
+            return {-1.0, 0};
+
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<double> x_dis(data_extent_.min_x, data_extent_.max_x);
+        std::uniform_real_distribution<double> y_dis(data_extent_.min_y, data_extent_.max_y);
+        std::uniform_real_distribution<double> size_dis(0.001, 0.01); // 很小的查询范围
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+        size_t total_features_found = 0;
+
+        for (int i = 0; i < num_reads; ++i) {
+            // 生成随机小范围查询
+            double center_x = x_dis(gen);
+            double center_y = y_dis(gen);
+            double range = size_dis(gen);
+
+            GisStorage::BBox query_bbox(center_x - range, center_y - range, center_x + range, center_y + range);
+
+            auto result_ids = storage_system_->QueryByBBox(query_bbox);
+            total_features_found += result_ids.size();
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+
+        return {duration.count() / 1000.0, total_features_found}; // 返回毫秒和找到的要素总数
+    }
+
+    // 测试基于bbox的并发随机读取指定数量的要素
+    std::pair<double, size_t> testBBoxConcurrentRandomReadFeatures(int num_reads = 1000) {
+        if (!isValid() || total_features_ == 0)
+            return {-1.0, 0};
+
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<double> x_dis(data_extent_.min_x, data_extent_.max_x);
+        std::uniform_real_distribution<double> y_dis(data_extent_.min_y, data_extent_.max_y);
+        std::uniform_real_distribution<double> size_dis(0.001, 0.01); // 很小的查询范围
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+        size_t total_features_found = 0;
+
+        for (int i = 0; i < num_reads; ++i) {
+            // 生成随机小范围查询
+            double center_x = x_dis(gen);
+            double center_y = y_dis(gen);
+            double range = size_dis(gen);
+
+            GisStorage::BBox query_bbox(center_x - range, center_y - range, center_x + range, center_y + range);
+
+            auto result_ids = storage_system_->QueryByBBoxParallel(query_bbox);
+            total_features_found += result_ids.size();
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+
+        return {duration.count() / 1000.0, total_features_found}; // 返回毫秒和找到的要素总数
     }
 
     // 单次空间查询并返回结果数量
@@ -429,6 +497,30 @@ TEST_F(CustomFormatPerformanceTestFixture, SequentialReadPerformance) {
     }
 
     double read_time = test.testSequentialReadAll();
+    EXPECT_GT(read_time, 0) << "基于bbox的顺序读取失败";
+
+    std::cout << "基于bbox的顺序读取性能测试:" << std::endl;
+    std::cout << "  查询时间: " << read_time << " ms" << std::endl;
+    std::cout << "  总要素数: " << test.getTotalFeatures() << std::endl;
+
+    if (read_time > 0 && test.getTotalFeatures() > 0) {
+        double features_per_second = test.getTotalFeatures() / (read_time / 1000.0);
+        std::cout << "  查询速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+    }
+}
+
+TEST_F(CustomFormatPerformanceTestFixture, S2IndexSequentialReadPerformance) {
+    std::string metadata_file = data_dir + "/" + dataset_name + "_meta.json";
+    if (!std::filesystem::exists(metadata_file)) {
+        GTEST_SKIP() << "测试文件不存在，跳过测试";
+    }
+
+    CustomFormatPerformanceTest test(data_dir, dataset_name);
+    if (!test.isValid()) {
+        GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
+    }
+
+    double read_time = test.testS2IndexSequentialReadAll();
     EXPECT_GT(read_time, 0) << "顺序读取失败";
 
     std::cout << "顺序读取性能测试 (轻量级模式 - S2索引查询):" << std::endl;
@@ -441,7 +533,7 @@ TEST_F(CustomFormatPerformanceTestFixture, SequentialReadPerformance) {
     }
 }
 
-TEST_F(CustomFormatPerformanceTestFixture, RandomReadPerformance) {
+TEST_F(CustomFormatPerformanceTestFixture, S2IndexRandomReadPerformance) {
     std::string metadata_file = data_dir + "/" + dataset_name + "_meta.json";
     if (!std::filesystem::exists(metadata_file)) {
         GTEST_SKIP() << "测试文件不存在，跳过测试";
@@ -453,10 +545,70 @@ TEST_F(CustomFormatPerformanceTestFixture, RandomReadPerformance) {
     }
 
     int num_reads = 1000;
-    auto [read_time, features_found] = test.testRandomReadFeatures(num_reads);
+    auto [read_time, features_found] = test.testS2IndexRandomReadFeatures(num_reads);
     EXPECT_GT(read_time, 0) << "随机读取失败";
 
     std::cout << "随机读取性能测试 (轻量级模式 - 随机S2查询, " << num_reads << "次):" << std::endl;
+    std::cout << "  查询时间: " << read_time << " ms" << std::endl;
+    std::cout << "  找到要素总数: " << features_found << std::endl;
+
+    if (read_time > 0) {
+        double queries_per_second = num_reads / (read_time / 1000.0);
+        std::cout << "  查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
+
+        if (features_found > 0) {
+            double features_per_second = features_found / (read_time / 1000.0);
+            std::cout << "  要素查询速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+        }
+    }
+}
+
+TEST_F(CustomFormatPerformanceTestFixture, BBoxRandomReadPerformance) {
+    std::string metadata_file = data_dir + "/" + dataset_name + "_meta.json";
+    if (!std::filesystem::exists(metadata_file)) {
+        GTEST_SKIP() << "测试文件不存在，跳过测试";
+    }
+
+    CustomFormatPerformanceTest test(data_dir, dataset_name);
+    if (!test.isValid()) {
+        GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
+    }
+
+    int num_reads = 1000;
+    auto [read_time, features_found] = test.testBBoxRandomReadFeatures(num_reads);
+    EXPECT_GT(read_time, 0) << "基于bbox的随机读取失败";
+
+    std::cout << "基于bbox的随机读取性能测试 (" << num_reads << "次):" << std::endl;
+    std::cout << "  查询时间: " << read_time << " ms" << std::endl;
+    std::cout << "  找到要素总数: " << features_found << std::endl;
+
+    if (read_time > 0) {
+        double queries_per_second = num_reads / (read_time / 1000.0);
+        std::cout << "  查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
+
+        if (features_found > 0) {
+            double features_per_second = features_found / (read_time / 1000.0);
+            std::cout << "  要素查询速度: " << std::fixed << std::setprecision(0) << features_per_second << " 要素/秒" << std::endl;
+        }
+    }
+}
+
+TEST_F(CustomFormatPerformanceTestFixture, BBoxConcurrentRandomReadPerformance) {
+    std::string metadata_file = data_dir + "/" + dataset_name + "_meta.json";
+    if (!std::filesystem::exists(metadata_file)) {
+        GTEST_SKIP() << "测试文件不存在，跳过测试";
+    }
+
+    CustomFormatPerformanceTest test(data_dir, dataset_name);
+    if (!test.isValid()) {
+        GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
+    }
+
+    int num_reads = 1000;
+    auto [read_time, features_found] = test.testBBoxConcurrentRandomReadFeatures(num_reads);
+    EXPECT_GT(read_time, 0) << "基于bbox的并发随机读取失败";
+
+    std::cout << "基于bbox的并发随机读取性能测试 (" << num_reads << "次):" << std::endl;
     std::cout << "  查询时间: " << read_time << " ms" << std::endl;
     std::cout << "  找到要素总数: " << features_found << std::endl;
 
@@ -724,7 +876,6 @@ TEST_P(QueryCountTest, RandomSpatialQueryWithDifferentCounts) {
 }
 
 INSTANTIATE_TEST_SUITE_P(QueryCounts, QueryCountTest, ::testing::Values(10, 50, 100, 200, 500));
-
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

@@ -635,6 +635,201 @@ namespace GisStorage {
         }
     }
 
+    // 基于bbox的空间查询方法（不依赖S2索引）
+    std::vector<uint64_t> GisStorageSystem::QueryByBBox(const BBox& query_bbox) {
+        std::vector<uint64_t> results;
+
+        // 如果几何存储未初始化，尝试按需初始化
+        if (!geometry_storage_) {
+            try {
+                // 重新初始化文件路径
+                InitializeFilePaths();
+                // 初始化几何存储对象
+                geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    geometry_storage_->LoadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "几何存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            std::cout << "      基于bbox的空间查询：范围=[" << query_bbox.min_x << "," << query_bbox.min_y << " - " << query_bbox.max_x << "," << query_bbox.max_y << "]" << std::endl;
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            // 获取所有要素ID
+            std::vector<uint64_t> all_feature_ids;
+            if (geometry_storage_) {
+                all_feature_ids = geometry_storage_->GetAllFeatureIds();
+            } else {
+                // 轻量级模式：从元数据获取总要素数，生成FID列表
+                const auto& metadata = GetMetadata();
+                size_t total_features = metadata.total_features;
+                all_feature_ids.reserve(total_features);
+                for (size_t i = 1; i <= total_features; ++i) {
+                    all_feature_ids.push_back(i);
+                }
+            }
+
+            std::cout << "      将查询 " << all_feature_ids.size() << " 个要素的bbox" << std::endl;
+
+            // 批量读取几何数据并检查bbox相交
+            const size_t batch_size = 10000;
+            size_t processed = 0;
+            size_t found_count = 0;
+
+            for (size_t i = 0; i < all_feature_ids.size(); i += batch_size) {
+                size_t end_idx = std::min(i + batch_size, all_feature_ids.size());
+                std::vector<uint64_t> batch_ids(all_feature_ids.begin() + i, all_feature_ids.begin() + end_idx);
+
+                // 批量读取几何数据
+                auto batch_geometries = ReadGeometries(batch_ids);
+
+                // 处理批量结果
+                for (const auto& [fid, geom] : batch_geometries) {
+                    if (geom) {
+                        const BBox& feature_bbox = geom->GetBBox();
+                        if (IsBBoxIntersecting(query_bbox, feature_bbox)) {
+                            results.push_back(fid);
+                            found_count++;
+                        }
+                    }
+                }
+
+                processed += batch_ids.size();
+
+                // 每处理1万个要素显示一次进度
+                if (processed % 50000 == 0 || processed == all_feature_ids.size()) {
+                    auto current_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                    double speed = processed / (elapsed.count() / 1000.0);
+                    std::cout << "\r      进度: " << processed << "/" << all_feature_ids.size() << " (" << (100.0 * processed / all_feature_ids.size()) << "%) " << "找到: " << found_count
+                              << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::flush;
+                }
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      bbox查询完成，找到 " << results.size() << " 个相交要素，耗时 " << total_elapsed.count() << " ms" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "bbox查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
+    // 并行版本的bbox查询方法
+    std::vector<uint64_t> GisStorageSystem::QueryByBBoxParallel(const BBox& query_bbox) {
+        std::vector<uint64_t> results;
+
+        // 如果几何存储未初始化，尝试按需初始化
+        if (!geometry_storage_) {
+            try {
+                // 重新初始化文件路径
+                InitializeFilePaths();
+                // 初始化几何存储对象
+                geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
+                // 加载索引
+                if (std::filesystem::exists(index_file_)) {
+                    geometry_storage_->LoadIndexFromFile(index_file_);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "几何存储初始化失败: " << e.what() << std::endl;
+                return results;
+            }
+        }
+
+        try {
+            std::cout << "      并行bbox空间查询：范围=[" << query_bbox.min_x << "," << query_bbox.min_y << " - " << query_bbox.max_x << "," << query_bbox.max_y << "]" << std::endl;
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            // 获取所有要素ID
+            std::vector<uint64_t> all_feature_ids;
+            if (geometry_storage_) {
+                all_feature_ids = geometry_storage_->GetAllFeatureIds();
+            } else {
+                // 轻量级模式：从元数据获取总要素数，生成FID列表
+                const auto& metadata = GetMetadata();
+                size_t total_features = metadata.total_features;
+                all_feature_ids.reserve(total_features);
+                for (size_t i = 1; i <= total_features; ++i) {
+                    all_feature_ids.push_back(i);
+                }
+            }
+
+            std::cout << "      将并行查询 " << all_feature_ids.size() << " 个要素的bbox" << std::endl;
+
+            // 使用TBB并行处理
+            tbb::concurrent_vector<uint64_t> concurrent_results;
+            std::atomic<size_t> processed_count{0};
+            std::atomic<size_t> found_count{0};
+            std::mutex progress_mutex; // 用于进度输出的线程安全
+
+            // 并行处理要素
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, all_feature_ids.size()), [&](const tbb::blocked_range<size_t>& range) {
+                std::vector<uint64_t> local_results; // 本地结果缓存，减少锁竞争
+                local_results.reserve(1000);         // 预分配空间
+
+                for (size_t i = range.begin(); i != range.end(); ++i) {
+                    uint64_t fid = all_feature_ids[i];
+                    try {
+                        auto geom = geometry_storage_->ReadGeometry(fid);
+                        if (geom) {
+                            const BBox& feature_bbox = geom->GetBBox();
+                            if (IsBBoxIntersecting(query_bbox, feature_bbox)) {
+                                local_results.push_back(fid);
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        // 忽略单个要素读取错误，继续处理其他要素
+                        continue;
+                    }
+
+                    size_t current_processed = processed_count.fetch_add(1) + 1;
+
+                    // 每处理10万个要素显示一次进度（使用锁确保输出不混乱）
+                    if (current_processed % 100000 == 0) {
+                        std::lock_guard<std::mutex> lock(progress_mutex);
+                        auto current_time = std::chrono::high_resolution_clock::now();
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                        double speed = current_processed / (elapsed.count() / 1000.0);
+                        std::cout << "\r      进度: " << current_processed << "/" << all_feature_ids.size() << " (" << (100.0 * current_processed / all_feature_ids.size()) << "%) " << "找到: " << found_count.load()
+                                  << " 速度: " << static_cast<int>(speed) << " 要素/秒" << std::flush;
+                    }
+                }
+
+                // 批量添加本地结果到并发向量
+                if (!local_results.empty()) {
+                    for (const auto& fid : local_results) {
+                        concurrent_results.push_back(fid);
+                    }
+                    found_count.fetch_add(local_results.size());
+                }
+            });
+
+            // 将并发结果转换为普通向量
+            results.reserve(concurrent_results.size());
+            for (const auto& fid : concurrent_results) {
+                results.push_back(fid);
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      并行bbox查询完成，找到 " << results.size() << " 个相交要素，耗时 " << total_elapsed.count() << " ms" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "并行bbox查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
     void GisStorageSystem::SaveS2Index() {
         if (s2_spatial_index_) {
             s2_spatial_index_->Save();
@@ -923,6 +1118,14 @@ namespace GisStorage {
         std::stringstream ss;
         ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
         return ss.str();
+    }
+
+    // bbox相交判断辅助函数
+    bool GisStorageSystem::IsBBoxIntersecting(const BBox& bbox1, const BBox& bbox2) const {
+        // 两个bbox相交的条件：
+        // bbox1的右边界 >= bbox2的左边界 且 bbox1的左边界 <= bbox2的右边界
+        // bbox1的上边界 >= bbox2的下边界 且 bbox1的下边界 <= bbox2的上边界
+        return (bbox1.max_x >= bbox2.min_x && bbox1.min_x <= bbox2.max_x) && (bbox1.max_y >= bbox2.min_y && bbox1.min_y <= bbox2.max_y);
     }
 
 } // namespace GisStorage
