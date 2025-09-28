@@ -21,7 +21,7 @@
 #include "gisindex/s2spatial_index.h"
 
 // 测试配置
-const std::string TEST_DATA_PATH = "/home/chenming/Data/GIS_DATA/filegdb/DLTB_2021CG.gdb";
+const std::string TEST_DATA_PATH = "/home/chenming/Data/GIS_DATA/filegdb/td_gtbhdc_bg_530000_2020.gdb";
 const std::string OUTPUT_DIR = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
 const std::string INDEX_DIR = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
 
@@ -38,8 +38,12 @@ class IntegratedGisFormatTest : public ::testing::Test {
         // 初始化存储系统
         storage_system_ = std::make_unique<GisStorage::GisStorageSystem>(OUTPUT_DIR);
 
-        // 初始化S2空间索引 - 使用GisStorageSystem中定义的标准扩展名
-        std::string s2_index_path = INDEX_DIR + "/test" + GisStorage::GisStorageSystem::FileExtensions::S2_INDEX;
+        // 从测试数据路径提取文件名，确保S2索引文件名与其他自定义格式文件名一致
+        std::filesystem::path test_data_path(TEST_DATA_PATH);
+        std::string dataset_name = test_data_path.stem().string();
+
+        // 初始化S2空间索引
+        std::string s2_index_path = INDEX_DIR + "/" + dataset_name + GisStorage::GisStorageSystem::FileExtensions::S2_INDEX;
         spatial_index_ = std::make_unique<S2Main::S2SpatialIndex>(s2_index_path, 15);
     }
 
