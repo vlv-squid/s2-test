@@ -325,7 +325,7 @@ class CustomFormatPerformanceTestFixture : public ::testing::Test {
   protected:
     void SetUp() override {
         // 设置测试用的自定义格式数据路径
-        data_dir = "/home/chenming/Projects/test/s2-test/output_data/integrated_test";
+        data_dir = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
         dataset_name = "td_gtbhdc_bg_530000_2020";
 
         // 检查数据文件是否存在
