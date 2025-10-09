@@ -60,7 +60,8 @@ TEST_F(IntegratedGisFormatTest, FileExtensions) {
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::GEOMETRY_DATA, ".geom");
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::ATTRIBUTE_DATA, ".attr");
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::STRING_POOL, ".pool");
-    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::INDEX_DATA, ".idx");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::GEOMETRY_CHUNKED_INDEX, ".geom.chunked_idx");
+    EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::ATTRIBUTE_CHUNKED_INDEX, ".attr.chunked_idx");
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::METADATA, "_meta.json");
     EXPECT_STREQ(GisStorage::GisStorageSystem::FileExtensions::S2_INDEX, ".s2idx");
 }
@@ -82,7 +83,7 @@ TEST_F(IntegratedGisFormatTest, OgrformatConversion) {
     EXPECT_GT(stats.compression_ratio, 0.0) << "应该有压缩效果";
 
     // 验证生成的文件
-    std::vector<std::string> expected_files = {converter.GetGeometryFilePath(), converter.GetAttributeFilePath(), converter.GetStringPoolFilePath(), converter.GetIndexFilePath()};
+    std::vector<std::string> expected_files = {converter.GetGeometryFilePath(), converter.GetAttributeFilePath(), converter.GetStringPoolFilePath()};
 
     for (const auto& file : expected_files) {
         EXPECT_TRUE(std::filesystem::exists(file)) << "文件应该存在: " << std::filesystem::path(file).filename();
@@ -145,13 +146,13 @@ TEST_F(IntegratedGisFormatTest, IntegratedDataAccess) {
         });
 
         // 测试属性数据读取
-        // EXPECT_NO_THROW({
-        //     auto attributes = storage_system_->ReadAttribute(all_feature_ids[0]);
-        //     EXPECT_NE(attributes, nullptr) << "属性数据应该能成功读取";
-        //     if (attributes) {
-        //         EXPECT_GT(attributes->getProperties().size(), 0) << "属性数据应该包含字段";
-        //     }
-        // });
+        EXPECT_NO_THROW({
+            auto attributes = storage_system_->ReadAttribute(all_feature_ids[0]);
+            EXPECT_NE(attributes, nullptr) << "属性数据应该能成功读取";
+            if (attributes) {
+                EXPECT_GT(attributes->GetProperties().size(), 0) << "属性数据应该包含字段";
+            }
+        });
     }
 
     // 测试空间查询
@@ -176,7 +177,8 @@ TEST_F(IntegratedGisFormatTest, GisStorageSystemFeatures) {
     EXPECT_FALSE(storage_system_->GetGeometryFilePath().empty());
     EXPECT_FALSE(storage_system_->GetAttributeFilePath().empty());
     EXPECT_FALSE(storage_system_->GetStringPoolFilePath().empty());
-    EXPECT_FALSE(storage_system_->GetIndexFilePath().empty());
+    EXPECT_FALSE(storage_system_->GetGeometryChunkedIndexFilePath().empty());
+    EXPECT_FALSE(storage_system_->GetAttributeChunkedIndexFilePath().empty());
     EXPECT_FALSE(storage_system_->GetMetadataFilePath().empty());
     EXPECT_FALSE(storage_system_->GetS2IndexFilePath().empty());
 
@@ -216,6 +218,42 @@ TEST_F(IntegratedGisFormatTest, GisStorageSystemFeatures) {
     EXPECT_NO_THROW(storage_system_->SaveMetadata());
 }
 
+// 测试新的分块索引文件结构
+TEST_F(IntegratedGisFormatTest, ChunkedIndexFileStructure) {
+    // 使用optimization_demo目录中的测试数据
+    std::string test_data_dir = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
+    std::string dataset_name = "td_gtbhdc_bg_530000_2020";
+
+    // 创建新的存储系统实例
+    auto test_storage_system = std::make_unique<GisStorage::GisStorageSystem>(test_data_dir);
+    test_storage_system->SetDatasetName(dataset_name);
+
+    // 测试新的分块索引文件路径
+    std::string geom_chunked_idx_path = test_storage_system->GetGeometryChunkedIndexFilePath();
+    std::string attr_chunked_idx_path = test_storage_system->GetAttributeChunkedIndexFilePath();
+
+    EXPECT_FALSE(geom_chunked_idx_path.empty()) << "几何分块索引文件路径不应为空";
+    EXPECT_FALSE(attr_chunked_idx_path.empty()) << "属性分块索引文件路径不应为空";
+
+    // 验证文件路径包含正确的扩展名
+    EXPECT_TRUE(geom_chunked_idx_path.find(".geom.chunked_idx") != std::string::npos) << "几何分块索引文件路径应包含.geom.chunked_idx扩展名";
+    EXPECT_TRUE(attr_chunked_idx_path.find(".attr.chunked_idx") != std::string::npos) << "属性分块索引文件路径应包含.attr.chunked_idx扩展名";
+
+    // 验证分块索引文件存在
+    EXPECT_TRUE(std::filesystem::exists(geom_chunked_idx_path)) << "几何分块索引文件应该存在: " << geom_chunked_idx_path;
+    EXPECT_TRUE(std::filesystem::exists(attr_chunked_idx_path)) << "属性分块索引文件应该存在: " << attr_chunked_idx_path;
+
+    // 验证分块索引文件大小
+    auto geom_chunked_size = std::filesystem::file_size(geom_chunked_idx_path);
+    auto attr_chunked_size = std::filesystem::file_size(attr_chunked_idx_path);
+
+    EXPECT_GT(geom_chunked_size, 0) << "几何分块索引文件大小应该大于0";
+    EXPECT_GT(attr_chunked_size, 0) << "属性分块索引文件大小应该大于0";
+
+    std::cout << "几何分块索引文件: " << geom_chunked_idx_path << " (大小: " << geom_chunked_size << " 字节)" << std::endl;
+    std::cout << "属性分块索引文件: " << attr_chunked_idx_path << " (大小: " << attr_chunked_size << " 字节)" << std::endl;
+}
+
 // 测试文件完整性
 TEST_F(IntegratedGisFormatTest, FileIntegrity) {
     // 检查测试数据是否存在
@@ -227,7 +265,7 @@ TEST_F(IntegratedGisFormatTest, FileIntegrity) {
     ASSERT_GT(feature_ids.size(), 0) << "转换应该成功";
 
     // 检查文件大小
-    std::vector<std::pair<std::string, size_t>> expected_files = {{converter.GetGeometryFilePath(), 0}, {converter.GetAttributeFilePath(), 0}, {converter.GetStringPoolFilePath(), 0}, {converter.GetIndexFilePath(), 0}};
+    std::vector<std::pair<std::string, size_t>> expected_files = {{converter.GetGeometryFilePath(), 0}, {converter.GetAttributeFilePath(), 0}, {converter.GetStringPoolFilePath(), 0}};
 
     for (auto& [file_path, file_size] : expected_files) {
         ASSERT_TRUE(std::filesystem::exists(file_path)) << "文件应该存在: " << std::filesystem::path(file_path).filename();
@@ -237,7 +275,9 @@ TEST_F(IntegratedGisFormatTest, FileIntegrity) {
     }
 
     // 检查S2索引文件
-    std::string s2_index_file = INDEX_DIR + "/test" + GisStorage::GisStorageSystem::FileExtensions::S2_INDEX;
+    std::filesystem::path test_data_path(TEST_DATA_PATH);
+    std::string dataset_name = test_data_path.stem().string();
+    std::string s2_index_file = INDEX_DIR + "/" + dataset_name + GisStorage::GisStorageSystem::FileExtensions::S2_INDEX;
     if (std::filesystem::exists(s2_index_file)) {
         auto s2_file_size = std::filesystem::file_size(s2_index_file);
         EXPECT_GT(s2_file_size, 0) << "S2索引文件大小应该大于0";

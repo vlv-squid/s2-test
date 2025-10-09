@@ -38,6 +38,13 @@ namespace GisStorage {
         // 清空字符串池
         void ClearStringPool() { string_pool_.Clear(); }
 
+        // 从文件加载字符串池（使用mmap）
+        bool LoadStringPoolFromFile(const std::string& file_path) { return string_pool_.LoadFromFile(file_path); }
+
+        // 获取字符串池引用（用于直接访问mmap功能）
+        StringPool& GetStringPool() { return string_pool_; }
+        const StringPool& GetStringPool() const { return string_pool_; }
+
         // 获取压缩率统计
         struct CompressionStats {
             size_t original_size;

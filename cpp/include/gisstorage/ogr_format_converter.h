@@ -29,7 +29,6 @@ namespace GisStorage {
         // 获取转换后的文件路径
         std::string GetGeometryFilePath() const;
         std::string GetAttributeFilePath() const;
-        std::string GetIndexFilePath() const;
         std::string GetStringPoolFilePath() const;
         std::string GetMetadataFilePath() const;
 
@@ -62,7 +61,6 @@ namespace GisStorage {
         std::string ogr_file_name_;
         std::unique_ptr<GeometryStorage> geometry_storage_;
         std::unique_ptr<AttributeStorage> attribute_storage_;
-        std::string index_file_;
 
         // 统计信息
         ConversionStats stats_;
@@ -99,14 +97,14 @@ namespace GisStorage {
         // 初始化存储文件
         void InitializeStorageFiles();
 
-        // 保存索引数据
-        void SaveIndexData(const nlohmann::json& index_data);
-
         // 保存字符串池
         void SaveStringPool();
 
         // 保存元数据（包括字段定义、空间范围和坐标系统信息）
         void SaveMetadata(const nlohmann::json& field_info, const std::string& source_crs, const std::string& target_crs);
+
+        // 构建分块索引以支持流式读取
+        void BuildChunkedIndexes();
 
         // 更新统计信息
         void UpdateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size);

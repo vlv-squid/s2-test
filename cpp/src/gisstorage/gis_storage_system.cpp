@@ -36,9 +36,8 @@ namespace GisStorage {
             // 轻量级模式：按需初始化几何存储
             InitializeFilePaths();
             geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
-            if (std::filesystem::exists(index_file_)) {
-                geometry_storage_->LoadIndexFromFile(index_file_);
-            }
+            geometry_storage_->SetChunkSize(10000);
+            geometry_storage_->SetCacheSize(1000);
         }
         return geometry_storage_->ReadGeometry(feature_id);
     }
@@ -48,69 +47,50 @@ namespace GisStorage {
             // 轻量级模式：按需初始化属性存储
             InitializeFilePaths();
             attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
-            if (std::filesystem::exists(index_file_)) {
-                attribute_storage_->LoadIndexFromFile(index_file_);
-            }
+            attribute_storage_->SetChunkSize(10000);
+            attribute_storage_->SetCacheSize(1000);   // 设置缓存大小为1000
+            attribute_storage_->SetUseMmapMode(true); // 启用mmap模式以优化内存使用
         }
         return attribute_storage_->ReadAttribute(feature_id);
     }
 
-    std::vector<uint64_t> GisStorageSystem::GetAllFeatureIds() {
-        if (geometry_storage_) {
-            return geometry_storage_->GetAllFeatureIds();
-        } else {
-            // 轻量级模式：从元数据获取总要素数，生成FID列表
-            const auto& metadata = GetMetadata();
-            size_t valid_features = metadata.valid_features;
-            std::vector<uint64_t> feature_ids;
-            feature_ids.reserve(valid_features);
-            for (size_t i = 1; i <= valid_features; ++i) {
-                feature_ids.push_back(i);
-            }
-            return feature_ids;
-        }
-    }
-
-    std::map<uint64_t, std::unique_ptr<GeometryData>> GisStorageSystem::ReadGeometries(const std::vector<uint64_t>& feature_ids) {
-        std::map<uint64_t, std::unique_ptr<GeometryData>> results;
-
+    std::unique_ptr<GeometryData> GisStorageSystem::ReadGeometryOnDemand(uint64_t feature_id) {
         if (!geometry_storage_) {
-            return results;
-        }
+            // 轻量级模式：按需初始化几何存储
+            InitializeFilePaths();
+            geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
 
-        for (uint64_t fid : feature_ids) {
-            try {
-                auto geom = geometry_storage_->ReadGeometry(fid);
-                if (geom) {
-                    results[fid] = std::move(geom);
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "读取几何数据失败 FID " << fid << ": " << e.what() << std::endl;
-            }
+            // 启用chunked模式以支持按需读取
+            geometry_storage_->SetChunkSize(10000); // 设置chunk大小为10000
+            geometry_storage_->SetCacheSize(1000);  // 设置缓存大小为1000
         }
-
-        return results;
+        return geometry_storage_->ReadGeometryOnDemand(feature_id);
     }
 
-    std::map<uint64_t, std::unique_ptr<AttributeData>> GisStorageSystem::ReadAttributes(const std::vector<uint64_t>& feature_ids) {
-        std::map<uint64_t, std::unique_ptr<AttributeData>> results;
-
+    std::unique_ptr<AttributeData> GisStorageSystem::ReadAttributeOnDemand(uint64_t feature_id) {
         if (!attribute_storage_) {
-            return results;
-        }
+            // 轻量级模式：按需初始化属性存储
+            InitializeFilePaths();
+            attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
 
-        for (uint64_t fid : feature_ids) {
-            try {
-                auto attr = attribute_storage_->ReadAttribute(fid);
-                if (attr) {
-                    results[fid] = std::move(attr);
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "读取属性数据失败 FID " << fid << ": " << e.what() << std::endl;
-            }
+            // 启用chunked模式以支持按需读取
+            attribute_storage_->SetChunkSize(10000);  // 设置chunk大小为10000
+            attribute_storage_->SetCacheSize(1000);   // 设置缓存大小为1000
+            attribute_storage_->SetUseMmapMode(true); // 启用mmap模式以优化内存使用
         }
+        return attribute_storage_->ReadAttributeOnDemand(feature_id);
+    }
 
-        return results;
+    std::vector<uint64_t> GisStorageSystem::GetAllFeatureIds() {
+        // 流式读取模式：从元数据获取总要素数，生成FID列表
+        const auto& metadata = GetMetadata();
+        size_t valid_features = metadata.valid_features;
+        std::vector<uint64_t> feature_ids;
+        feature_ids.reserve(valid_features);
+        for (size_t i = 1; i <= valid_features; ++i) {
+            feature_ids.push_back(i);
+        }
+        return feature_ids;
     }
 
     std::vector<uint64_t> GisStorageSystem::QueryByAttributeEfficient(const std::string& field_name, const std::string& field_value) {
@@ -123,10 +103,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化属性存储对象
                 attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    attribute_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                attribute_storage_->SetChunkSize(10000);
+                attribute_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -147,44 +126,41 @@ namespace GisStorage {
             // 1. 构建字段值到要素ID的反向索引
             // 2. 或者修改属性存储格式以支持快速查询
 
-            // 当前实现：使用批量读取优化
+            // 当前实现：使用按需读取优化
             const auto& metadata = GetMetadata();
             size_t total_features = metadata.total_features;
 
-            std::cout << "      将查询 " << total_features << " 个要素（批量读取优化）" << std::endl;
+            std::cout << "      将查询 " << total_features << " 个要素（按需读取优化）" << std::endl;
 
-            // 批量读取优化：每次处理100000个要素
-            const size_t batch_size = 100000;
+            // 按需读取优化：每次处理1000个要素
+            const size_t batch_size = 1000;
             size_t processed = 0;
             size_t found_count = 0;
 
             for (size_t i = 1; i <= total_features; i += batch_size) {
                 size_t end_fid = std::min(i + batch_size - 1, total_features);
-                std::vector<uint64_t> batch_ids;
-                batch_ids.reserve(batch_size);
 
+                // 按需读取每个要素的属性
                 for (uint64_t fid = i; fid <= end_fid; ++fid) {
-                    batch_ids.push_back(fid);
-                }
-
-                // 批量读取属性
-                auto batch_attrs = ReadAttributes(batch_ids);
-
-                // 处理批量结果
-                for (const auto& [fid, attr] : batch_attrs) {
-                    if (attr) {
-                        std::string value = attr->GetProperty(field_name);
-                        if (value == field_value) {
-                            results.push_back(fid);
-                            found_count++;
+                    try {
+                        auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
+                        if (attr) {
+                            std::string value = attr->GetProperty(field_name);
+                            if (value == field_value) {
+                                results.push_back(fid);
+                                found_count++;
+                            }
                         }
+                    } catch (const std::exception& e) {
+                        // 忽略单个要素读取错误，继续处理其他要素
+                        continue;
                     }
                 }
 
-                processed += batch_ids.size();
+                processed += batch_size;
 
-                // 每处理10万个要素显示一次进度
-                if (processed % 100000 == 0) {
+                // 每处理1万个要素显示一次进度
+                if (processed % 10000 == 0) {
                     auto current_time = std::chrono::high_resolution_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
                     double speed = processed / (elapsed.count() / 1000.0);
@@ -214,10 +190,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化属性存储对象
                 attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    attribute_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                attribute_storage_->SetChunkSize(10000);
+                attribute_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -252,7 +227,7 @@ namespace GisStorage {
 
                 for (size_t fid = range.begin(); fid != range.end(); ++fid) {
                     try {
-                        auto attr = attribute_storage_->ReadAttribute(fid);
+                        auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                         if (attr) {
                             std::string value = attr->GetProperty(field_name);
                             if (value == field_value) {
@@ -313,10 +288,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化属性存储对象
                 attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    attribute_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                attribute_storage_->SetChunkSize(10000);
+                attribute_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -338,33 +312,36 @@ namespace GisStorage {
                 return results;
             }
 
-            // 第二步：对空间查询结果进行批量属性查询
-            const size_t batch_size = 10000; // 批量处理空间查询结果
+            // 第二步：对空间查询结果进行按需属性查询
+            const size_t batch_size = 1000; // 按需处理空间查询结果
             size_t processed = 0;
             size_t found_count = 0;
 
             for (size_t i = 0; i < spatial_results.size(); i += batch_size) {
                 size_t end_idx = std::min(i + batch_size, spatial_results.size());
-                std::vector<uint64_t> batch_ids(spatial_results.begin() + i, spatial_results.begin() + end_idx);
 
-                // 批量读取属性
-                auto batch_attrs = ReadAttributes(batch_ids);
-
-                // 处理批量结果
-                for (const auto& [fid, attr] : batch_attrs) {
-                    if (attr) {
-                        std::string value = attr->GetProperty(field_name);
-                        if (value == field_value) {
-                            results.push_back(fid);
-                            found_count++;
+                // 按需读取每个要素的属性
+                for (size_t j = i; j < end_idx; ++j) {
+                    uint64_t fid = spatial_results[j];
+                    try {
+                        auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
+                        if (attr) {
+                            std::string value = attr->GetProperty(field_name);
+                            if (value == field_value) {
+                                results.push_back(fid);
+                                found_count++;
+                            }
                         }
+                    } catch (const std::exception& e) {
+                        // 忽略单个要素读取错误，继续处理其他要素
+                        continue;
                     }
                 }
 
-                processed += batch_ids.size();
+                processed += (end_idx - i);
 
                 // 每处理1万个要素显示一次进度
-                if (processed % 50000 == 0 || processed == spatial_results.size()) {
+                if (processed % 5000 == 0 || processed == spatial_results.size()) {
                     auto current_time = std::chrono::high_resolution_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
                     double speed = processed / (elapsed.count() / 1000.0);
@@ -384,6 +361,101 @@ namespace GisStorage {
         return results;
     }
 
+    std::vector<uint64_t> GisStorageSystem::QuerySpatialAttributeStreaming(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value) {
+        std::vector<uint64_t> results;
+
+        try {
+            std::cout << "      流式复合查询：空间范围=[" << spatial_bbox.min_x << "," << spatial_bbox.min_y << " - " << spatial_bbox.max_x << "," << spatial_bbox.max_y << "], 字段='" << field_name << "', 值='"
+                      << field_value << "'" << std::endl;
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            // 第一步：空间查询获取候选要素ID（只返回ID，不加载数据）
+            auto spatial_candidates = QuerySpatialCandidates(spatial_bbox);
+            std::cout << "      空间查询找到 " << spatial_candidates.size() << " 个候选要素" << std::endl;
+
+            if (spatial_candidates.empty()) {
+                std::cout << "      空间查询无结果，流式查询完成" << std::endl;
+                return results;
+            }
+
+            // 第二步：按需读取属性数据，避免全量加载
+            const size_t batch_size = 1000; // 减小批量大小，实现真正的流式处理
+            size_t processed = 0;
+            size_t found_count = 0;
+
+            for (size_t i = 0; i < spatial_candidates.size(); i += batch_size) {
+                size_t end_idx = std::min(i + batch_size, spatial_candidates.size());
+
+                // 按需读取每个要素的属性
+                for (size_t j = i; j < end_idx; ++j) {
+                    uint64_t fid = spatial_candidates[j];
+
+                    // 使用按需读取方法，不依赖完整索引
+                    auto attr = attribute_storage_ ? attribute_storage_->ReadAttributeOnDemand(fid) : nullptr;
+
+                    if (attr) {
+                        std::string value = attr->GetProperty(field_name);
+                        if (value == field_value) {
+                            results.push_back(fid);
+                            found_count++;
+                        }
+                    }
+
+                    processed++;
+                }
+
+                // 每处理1000个要素显示一次进度
+                if (processed % 5000 == 0 || processed == spatial_candidates.size()) {
+                    auto current_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
+                    std::cout << "      流式查询进度: " << processed << "/" << spatial_candidates.size() << " (" << (processed * 100 / spatial_candidates.size()) << "%), " << "找到 " << found_count
+                              << " 个匹配要素, 耗时 " << elapsed.count() << "ms" << std::endl;
+                }
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "      流式复合查询完成: 处理 " << processed << " 个要素, 找到 " << found_count << " 个匹配要素, 总耗时 " << total_elapsed.count() << "ms" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "流式复合查询错误: " << e.what() << std::endl;
+        }
+
+        return results;
+    }
+
+    std::vector<uint64_t> GisStorageSystem::QuerySpatialCandidates(const BBox& spatial_bbox) {
+        // 使用S2索引快速获取候选要素ID，不加载任何几何或属性数据
+        if (!s2_spatial_index_ || !IsS2IndexValid()) {
+            std::cout << "      S2索引不可用，返回空结果" << std::endl;
+            return {};
+        }
+
+        try {
+            // 将BBox转换为S2LatLngRect进行查询
+            S2LatLng p1 = S2LatLng::FromDegrees(spatial_bbox.min_y, spatial_bbox.min_x);
+            S2LatLng p2 = S2LatLng::FromDegrees(spatial_bbox.max_y, spatial_bbox.max_x);
+            S2LatLngRect rect(p1, p2);
+
+            // 使用S2索引进行查询
+            auto s2_results = s2_spatial_index_->Query(rect, 15);
+
+            // 将int类型的FID转换为uint64_t
+            std::vector<uint64_t> results;
+            results.reserve(s2_results.size());
+            for (int fid : s2_results) {
+                results.push_back(static_cast<uint64_t>(fid));
+            }
+
+            return results;
+
+        } catch (const std::exception& e) {
+            std::cerr << "S2候选查询错误: " << e.what() << std::endl;
+            return {};
+        }
+    }
+
     std::vector<uint64_t> GisStorageSystem::QueryByAttributePattern(const std::string& field_name, const std::string& pattern) {
         std::vector<uint64_t> results;
 
@@ -394,10 +466,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化属性存储对象
                 attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    attribute_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                attribute_storage_->SetChunkSize(10000);
+                attribute_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -408,7 +479,7 @@ namespace GisStorage {
             // 获取所有要素ID - 如果几何存储未初始化，尝试从索引文件获取
             std::vector<uint64_t> all_feature_ids;
             if (geometry_storage_) {
-                all_feature_ids = geometry_storage_->GetAllFeatureIds();
+                all_feature_ids = this->GetAllFeatureIds();
             } else {
                 // 轻量级模式：从元数据获取总要素数，生成FID列表
                 const auto& metadata = GetMetadata();
@@ -422,7 +493,7 @@ namespace GisStorage {
             // 遍历所有要素，查找匹配的属性模式
             for (uint64_t fid : all_feature_ids) {
                 try {
-                    auto attr = attribute_storage_->ReadAttribute(fid);
+                    auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                     if (attr) {
                         std::string value = attr->GetProperty(field_name);
                         // 简单的包含匹配（可以扩展为正则表达式）
@@ -452,10 +523,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化属性存储对象
                 attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    attribute_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                attribute_storage_->SetChunkSize(10000);
+                attribute_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "属性存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -466,7 +536,7 @@ namespace GisStorage {
             // 获取所有要素ID - 如果几何存储未初始化，尝试从索引文件获取
             std::vector<uint64_t> all_feature_ids;
             if (geometry_storage_) {
-                all_feature_ids = geometry_storage_->GetAllFeatureIds();
+                all_feature_ids = this->GetAllFeatureIds();
             } else {
                 // 轻量级模式：从元数据获取总要素数，生成FID列表
                 const auto& metadata = GetMetadata();
@@ -480,7 +550,7 @@ namespace GisStorage {
             // 遍历所有要素，获取指定字段的值
             for (uint64_t fid : all_feature_ids) {
                 try {
-                    auto attr = attribute_storage_->ReadAttribute(fid);
+                    auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                     if (attr) {
                         std::string value = attr->GetProperty(field_name);
                         if (!value.empty()) {
@@ -514,10 +584,22 @@ namespace GisStorage {
         // 创建元数据
         CreateMetadataFromShapefile(shapefile_path);
 
-        // 加载索引
-        if (std::filesystem::exists(index_file_)) {
-            geometry_storage_->LoadIndexFromFile(index_file_);
-            attribute_storage_->LoadIndexFromFile(index_file_);
+        // 设置分块索引参数
+        geometry_storage_->SetChunkSize(10000);
+        geometry_storage_->SetCacheSize(1000);
+        attribute_storage_->SetChunkSize(10000);
+        attribute_storage_->SetCacheSize(10000);  // 增加缓存大小以提高性能
+        attribute_storage_->SetUseMmapMode(true); // 启用mmap模式以优化内存使用
+
+        // 如果分块索引文件存在，自动加载它们
+        if (std::filesystem::exists(geom_chunked_index_file_)) {
+            std::cout << "发现几何分块索引文件，正在加载..." << std::endl;
+            geometry_storage_->LoadChunkedIndex(geom_chunked_index_file_);
+        }
+
+        if (std::filesystem::exists(attr_chunked_index_file_)) {
+            std::cout << "发现属性分块索引文件，正在加载..." << std::endl;
+            attribute_storage_->LoadChunkedIndex(attr_chunked_index_file_);
         }
 
         // 加载元数据
@@ -540,11 +622,12 @@ namespace GisStorage {
         geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
         attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
 
-        // 加载索引
-        if (std::filesystem::exists(index_file_)) {
-            geometry_storage_->LoadIndexFromFile(index_file_);
-            attribute_storage_->LoadIndexFromFile(index_file_);
-        }
+        // 设置分块索引参数
+        geometry_storage_->SetChunkSize(10000);
+        geometry_storage_->SetCacheSize(1000);
+        attribute_storage_->SetChunkSize(10000);
+        attribute_storage_->SetCacheSize(10000);  // 增加缓存大小以提高性能
+        attribute_storage_->SetUseMmapMode(true); // 启用mmap模式以优化内存使用
 
         // 加载元数据
         if (std::filesystem::exists(metadata_file_)) {
@@ -591,7 +674,8 @@ namespace GisStorage {
         geom_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::GEOMETRY_DATA;
         attr_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::ATTRIBUTE_DATA;
         pool_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::STRING_POOL;
-        index_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::INDEX_DATA;
+        geom_chunked_index_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::GEOMETRY_CHUNKED_INDEX;
+        attr_chunked_index_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::ATTRIBUTE_CHUNKED_INDEX;
         metadata_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::METADATA;
         s2_index_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::S2_INDEX;
     }
@@ -665,10 +749,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化几何存储对象
                 geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    geometry_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                geometry_storage_->SetChunkSize(10000);
+                geometry_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "几何存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -683,7 +766,7 @@ namespace GisStorage {
             // 获取所有要素ID
             std::vector<uint64_t> all_feature_ids;
             if (geometry_storage_) {
-                all_feature_ids = geometry_storage_->GetAllFeatureIds();
+                all_feature_ids = this->GetAllFeatureIds();
             } else {
                 // 轻量级模式：从元数据获取总要素数，生成FID列表
                 const auto& metadata = GetMetadata();
@@ -696,33 +779,36 @@ namespace GisStorage {
 
             std::cout << "      将查询 " << all_feature_ids.size() << " 个要素的bbox" << std::endl;
 
-            // 批量读取几何数据并检查bbox相交
-            const size_t batch_size = 10000;
+            // 按需读取几何数据并检查bbox相交
+            const size_t batch_size = 1000;
             size_t processed = 0;
             size_t found_count = 0;
 
             for (size_t i = 0; i < all_feature_ids.size(); i += batch_size) {
                 size_t end_idx = std::min(i + batch_size, all_feature_ids.size());
-                std::vector<uint64_t> batch_ids(all_feature_ids.begin() + i, all_feature_ids.begin() + end_idx);
 
-                // 批量读取几何数据
-                auto batch_geometries = ReadGeometries(batch_ids);
-
-                // 处理批量结果
-                for (const auto& [fid, geom] : batch_geometries) {
-                    if (geom) {
-                        const BBox& feature_bbox = geom->GetBBox();
-                        if (IsBBoxIntersecting(query_bbox, feature_bbox)) {
-                            results.push_back(fid);
-                            found_count++;
+                // 按需读取每个要素的几何数据
+                for (size_t j = i; j < end_idx; ++j) {
+                    uint64_t fid = all_feature_ids[j];
+                    try {
+                        auto geom = geometry_storage_->ReadGeometryOnDemand(fid);
+                        if (geom) {
+                            const BBox& feature_bbox = geom->GetBBox();
+                            if (IsBBoxIntersecting(query_bbox, feature_bbox)) {
+                                results.push_back(fid);
+                                found_count++;
+                            }
                         }
+                    } catch (const std::exception& e) {
+                        // 忽略单个要素读取错误，继续处理其他要素
+                        continue;
                     }
                 }
 
-                processed += batch_ids.size();
+                processed += (end_idx - i);
 
                 // 每处理1万个要素显示一次进度
-                if (processed % 50000 == 0 || processed == all_feature_ids.size()) {
+                if (processed % 5000 == 0 || processed == all_feature_ids.size()) {
                     auto current_time = std::chrono::high_resolution_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time);
                     double speed = processed / (elapsed.count() / 1000.0);
@@ -753,10 +839,9 @@ namespace GisStorage {
                 InitializeFilePaths();
                 // 初始化几何存储对象
                 geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
-                // 加载索引
-                if (std::filesystem::exists(index_file_)) {
-                    geometry_storage_->LoadIndexFromFile(index_file_);
-                }
+                // 设置分块索引参数
+                geometry_storage_->SetChunkSize(10000);
+                geometry_storage_->SetCacheSize(1000);
             } catch (const std::exception& e) {
                 std::cerr << "几何存储初始化失败: " << e.what() << std::endl;
                 return results;
@@ -771,7 +856,7 @@ namespace GisStorage {
             // 获取所有要素ID
             std::vector<uint64_t> all_feature_ids;
             if (geometry_storage_) {
-                all_feature_ids = geometry_storage_->GetAllFeatureIds();
+                all_feature_ids = this->GetAllFeatureIds();
             } else {
                 // 轻量级模式：从元数据获取总要素数，生成FID列表
                 const auto& metadata = GetMetadata();
@@ -798,7 +883,7 @@ namespace GisStorage {
                 for (size_t i = range.begin(); i != range.end(); ++i) {
                     uint64_t fid = all_feature_ids[i];
                     try {
-                        auto geom = geometry_storage_->ReadGeometry(fid);
+                        auto geom = geometry_storage_->ReadGeometryOnDemand(fid);
                         if (geom) {
                             const BBox& feature_bbox = geom->GetBBox();
                             if (IsBBoxIntersecting(query_bbox, feature_bbox)) {
@@ -1029,8 +1114,11 @@ namespace GisStorage {
         if (std::filesystem::exists(pool_file_)) {
             metadata_.file_sizes["string_pool"] = std::filesystem::file_size(pool_file_);
         }
-        if (std::filesystem::exists(index_file_)) {
-            metadata_.file_sizes["index"] = std::filesystem::file_size(index_file_);
+        if (std::filesystem::exists(geom_chunked_index_file_)) {
+            metadata_.file_sizes["geometry_chunked_index"] = std::filesystem::file_size(geom_chunked_index_file_);
+        }
+        if (std::filesystem::exists(attr_chunked_index_file_)) {
+            metadata_.file_sizes["attribute_chunked_index"] = std::filesystem::file_size(attr_chunked_index_file_);
         }
         if (std::filesystem::exists(s2_index_file_)) {
             metadata_.file_sizes["s2_index"] = std::filesystem::file_size(s2_index_file_);
@@ -1049,8 +1137,11 @@ namespace GisStorage {
         if (std::filesystem::exists(pool_file_)) {
             metadata_.checksums["string_pool"] = CalculateFileChecksum(pool_file_);
         }
-        if (std::filesystem::exists(index_file_)) {
-            metadata_.checksums["index"] = CalculateFileChecksum(index_file_);
+        if (std::filesystem::exists(geom_chunked_index_file_)) {
+            metadata_.checksums["geometry_chunked_index"] = CalculateFileChecksum(geom_chunked_index_file_);
+        }
+        if (std::filesystem::exists(attr_chunked_index_file_)) {
+            metadata_.checksums["attribute_chunked_index"] = CalculateFileChecksum(attr_chunked_index_file_);
         }
         if (std::filesystem::exists(s2_index_file_)) {
             metadata_.checksums["s2_index"] = CalculateFileChecksum(s2_index_file_);
@@ -1059,7 +1150,7 @@ namespace GisStorage {
 
     void GisStorageSystem::UpdateMetadataStats() {
         if (geometry_storage_) {
-            metadata_.total_features = geometry_storage_->GetAllFeatureIds().size();
+            metadata_.total_features = this->GetAllFeatureIds().size();
             metadata_.valid_features = metadata_.total_features;
         }
 
@@ -1078,8 +1169,11 @@ namespace GisStorage {
     std::string GisStorageSystem::GetStringPoolFilePath() const {
         return pool_file_;
     }
-    std::string GisStorageSystem::GetIndexFilePath() const {
-        return index_file_;
+    std::string GisStorageSystem::GetGeometryChunkedIndexFilePath() const {
+        return geom_chunked_index_file_;
+    }
+    std::string GisStorageSystem::GetAttributeChunkedIndexFilePath() const {
+        return attr_chunked_index_file_;
     }
     std::string GisStorageSystem::GetMetadataFilePath() const {
         return metadata_file_;
@@ -1092,8 +1186,8 @@ namespace GisStorage {
     GisStorageSystem::StorageStats GisStorageSystem::GetStorageStats() const {
         StorageStats stats;
 
-        // 只统计5个核心文件，不包含元数据文件
-        std::vector<std::string> core_files = {"geometry", "attribute", "string_pool", "index", "s2_index"};
+        // 统计新的文件结构，不包含元数据文件
+        std::vector<std::string> core_files = {"geometry", "attribute", "string_pool", "geometry_chunked_index", "attribute_chunked_index", "s2_index"};
 
         for (const auto& file_type : core_files) {
             auto it = metadata_.file_sizes.find(file_type);
@@ -1107,10 +1201,48 @@ namespace GisStorage {
                     stats.attribute_size_bytes = it->second;
                 } else if (file_type == "string_pool") {
                     stats.string_pool_size_bytes = it->second;
-                } else if (file_type == "index") {
-                    stats.index_size_bytes = it->second;
+                } else if (file_type == "geometry_chunked_index") {
+                    stats.geometry_chunked_index_size_bytes = it->second;
+                } else if (file_type == "attribute_chunked_index") {
+                    stats.attribute_chunked_index_size_bytes = it->second;
                 } else if (file_type == "s2_index") {
                     stats.s2_index_size_bytes = it->second;
+                }
+            } else {
+                // 如果元数据中没有文件大小信息，直接从文件系统获取
+                std::string file_path;
+                if (file_type == "geometry") {
+                    file_path = geom_file_;
+                } else if (file_type == "attribute") {
+                    file_path = attr_file_;
+                } else if (file_type == "string_pool") {
+                    file_path = pool_file_;
+                } else if (file_type == "geometry_chunked_index") {
+                    file_path = geom_chunked_index_file_;
+                } else if (file_type == "attribute_chunked_index") {
+                    file_path = attr_chunked_index_file_;
+                } else if (file_type == "s2_index") {
+                    file_path = s2_index_file_;
+                }
+
+                if (!file_path.empty() && std::filesystem::exists(file_path)) {
+                    size_t file_size = std::filesystem::file_size(file_path);
+                    stats.total_files++;
+                    stats.total_size_bytes += file_size;
+
+                    if (file_type == "geometry") {
+                        stats.geometry_size_bytes = file_size;
+                    } else if (file_type == "attribute") {
+                        stats.attribute_size_bytes = file_size;
+                    } else if (file_type == "string_pool") {
+                        stats.string_pool_size_bytes = file_size;
+                    } else if (file_type == "geometry_chunked_index") {
+                        stats.geometry_chunked_index_size_bytes = file_size;
+                    } else if (file_type == "attribute_chunked_index") {
+                        stats.attribute_chunked_index_size_bytes = file_size;
+                    } else if (file_type == "s2_index") {
+                        stats.s2_index_size_bytes = file_size;
+                    }
                 }
             }
         }
@@ -1145,6 +1277,32 @@ namespace GisStorage {
         // bbox1的右边界 >= bbox2的左边界 且 bbox1的左边界 <= bbox2的右边界
         // bbox1的上边界 >= bbox2的下边界 且 bbox1的下边界 <= bbox2的上边界
         return (bbox1.max_x >= bbox2.min_x && bbox1.min_x <= bbox2.max_x) && (bbox1.max_y >= bbox2.min_y && bbox1.min_y <= bbox2.max_y);
+    }
+
+    bool GisStorageSystem::ValidateFileStructure() {
+        std::vector<std::string> required_files = {geom_file_, attr_file_, pool_file_, geom_chunked_index_file_, attr_chunked_index_file_, metadata_file_};
+
+        for (const auto& file_path : required_files) {
+            if (!std::filesystem::exists(file_path)) {
+                std::cerr << "缺少必需文件: " << file_path << std::endl;
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    std::vector<std::string> GisStorageSystem::GetMissingFiles() {
+        std::vector<std::string> missing_files;
+        std::vector<std::string> required_files = {geom_file_, attr_file_, pool_file_, geom_chunked_index_file_, attr_chunked_index_file_, metadata_file_};
+
+        for (const auto& file_path : required_files) {
+            if (!std::filesystem::exists(file_path)) {
+                missing_files.push_back(file_path);
+            }
+        }
+
+        return missing_files;
     }
 
 } // namespace GisStorage

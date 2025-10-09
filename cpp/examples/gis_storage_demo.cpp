@@ -280,7 +280,7 @@ class GisStorageDemo {
             std::cout << "  ✓ 存储系统初始化完成" << std::endl;
             std::cout << "  几何文件: " << storage_system_->GetGeometryFilePath() << std::endl;
             std::cout << "  属性文件: " << storage_system_->GetAttributeFilePath() << std::endl;
-            std::cout << "  索引文件: " << storage_system_->GetIndexFilePath() << std::endl;
+            std::cout << "  索引文件: " << storage_system_->GetS2IndexFilePath() << std::endl;
             std::cout << "  元数据文件: " << storage_system_->GetMetadataFilePath() << std::endl;
 
             return true;
@@ -379,7 +379,6 @@ class GisStorageDemo {
             std::vector<std::string> required_files = {storage_system_->GetGeometryFilePath(),
                                                        storage_system_->GetAttributeFilePath(),
                                                        storage_system_->GetStringPoolFilePath(),
-                                                       storage_system_->GetIndexFilePath(),
                                                        storage_system_->GetMetadataFilePath(),
                                                        storage_system_->GetS2IndexFilePath()};
 
@@ -395,7 +394,7 @@ class GisStorageDemo {
             stats_.geometry_size = storage_stats.geometry_size_bytes;
             stats_.attribute_size = storage_stats.attribute_size_bytes;
             stats_.string_pool_size = storage_stats.string_pool_size_bytes;
-            stats_.index_size = storage_stats.index_size_bytes;
+            stats_.index_size = storage_stats.s2_index_size_bytes;
             stats_.s2_index_size = storage_stats.s2_index_size_bytes;
             stats_.total_size = storage_stats.total_size_bytes;
 
@@ -528,7 +527,7 @@ class GisStorageDemo {
             stats_.geometry_size = storage_stats.geometry_size_bytes;
             stats_.attribute_size = storage_stats.attribute_size_bytes;
             stats_.string_pool_size = storage_stats.string_pool_size_bytes;
-            stats_.index_size = storage_stats.index_size_bytes;
+            stats_.index_size = storage_stats.s2_index_size_bytes;
             stats_.s2_index_size = storage_stats.s2_index_size_bytes;
             stats_.total_size = storage_stats.total_size_bytes;
 
@@ -579,7 +578,7 @@ class GisStorageDemo {
             std::cout << "  ✓ 存储系统加载完成" << std::endl;
             std::cout << "  几何文件: " << storage_system_->GetGeometryFilePath() << std::endl;
             std::cout << "  属性文件: " << storage_system_->GetAttributeFilePath() << std::endl;
-            std::cout << "  索引文件: " << storage_system_->GetIndexFilePath() << std::endl;
+            std::cout << "  索引文件: " << storage_system_->GetS2IndexFilePath() << std::endl;
             std::cout << "  元数据文件: " << storage_system_->GetMetadataFilePath() << std::endl;
             std::cout << "  S2索引文件: " << storage_system_->GetS2IndexFilePath() << std::endl;
 
@@ -625,7 +624,6 @@ class GisStorageDemo {
             std::vector<std::string> required_files = {storage_system_->GetGeometryFilePath(),
                                                        storage_system_->GetAttributeFilePath(),
                                                        storage_system_->GetStringPoolFilePath(),
-                                                       storage_system_->GetIndexFilePath(),
                                                        storage_system_->GetMetadataFilePath(),
                                                        storage_system_->GetS2IndexFilePath()};
 
@@ -646,7 +644,7 @@ class GisStorageDemo {
             stats_.geometry_size = storage_stats.geometry_size_bytes;
             stats_.attribute_size = storage_stats.attribute_size_bytes;
             stats_.string_pool_size = storage_stats.string_pool_size_bytes;
-            stats_.index_size = storage_stats.index_size_bytes;
+            stats_.index_size = storage_stats.s2_index_size_bytes;
             stats_.s2_index_size = storage_stats.s2_index_size_bytes;
             stats_.total_size = storage_stats.total_size_bytes;
 
@@ -1011,7 +1009,6 @@ class GisStorageDemo {
         std::vector<std::pair<std::string, std::string>> files = {{"几何数据", storage_system_->GetGeometryFilePath()},
                                                                   {"属性数据", storage_system_->GetAttributeFilePath()},
                                                                   {"字符串池", storage_system_->GetStringPoolFilePath()},
-                                                                  {"索引数据", storage_system_->GetIndexFilePath()},
                                                                   {"元数据", storage_system_->GetMetadataFilePath()},
                                                                   {"S2索引", storage_system_->GetS2IndexFilePath()}};
 

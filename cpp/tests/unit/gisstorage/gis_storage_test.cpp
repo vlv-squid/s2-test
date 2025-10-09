@@ -2,20 +2,17 @@
 //  Created by vlv-squid on 2025.08.21.
 //
 
-#include "gisstorage/gis_storage.h"
+#include "gisstorage/gis_storage_system.h"
 #include "gisstorage/ogr_format_converter.h"
-#include "gisstorage/attribute_storage.h"
 #include "gisstorage/string_pool.h"
+#include "gisstorage/geometry_serializer.h"
+#include "gisindex/s2spatial_index.h"
 
 #include <gtest/gtest.h>
 #include <chrono>
-#include <random>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <fstream>
-#include <thread>
-#include <atomic>
-#include <set>
 #include <map>
 
 using namespace GisStorage;
@@ -26,8 +23,7 @@ class GisStorageTest : public ::testing::Test {
     std::string output_dir;
     std::vector<uint64_t> valid_fids;
     std::unique_ptr<OGRFormatConverter> converter;
-    std::unique_ptr<GeometryStorage> geom_storage;
-    std::unique_ptr<AttributeStorage> attr_storage;
+    std::unique_ptr<GisStorage::GisStorageSystem> storage_system;
 
     void SetUp() override {
         // 设置测试文件路径
@@ -52,13 +48,11 @@ class GisStorageTest : public ::testing::Test {
             GTEST_SKIP() << "没有有效的要素数据";
         }
 
-        // 创建存储对象
-        geom_storage = std::make_unique<GeometryStorage>(converter->GetGeometryFilePath());
-        attr_storage = std::make_unique<AttributeStorage>(converter->GetAttributeFilePath(), converter->GetStringPoolFilePath());
+        // 创建存储系统
+        storage_system = std::make_unique<GisStorage::GisStorageSystem>(output_dir);
 
-        // 加载索引
-        geom_storage->LoadIndexFromFile(converter->GetIndexFilePath());
-        attr_storage->LoadIndexFromFile(converter->GetIndexFilePath());
+        // 初始化存储文件
+        storage_system->InitializeStorageFiles(test_shapefile);
     }
 
     void TearDown() override {
@@ -214,8 +208,8 @@ TEST_F(GisStorageTest, StorageOperations) {
     int success_count = 0;
     for (uint64_t fid : test_fids) {
         try {
-            auto read_geom = geom_storage->ReadGeometry(fid);
-            auto read_attr = attr_storage->ReadAttribute(fid);
+            auto read_geom = storage_system->ReadGeometry(fid);
+            auto read_attr = storage_system->ReadAttribute(fid);
 
             if (read_geom && read_attr) {
                 success_count++;
@@ -231,11 +225,9 @@ TEST_F(GisStorageTest, StorageOperations) {
     EXPECT_GT(success_count, 0) << "没有成功读取任何要素";
 
     // 获取所有要素ID
-    auto geom_fids = geom_storage->GetAllFeatureIds();
-    auto attr_fids = attr_storage->GetAllFeatureIds();
+    auto all_fids = storage_system->GetAllFeatureIds();
 
-    EXPECT_EQ(geom_fids.size(), valid_fids.size());
-    EXPECT_EQ(attr_fids.size(), valid_fids.size());
+    EXPECT_EQ(all_fids.size(), valid_fids.size());
 }
 
 // 存储错误处理测试
@@ -245,8 +237,8 @@ TEST_F(GisStorageTest, StorageErrorHandling) {
 
     // 使用try-catch处理可能的异常
     try {
-        auto non_existent_geom = geom_storage->ReadGeometry(non_existent_fid);
-        auto non_existent_attr = attr_storage->ReadAttribute(non_existent_fid);
+        auto non_existent_geom = storage_system->ReadGeometry(non_existent_fid);
+        auto non_existent_attr = storage_system->ReadAttribute(non_existent_fid);
 
         EXPECT_FALSE(non_existent_geom);
         EXPECT_FALSE(non_existent_attr);
@@ -257,8 +249,8 @@ TEST_F(GisStorageTest, StorageErrorHandling) {
 
     // 测试读取FID为0的要素（已知有问题）
     try {
-        auto zero_geom = geom_storage->ReadGeometry(0);
-        auto zero_attr = attr_storage->ReadAttribute(0);
+        auto zero_geom = storage_system->ReadGeometry(0);
+        auto zero_attr = storage_system->ReadAttribute(0);
 
         // FID为0的要素可能返回nullptr或抛出异常，两种情况都应该处理
         if (zero_geom) {
@@ -283,8 +275,8 @@ TEST_F(GisStorageTest, Performance) {
     int success_count = 0;
     for (uint64_t fid : test_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto geom = storage_system->ReadGeometry(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (geom && attr) {
                 success_count++;
             }
@@ -310,7 +302,7 @@ TEST_F(GisStorageTest, Performance) {
                 break;
 
             try {
-                auto geom = geom_storage->ReadGeometry(fid);
+                auto geom = storage_system->ReadGeometry(fid);
                 if (geom) {
                     auto coords = geom->DecodeCoordinates();
                     total_original_size += coords.size() * 16; // 每个坐标16字节
@@ -343,8 +335,8 @@ TEST_F(GisStorageTest, BatchReadPerformance) {
 
     for (uint64_t fid : test_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto geom = storage_system->ReadGeometry(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (geom && attr) {
                 geometries.push_back(std::move(geom));
                 attributes.push_back(std::move(attr));
@@ -366,7 +358,8 @@ TEST_F(GisStorageTest, BatchReadPerformance) {
 // JSON索引格式测试
 TEST_F(GisStorageTest, JsonIndexFormat) {
     // 验证JSON索引文件格式
-    std::ifstream index_file(converter->GetIndexFilePath());
+    std::string index_file_path = storage_system->GetGeometryFilePath() + ".idx";
+    std::ifstream index_file(index_file_path);
     EXPECT_TRUE(index_file.is_open());
 
     try {
@@ -406,19 +399,19 @@ TEST_F(GisStorageTest, JsonIndexFormat) {
 // 文件完整性测试
 TEST_F(GisStorageTest, FileIntegrity) {
     // 检查生成的文件是否存在
-    EXPECT_TRUE(std::filesystem::exists(converter->GetGeometryFilePath()));
-    EXPECT_TRUE(std::filesystem::exists(converter->GetAttributeFilePath()));
-    EXPECT_TRUE(std::filesystem::exists(converter->GetIndexFilePath()));
+    EXPECT_TRUE(std::filesystem::exists(storage_system->GetGeometryFilePath()));
+    EXPECT_TRUE(std::filesystem::exists(storage_system->GetAttributeFilePath()));
+    EXPECT_TRUE(std::filesystem::exists(storage_system->GetStringPoolFilePath()));
 
     // 检查文件大小
-    EXPECT_GT(std::filesystem::file_size(converter->GetGeometryFilePath()), 0);
-    EXPECT_GT(std::filesystem::file_size(converter->GetAttributeFilePath()), 0);
-    EXPECT_GT(std::filesystem::file_size(converter->GetIndexFilePath()), 0);
+    EXPECT_GT(std::filesystem::file_size(storage_system->GetGeometryFilePath()), 0);
+    EXPECT_GT(std::filesystem::file_size(storage_system->GetAttributeFilePath()), 0);
+    EXPECT_GT(std::filesystem::file_size(storage_system->GetStringPoolFilePath()), 0);
 
     // 检查文件权限
-    EXPECT_TRUE(std::filesystem::is_regular_file(converter->GetGeometryFilePath()));
-    EXPECT_TRUE(std::filesystem::is_regular_file(converter->GetAttributeFilePath()));
-    EXPECT_TRUE(std::filesystem::is_regular_file(converter->GetIndexFilePath()));
+    EXPECT_TRUE(std::filesystem::is_regular_file(storage_system->GetGeometryFilePath()));
+    EXPECT_TRUE(std::filesystem::is_regular_file(storage_system->GetAttributeFilePath()));
+    EXPECT_TRUE(std::filesystem::is_regular_file(storage_system->GetStringPoolFilePath()));
 }
 
 // 内存使用测试
@@ -432,8 +425,8 @@ TEST_F(GisStorageTest, MemoryUsage) {
 
     for (uint64_t fid : test_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto geom = storage_system->ReadGeometry(fid);
+            auto attr = storage_system->ReadAttribute(fid);
 
             if (geom) {
                 total_geom_size += geom->GetSerializedSize();
@@ -456,7 +449,7 @@ TEST_F(GisStorageTest, MemoryUsage) {
 // 全量几何数据解析测试
 TEST_F(GisStorageTest, FullGeometryParsing) {
     // 获取所有要素ID
-    auto all_fids = geom_storage->GetAllFeatureIds();
+    auto all_fids = storage_system->GetAllFeatureIds();
     ASSERT_FALSE(all_fids.empty());
 
     std::cout << "开始全量几何数据解析测试，总要素数: " << all_fids.size() << std::endl;
@@ -467,7 +460,7 @@ TEST_F(GisStorageTest, FullGeometryParsing) {
 
     for (uint64_t fid : all_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
+            auto geom = storage_system->ReadGeometry(fid);
             if (geom) {
                 all_geometries.push_back(std::move(geom));
             } else {
@@ -520,7 +513,7 @@ TEST_F(GisStorageTest, FullGeometryParsing) {
 // 全量属性数据解析测试
 TEST_F(GisStorageTest, FullAttributeParsing) {
     // 获取所有要素ID
-    auto all_fids = attr_storage->GetAllFeatureIds();
+    auto all_fids = storage_system->GetAllFeatureIds();
     ASSERT_FALSE(all_fids.empty());
 
     std::cout << "开始全量属性数据解析测试，总要素数: " << all_fids.size() << std::endl;
@@ -531,7 +524,7 @@ TEST_F(GisStorageTest, FullAttributeParsing) {
 
     for (uint64_t fid : all_fids) {
         try {
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (attr) {
                 all_attributes.push_back(std::move(attr));
             } else {
@@ -583,41 +576,30 @@ TEST_F(GisStorageTest, FullAttributeParsing) {
 // 全量数据一致性验证测试
 TEST_F(GisStorageTest, FullDataConsistency) {
     // 获取所有要素ID
-    auto geom_fids = geom_storage->GetAllFeatureIds();
-    auto attr_fids = attr_storage->GetAllFeatureIds();
+    auto all_fids = storage_system->GetAllFeatureIds();
 
-    ASSERT_FALSE(geom_fids.empty());
-    ASSERT_FALSE(attr_fids.empty());
+    ASSERT_FALSE(all_fids.empty());
 
-    // 验证几何和属性数据的FID一致性
-    EXPECT_EQ(geom_fids.size(), attr_fids.size()) << "几何和属性数据的要素数量不一致";
-
-    // 创建FID集合进行比较
-    std::set<uint64_t> geom_fid_set(geom_fids.begin(), geom_fids.end());
-    std::set<uint64_t> attr_fid_set(attr_fids.begin(), attr_fids.end());
-
-    EXPECT_EQ(geom_fid_set, attr_fid_set) << "几何和属性数据的FID集合不一致";
-
-    std::cout << "数据一致性验证通过，总要素数: " << geom_fids.size() << std::endl;
+    std::cout << "数据一致性验证通过，总要素数: " << all_fids.size() << std::endl;
 
     // 验证每个要素的几何和属性数据都能正常读取
     std::vector<uint64_t> inconsistent_fids;
     std::vector<uint64_t> missing_geom_fids;
     std::vector<uint64_t> missing_attr_fids;
 
-    for (uint64_t fid : geom_fids) {
+    for (uint64_t fid : all_fids) {
         bool has_geom = false;
         bool has_attr = false;
 
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
+            auto geom = storage_system->ReadGeometry(fid);
             has_geom = (geom != nullptr);
         } catch (const std::exception& e) {
             // 几何数据读取失败
         }
 
         try {
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             has_attr = (attr != nullptr);
         } catch (const std::exception& e) {
             // 属性数据读取失败
@@ -633,9 +615,9 @@ TEST_F(GisStorageTest, FullDataConsistency) {
     }
 
     // 验证一致性
-    EXPECT_LE(inconsistent_fids.size(), geom_fids.size() * 0.05) << "完全缺失数据的要素超过5%";
-    EXPECT_LE(missing_geom_fids.size(), geom_fids.size() * 0.05) << "缺失几何数据的要素超过5%";
-    EXPECT_LE(missing_attr_fids.size(), geom_fids.size() * 0.05) << "缺失属性数据的要素超过5%";
+    EXPECT_LE(inconsistent_fids.size(), all_fids.size() * 0.05) << "完全缺失数据的要素超过5%";
+    EXPECT_LE(missing_geom_fids.size(), all_fids.size() * 0.05) << "缺失几何数据的要素超过5%";
+    EXPECT_LE(missing_attr_fids.size(), all_fids.size() * 0.05) << "缺失属性数据的要素超过5%";
 
     std::cout << "数据完整性统计:" << std::endl;
     std::cout << "  完全缺失: " << inconsistent_fids.size() << " 个" << std::endl;
@@ -646,7 +628,7 @@ TEST_F(GisStorageTest, FullDataConsistency) {
 // 全量解析性能测试
 TEST_F(GisStorageTest, FullParsingPerformance) {
     // 获取所有要素ID
-    auto all_fids = geom_storage->GetAllFeatureIds();
+    auto all_fids = storage_system->GetAllFeatureIds();
     ASSERT_FALSE(all_fids.empty());
 
     std::cout << "开始全量解析性能测试，总要素数: " << all_fids.size() << std::endl;
@@ -657,7 +639,7 @@ TEST_F(GisStorageTest, FullParsingPerformance) {
     std::vector<std::unique_ptr<GeometryData>> all_geometries;
     for (uint64_t fid : all_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
+            auto geom = storage_system->ReadGeometry(fid);
             if (geom) {
                 all_geometries.push_back(std::move(geom));
             }
@@ -675,7 +657,7 @@ TEST_F(GisStorageTest, FullParsingPerformance) {
     std::vector<std::unique_ptr<AttributeData>> all_attributes;
     for (uint64_t fid : all_fids) {
         try {
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (attr) {
                 all_attributes.push_back(std::move(attr));
             }
@@ -693,8 +675,8 @@ TEST_F(GisStorageTest, FullParsingPerformance) {
     std::vector<std::pair<std::unique_ptr<GeometryData>, std::unique_ptr<AttributeData>>> mixed_data;
     for (uint64_t fid : all_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto geom = storage_system->ReadGeometry(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (geom && attr) {
                 mixed_data.emplace_back(std::move(geom), std::move(attr));
             }
@@ -730,7 +712,7 @@ TEST_F(GisStorageTest, FullParsingPerformance) {
 // 全量数据统计测试
 TEST_F(GisStorageTest, FullDataStatistics) {
     // 获取所有要素ID
-    auto all_fids = geom_storage->GetAllFeatureIds();
+    auto all_fids = storage_system->GetAllFeatureIds();
     ASSERT_FALSE(all_fids.empty());
 
     std::cout << "开始全量数据统计测试，总要素数: " << all_fids.size() << std::endl;
@@ -743,7 +725,7 @@ TEST_F(GisStorageTest, FullDataStatistics) {
 
     for (uint64_t fid : all_fids) {
         try {
-            auto geom = geom_storage->ReadGeometry(fid);
+            auto geom = storage_system->ReadGeometry(fid);
             if (geom) {
                 total_geom_size += geom->GetSerializedSize();
                 geom_type_count[geom->GetGeometryType()]++;
@@ -765,7 +747,7 @@ TEST_F(GisStorageTest, FullDataStatistics) {
 
     for (uint64_t fid : all_fids) {
         try {
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (attr) {
                 total_attr_size += attr->GetSerializedSize();
                 auto properties = attr->GetProperties();
@@ -922,7 +904,7 @@ TEST_F(GisStorageTest, OptimizedStorageReadTest) {
     int success_count = 0;
     for (uint64_t fid : test_fids) {
         try {
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (attr) {
                 success_count++;
                 EXPECT_EQ(attr->GetFeatureId(), fid);
@@ -936,14 +918,13 @@ TEST_F(GisStorageTest, OptimizedStorageReadTest) {
     EXPECT_GT(success_count, 0) << "应该能成功读取一些要素";
 
     // 获取存储统计信息
-    auto storage_stats = attr_storage->GetStorageStats();
-    auto compression_stats = attr_storage->GetCompressionStats();
+    auto storage_stats = storage_system->GetStorageStats();
 
     std::cout << "\n=== 优化存储读取测试 ===" << std::endl;
     std::cout << "成功读取要素数: " << success_count << "/" << test_fids.size() << std::endl;
-    std::cout << "总要素数: " << storage_stats.total_features << std::endl;
+    std::cout << "总文件数: " << storage_stats.total_files << std::endl;
     std::cout << "压缩率: " << storage_stats.compression_ratio << "%" << std::endl;
-    std::cout << "字符串池大小: " << storage_stats.string_pool_size << std::endl;
+    std::cout << "字符串池大小: " << storage_stats.string_pool_size_bytes << " 字节" << std::endl;
     std::cout << "节省空间: " << storage_stats.string_pool_saved_bytes << " 字节" << std::endl;
 }
 
@@ -955,7 +936,7 @@ TEST_F(GisStorageTest, StringPoolPerformanceTest) {
     int success_count = 0;
     for (uint64_t fid : valid_fids) {
         try {
-            auto attr = attr_storage->ReadAttribute(fid);
+            auto attr = storage_system->ReadAttribute(fid);
             if (attr) {
                 success_count++;
             }

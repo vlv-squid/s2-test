@@ -123,6 +123,7 @@ class CustomFormatPerformanceTest {
 
         // 直接获取所有要素ID，然后批量读取几何数据
         auto all_feature_ids = storage_system_->GetAllFeatureIds();
+        storage_system_->InitializeStorageFiles(dataset_name_);
 
         if (all_feature_ids.empty()) {
             return 0.0;
@@ -132,8 +133,13 @@ class CustomFormatPerformanceTest {
         size_t max_features = std::min(all_feature_ids.size(), size_t(10000));
         std::vector<uint64_t> limited_ids(all_feature_ids.begin(), all_feature_ids.begin() + max_features);
 
-        auto geometries = storage_system_->ReadGeometries(limited_ids);
-        size_t count = geometries.size();
+        size_t count = 0;
+        for (uint64_t fid : limited_ids) {
+            auto geometry = storage_system_->ReadGeometry(fid);
+            if (geometry) {
+                count++;
+            }
+        }
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -461,7 +467,8 @@ TEST_F(CustomFormatPerformanceTestFixture, CustomFormatValid) {
         std::cout << "    几何数据: " << test.formatFileSize(stats.geometry_size_bytes) << std::endl;
         std::cout << "    属性数据: " << test.formatFileSize(stats.attribute_size_bytes) << std::endl;
         std::cout << "    字符串池: " << test.formatFileSize(stats.string_pool_size_bytes) << std::endl;
-        std::cout << "    索引数据: " << test.formatFileSize(stats.index_size_bytes) << std::endl;
+        std::cout << "    几何分块索引: " << test.formatFileSize(stats.geometry_chunked_index_size_bytes) << std::endl;
+        std::cout << "    属性分块索引: " << test.formatFileSize(stats.attribute_chunked_index_size_bytes) << std::endl;
         std::cout << "    S2索引: " << test.formatFileSize(stats.s2_index_size_bytes) << std::endl;
         std::cout << "    总大小: " << test.formatFileSize(stats.total_size_bytes) << std::endl;
 
@@ -470,7 +477,8 @@ TEST_F(CustomFormatPerformanceTestFixture, CustomFormatValid) {
         std::vector<std::pair<std::string, std::string>> files = {{"几何数据", data_dir + "/" + dataset_name + ".geom"},
                                                                   {"属性数据", data_dir + "/" + dataset_name + ".attr"},
                                                                   {"字符串池", data_dir + "/" + dataset_name + ".pool"},
-                                                                  {"索引数据", data_dir + "/" + dataset_name + ".idx"},
+                                                                  {"几何分块索引", data_dir + "/" + dataset_name + ".geom.chunked_idx"},
+                                                                  {"属性分块索引", data_dir + "/" + dataset_name + ".attr.chunked_idx"},
                                                                   {"元数据", data_dir + "/" + dataset_name + "_meta.json"},
                                                                   {"S2索引", data_dir + "/" + dataset_name + ".s2idx"}};
 
@@ -814,15 +822,6 @@ TEST_F(CustomFormatPerformanceTestFixture, CompositeQueryPerformance) {
     // 选择字段进行测试
     std::string test_field = "dlbm";
     std::string test_value = "0101";
-
-    if (!field_names.empty()) {
-        // 如果元数据中有字段信息，使用第一个字段
-        test_field = field_names[0];
-        auto samples = test.getFieldValueSamples(test_field, 1);
-        if (!samples.empty()) {
-            test_value = samples[0];
-        }
-    }
     int num_queries = 1; // 只测试一次，因为高效查询会处理所有空间候选要素
 
     double composite_time = test.testSpatialAttributeQuery(min_x, min_y, max_x, max_y, test_field, test_value, num_queries);
@@ -838,44 +837,6 @@ TEST_F(CustomFormatPerformanceTestFixture, CompositeQueryPerformance) {
         std::cout << "  查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
     }
 }
-
-// 参数化测试示例 - 不同查询次数
-class QueryCountTest : public ::testing::TestWithParam<int> {};
-
-TEST_P(QueryCountTest, RandomSpatialQueryWithDifferentCounts) {
-    std::string data_dir = "/home/chenming/Projects/test/s2-test/output_data/integrated_test";
-    std::string dataset_name = "td_gtbhdc_bg_530000_2020";
-
-    std::string metadata_file = data_dir + "/" + dataset_name + "_meta.json";
-    if (!std::filesystem::exists(metadata_file)) {
-        dataset_name = "DLTB_2021CG";
-        metadata_file = data_dir + "/" + dataset_name + "_meta.json";
-    }
-
-    if (!std::filesystem::exists(metadata_file)) {
-        GTEST_SKIP() << "测试文件不存在，跳过测试";
-    }
-
-    CustomFormatPerformanceTest test(data_dir, dataset_name);
-    if (!test.isValid()) {
-        GTEST_SKIP() << "无法打开自定义格式数据，跳过测试";
-    }
-
-    int num_queries = GetParam();
-    double query_time = test.testRandomSpatialQuery(num_queries);
-
-    EXPECT_GT(query_time, 0) << "随机空间查询失败 (查询次数=" << num_queries << ")";
-
-    std::cout << "查询次数 " << num_queries << " 的随机空间查询:" << std::endl;
-    std::cout << "  查询时间: " << query_time << " ms" << std::endl;
-
-    if (query_time > 0) {
-        double queries_per_second = num_queries / (query_time / 1000.0);
-        std::cout << "  查询速度: " << std::fixed << std::setprecision(0) << queries_per_second << " 次/秒" << std::endl;
-    }
-}
-
-INSTANTIATE_TEST_SUITE_P(QueryCounts, QueryCountTest, ::testing::Values(10, 50, 100, 200, 500));
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

@@ -54,7 +54,7 @@ namespace GisStorage {
         std::string geom_file = output_dir_ + "/" + ogr_file_name_ + ".geom";
         std::string attr_file = output_dir_ + "/" + ogr_file_name_ + ".attr";
         std::string pool_file = output_dir_ + "/" + ogr_file_name_ + ".pool";
-        index_file_ = output_dir_ + "/" + ogr_file_name_ + ".idx";
+        // 不再使用旧的.idx文件，改为使用分块索引
 
         geometry_storage_ = std::make_unique<GeometryStorage>(geom_file);
         attribute_storage_ = std::make_unique<AttributeStorage>(attr_file, pool_file);
@@ -350,9 +350,6 @@ namespace GisStorage {
             processed_count++;
         }
 
-        // 保存索引数据
-        SaveIndexData(index_data);
-
         // 保存字符串池
         SaveStringPool();
 
@@ -383,6 +380,10 @@ namespace GisStorage {
         // 保存元数据（包括字段定义、空间范围和坐标系统信息）
         SaveMetadata(field_info, source_crs_info, target_crs_info);
 
+        // 构建分块索引以支持流式读取
+        std::cout << "构建分块索引以支持流式读取..." << std::endl;
+        BuildChunkedIndexes();
+
         return valid_fids;
     }
 
@@ -392,10 +393,6 @@ namespace GisStorage {
 
     std::string OGRFormatConverter::GetAttributeFilePath() const {
         return attribute_storage_->GetAttributeFilePath();
-    }
-
-    std::string OGRFormatConverter::GetIndexFilePath() const {
-        return index_file_;
     }
 
     std::string OGRFormatConverter::GetStringPoolFilePath() const {
@@ -780,17 +777,6 @@ namespace GisStorage {
         }
     }
 
-    void OGRFormatConverter::SaveIndexData(const nlohmann::json& index_data) {
-        std::ofstream file(index_file_);
-        if (file.is_open()) {
-            file << index_data.dump(4);
-            file.close();
-            std::cout << "索引文件已保存: " << index_file_ << std::endl;
-        } else {
-            std::cerr << "无法保存索引文件: " << index_file_ << std::endl;
-        }
-    }
-
     void OGRFormatConverter::SaveStringPool() {
         attribute_storage_->SaveStringPool();
     }
@@ -909,24 +895,19 @@ namespace GisStorage {
                 return false;
             }
 
-            // 加载索引数据
-            std::ifstream index_file(index_file_);
-            if (!index_file.is_open()) {
-                std::cerr << "无法打开索引文件: " << index_file_ << std::endl;
+            // 从元数据获取要素总数
+            size_t total_features = 0;
+            if (metadata_.contains("total_features")) {
+                total_features = metadata_["total_features"];
+            } else {
+                std::cerr << "元数据中缺少total_features信息" << std::endl;
                 return false;
             }
 
-            nlohmann::json index_data;
-            index_file >> index_data;
-            index_file.close();
-
-            // 获取所有要素ID
-            if (index_data.contains("data") && index_data["data"].contains("features")) {
-                auto features = index_data["data"]["features"];
-                for (auto& [fid_str, feature_info] : features.items()) {
-                    uint64_t fid = std::stoull(fid_str);
-                    feature_ids_.push_back(fid);
-                }
+            // 生成要素ID列表（从0到total_features-1）
+            feature_ids_.reserve(total_features);
+            for (uint64_t i = 0; i < total_features; ++i) {
+                feature_ids_.push_back(i);
             }
 
             std::cout << "找到 " << feature_ids_.size() << " 个要素" << std::endl;
@@ -1210,6 +1191,32 @@ namespace GisStorage {
             std::cerr << "解析元数据文件时出错: " << e.what() << std::endl;
             file.close();
             return nlohmann::json();
+        }
+    }
+
+    void OGRFormatConverter::BuildChunkedIndexes() {
+        try {
+            std::cout << "开始构建分块索引..." << std::endl;
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            // 构建几何数据分块索引
+            if (geometry_storage_) {
+                std::cout << "构建几何数据分块索引..." << std::endl;
+                geometry_storage_->BuildChunkedIndex();
+            }
+
+            // 构建属性数据分块索引
+            if (attribute_storage_) {
+                std::cout << "构建属性数据分块索引..." << std::endl;
+                attribute_storage_->BuildChunkedIndex();
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "分块索引构建完成，耗时: " << duration.count() << " 毫秒" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "构建分块索引时出错: " << e.what() << std::endl;
         }
     }
 

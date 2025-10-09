@@ -24,18 +24,18 @@ namespace S2Main {
 }
 
 namespace GisStorage {
-
     // GIS存储系统主类 - 集成文件扩展名定义、S2索引和元数据管理
     class GisStorageSystem {
       public:
         // 文件扩展名定义 - 统一管理所有文件格式
         struct FileExtensions {
-            static constexpr const char* GEOMETRY_DATA = ".geom";  // 几何数据文件
-            static constexpr const char* ATTRIBUTE_DATA = ".attr"; // 属性数据文件
-            static constexpr const char* STRING_POOL = ".pool";    // 字符串池文件
-            static constexpr const char* INDEX_DATA = ".idx";      // 索引数据文件
-            static constexpr const char* METADATA = "_meta.json";  // 元数据文件
-            static constexpr const char* S2_INDEX = ".s2idx";      // S2空间索引文件
+            static constexpr const char* GEOMETRY_DATA = ".geom";                       // 几何数据文件
+            static constexpr const char* ATTRIBUTE_DATA = ".attr";                      // 属性数据文件
+            static constexpr const char* STRING_POOL = ".pool";                         // 字符串池文件
+            static constexpr const char* GEOMETRY_CHUNKED_INDEX = ".geom.chunked_idx";  // 几何分块索引文件
+            static constexpr const char* ATTRIBUTE_CHUNKED_INDEX = ".attr.chunked_idx"; // 属性分块索引文件
+            static constexpr const char* METADATA = "_meta.json";                       // 元数据文件
+            static constexpr const char* S2_INDEX = ".s2idx";                           // S2空间索引文件
         };
 
         // 元数据结构 - 完整描述数据集信息
@@ -65,14 +65,14 @@ namespace GisStorage {
         // 读取属性数据
         std::unique_ptr<AttributeData> ReadAttribute(uint64_t feature_id);
 
+        // 按需读取几何数据（不依赖完整索引）
+        std::unique_ptr<GeometryData> ReadGeometryOnDemand(uint64_t feature_id);
+
+        // 按需读取属性数据（不依赖完整索引）
+        std::unique_ptr<AttributeData> ReadAttributeOnDemand(uint64_t feature_id);
+
         // 获取所有要素ID
         std::vector<uint64_t> GetAllFeatureIds();
-
-        // 批量读取几何数据
-        std::map<uint64_t, std::unique_ptr<GeometryData>> ReadGeometries(const std::vector<uint64_t>& feature_ids);
-
-        // 批量读取属性数据
-        std::map<uint64_t, std::unique_ptr<AttributeData>> ReadAttributes(const std::vector<uint64_t>& feature_ids);
 
         // 属性查询方法
         std::vector<uint64_t> QueryByAttributePattern(const std::string& field_name, const std::string& pattern);
@@ -86,6 +86,12 @@ namespace GisStorage {
 
         // 高效的复合查询方法（空间+属性）
         std::vector<uint64_t> QuerySpatialAttributeEfficient(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value);
+
+        // 流式查询方法 - 优化版本，支持按需加载
+        std::vector<uint64_t> QuerySpatialAttributeStreaming(const BBox& spatial_bbox, const std::string& field_name, const std::string& field_value);
+
+        // 流式空间查询 - 只返回候选要素ID，不加载完整数据
+        std::vector<uint64_t> QuerySpatialCandidates(const BBox& spatial_bbox);
 
         // 初始化存储文件
         void InitializeStorageFiles(const std::string& shapefile_path);
@@ -122,7 +128,8 @@ namespace GisStorage {
         std::string GetGeometryFilePath() const;
         std::string GetAttributeFilePath() const;
         std::string GetStringPoolFilePath() const;
-        std::string GetIndexFilePath() const;
+        std::string GetGeometryChunkedIndexFilePath() const;
+        std::string GetAttributeChunkedIndexFilePath() const;
         std::string GetMetadataFilePath() const;
         std::string GetS2IndexFilePath() const;
 
@@ -133,12 +140,16 @@ namespace GisStorage {
             size_t geometry_size_bytes = 0;
             size_t attribute_size_bytes = 0;
             size_t string_pool_size_bytes = 0;
-            size_t index_size_bytes = 0;
+            size_t geometry_chunked_index_size_bytes = 0;
+            size_t attribute_chunked_index_size_bytes = 0;
             size_t s2_index_size_bytes = 0;
             double compression_ratio = 0.0;
             size_t string_pool_saved_bytes = 0;
         };
         StorageStats GetStorageStats() const;
+
+        bool ValidateFileStructure();               // 验证文件结构完整性
+        std::vector<std::string> GetMissingFiles(); // 获取缺失的文件列表
 
       private:
         std::string output_dir_;
@@ -151,7 +162,8 @@ namespace GisStorage {
         std::string geom_file_;
         std::string attr_file_;
         std::string pool_file_;
-        std::string index_file_;
+        std::string geom_chunked_index_file_;
+        std::string attr_chunked_index_file_;
         std::string metadata_file_;
         std::string s2_index_file_;
 
@@ -168,7 +180,6 @@ namespace GisStorage {
         // bbox相交判断辅助函数
         bool IsBBoxIntersecting(const BBox& bbox1, const BBox& bbox2) const;
     };
-
 } // namespace GisStorage
 
 #endif // GIS_STORAGE_SYSTEM_H
