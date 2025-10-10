@@ -271,6 +271,15 @@ namespace GisStorage {
 
         std::vector<Coordinate> coordinates;
 
+        // 处理单点情况（16字节）
+        if (data.size() == 16) {
+            Coordinate point;
+            std::memcpy(&point.x, &data[0], sizeof(double));
+            std::memcpy(&point.y, &data[8], sizeof(double));
+            coordinates.push_back(point);
+            return coordinates;
+        }
+
         // FileGDB风格压缩格式：偏移量、分辨率、第一个点坐标、差分数据
         if (data.size() >= 40) {
             double min_x, min_y, scale;

@@ -40,6 +40,7 @@ namespace GisStorage {
         uint32_t new_id = static_cast<uint32_t>(string_table_.size());
         string_to_id_[str] = new_id;
         string_table_.push_back(str);
+        string_count_ = static_cast<uint32_t>(string_table_.size());
         total_size_ += CalculateStringSize(str);
 
         return new_id;

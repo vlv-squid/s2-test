@@ -19,20 +19,21 @@ using namespace GisStorage;
 
 class GisStorageTest : public ::testing::Test {
   protected:
-    std::string test_shapefile;
-    std::string output_dir;
-    std::vector<uint64_t> valid_fids;
-    std::unique_ptr<OGRFormatConverter> converter;
-    std::unique_ptr<GisStorage::GisStorageSystem> storage_system;
+    static std::string test_shapefile;
+    static std::string output_dir;
+    static std::vector<uint64_t> valid_fids;
+    static std::unique_ptr<OGRFormatConverter> converter;
+    static std::unique_ptr<GisStorage::GisStorageSystem> storage_system;
+    static bool initialized;
 
-    void SetUp() override {
+    static void SetUpTestSuite() {
         // 设置测试文件路径
         test_shapefile = "/home/chenming/Projects/test/s2-test/data/test.shp";
         output_dir = "/home/chenming/Projects/test/s2-test/output_data/storage_test";
 
         // 检查测试文件是否存在
         if (!std::filesystem::exists(test_shapefile)) {
-            GTEST_SKIP() << "测试Shapefile不存在: " << test_shapefile;
+            return;
         }
 
         // 清理旧的输出文件
@@ -45,7 +46,7 @@ class GisStorageTest : public ::testing::Test {
         valid_fids = converter->Convert();
 
         if (valid_fids.empty()) {
-            GTEST_SKIP() << "没有有效的要素数据";
+            return;
         }
 
         // 创建存储系统
@@ -53,13 +54,30 @@ class GisStorageTest : public ::testing::Test {
 
         // 初始化存储文件
         storage_system->InitializeStorageFiles(test_shapefile);
+
+        initialized = true;
     }
 
-    void TearDown() override {
-        // 清理测试产生的文件
+    static void TearDownTestSuite() {
+        // 清理所有测试完成后的资源
+        storage_system.reset();
+        converter.reset();
+
+        // 清理测试产生的文件（注释掉以供调试）
         // if (std::filesystem::exists(output_dir)) {
         //     std::filesystem::remove_all(output_dir);
         // }
+    }
+
+    void SetUp() override {
+        // 检查是否已初始化
+        if (!initialized) {
+            GTEST_SKIP() << "测试环境初始化失败";
+        }
+    }
+
+    void TearDown() override {
+        // 不需要清理，由TearDownTestSuite处理
     }
 
     // 获取有效的测试FID（跳过FID为0的要素）
@@ -73,6 +91,14 @@ class GisStorageTest : public ::testing::Test {
         return test_fids;
     }
 };
+
+// 静态成员变量定义
+std::string GisStorageTest::test_shapefile;
+std::string GisStorageTest::output_dir;
+std::vector<uint64_t> GisStorageTest::valid_fids;
+std::unique_ptr<OGRFormatConverter> GisStorageTest::converter;
+std::unique_ptr<GisStorage::GisStorageSystem> GisStorageTest::storage_system;
+bool GisStorageTest::initialized = false;
 
 // 几何序列化测试
 TEST_F(GisStorageTest, GeometrySerialization) {
@@ -138,11 +164,8 @@ TEST_F(GisStorageTest, GeometryData) {
     // 创建几何数据 - 使用单点测试，避免复杂的差分编码问题
     std::vector<Coordinate> coordinates = {{103.2504, 26.4297}};
 
-    // 使用简单的编码方法
-    std::vector<uint8_t> compressed;
-    compressed.resize(16);
-    std::memcpy(&compressed[0], &coordinates[0].x, sizeof(double));
-    std::memcpy(&compressed[8], &coordinates[0].y, sizeof(double));
+    // 使用正确的编码方法
+    std::vector<uint8_t> compressed = GeometrySerializer::EncodeCoordinatesDelta(coordinates);
 
     BBox bbox = GeometrySerializer::CalculateBBox(coordinates);
 
@@ -355,44 +378,44 @@ TEST_F(GisStorageTest, BatchReadPerformance) {
     std::cout << "批量读取 " << geometries.size() << " 个要素耗时: " << duration.count() << "ms" << std::endl;
 }
 
-// JSON索引格式测试
-TEST_F(GisStorageTest, JsonIndexFormat) {
-    // 验证JSON索引文件格式
-    std::string index_file_path = storage_system->GetGeometryFilePath() + ".idx";
-    std::ifstream index_file(index_file_path);
-    EXPECT_TRUE(index_file.is_open());
+// 分块索引格式测试
+TEST_F(GisStorageTest, ChunkedIndexFormat) {
+    // 验证分块索引文件格式
+    std::string geom_index_file = storage_system->GetGeometryFilePath() + ".chunked_idx";
+    std::string attr_index_file = storage_system->GetAttributeFilePath() + ".chunked_idx";
+
+    // 检查几何分块索引文件
+    EXPECT_TRUE(std::filesystem::exists(geom_index_file));
+    EXPECT_GT(std::filesystem::file_size(geom_index_file), 0);
+
+    // 检查属性分块索引文件
+    EXPECT_TRUE(std::filesystem::exists(attr_index_file));
+    EXPECT_GT(std::filesystem::file_size(attr_index_file), 0);
+
+    // 验证元数据文件
+    std::string metadata_file = output_dir + "/test_meta.json";
+    EXPECT_TRUE(std::filesystem::exists(metadata_file));
+
+    std::ifstream meta_file(metadata_file);
+    EXPECT_TRUE(meta_file.is_open());
 
     try {
-        nlohmann::json index_data = nlohmann::json::parse(index_file);
+        nlohmann::json metadata = nlohmann::json::parse(meta_file);
 
-        // 验证JSON结构
-        EXPECT_TRUE(index_data.contains("version"));
-        EXPECT_TRUE(index_data.contains("data"));
-        EXPECT_TRUE(index_data["data"].contains("features"));
+        // 验证元数据结构
+        EXPECT_TRUE(metadata.contains("source_format"));
+        EXPECT_TRUE(metadata.contains("field_definitions"));
+        EXPECT_TRUE(metadata.contains("spatial_extent"));
+        EXPECT_TRUE(metadata.contains("compression_info"));
+        EXPECT_TRUE(metadata["compression_info"].contains("compression_ratio"));
 
-        EXPECT_EQ(index_data["version"], 1);
-        EXPECT_EQ(index_data["data"]["features"].size(), valid_fids.size());
-
-        // 验证前几个要素的索引结构
-        auto test_fids = getValidTestFids(5);
-        for (uint64_t fid : test_fids) {
-            std::string fid_str = std::to_string(fid);
-            EXPECT_TRUE(index_data["data"]["features"].contains(fid_str));
-
-            auto feature = index_data["data"]["features"][fid_str];
-            EXPECT_TRUE(feature.contains("geom_offset"));
-            EXPECT_TRUE(feature.contains("attr_offset"));
-
-            EXPECT_GE(feature["geom_offset"], 0);
-            EXPECT_GE(feature["attr_offset"], 0);
-        }
-
-        std::cout << "JSON索引文件格式验证通过" << std::endl;
-        std::cout << "版本: " << index_data["version"] << std::endl;
-        std::cout << "要素数量: " << index_data["data"]["features"].size() << std::endl;
+        std::cout << "分块索引文件格式验证通过" << std::endl;
+        std::cout << "源格式: " << metadata["source_format"] << std::endl;
+        std::cout << "字段数量: " << metadata["field_definitions"].size() << std::endl;
+        std::cout << "压缩率: " << metadata["compression_info"]["compression_ratio"] << "%" << std::endl;
 
     } catch (const nlohmann::json::exception& e) {
-        FAIL() << "JSON索引文件解析失败: " << e.what();
+        FAIL() << "元数据文件解析失败: " << e.what();
     }
 }
 
