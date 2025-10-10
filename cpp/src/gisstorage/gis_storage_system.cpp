@@ -1209,7 +1209,6 @@ namespace GisStorage {
                     stats.s2_index_size_bytes = it->second;
                 }
             } else {
-                // 如果元数据中没有文件大小信息，直接从文件系统获取
                 std::string file_path;
                 if (file_type == "geometry") {
                     file_path = geom_file_;

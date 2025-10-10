@@ -384,6 +384,10 @@ namespace GisStorage {
         std::cout << "构建分块索引以支持流式读取..." << std::endl;
         BuildChunkedIndexes();
 
+        // 创建字符串池索引文件
+        std::cout << "创建字符串池索引文件..." << std::endl;
+        attribute_storage_->CreateStringPoolIndex();
+
         return valid_fids;
     }
 

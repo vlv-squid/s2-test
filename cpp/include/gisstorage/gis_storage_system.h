@@ -24,6 +24,7 @@ namespace S2Main {
 }
 
 namespace GisStorage {
+
     // GIS存储系统主类 - 集成文件扩展名定义、S2索引和元数据管理
     class GisStorageSystem {
       public:
@@ -180,6 +181,7 @@ namespace GisStorage {
         // bbox相交判断辅助函数
         bool IsBBoxIntersecting(const BBox& bbox1, const BBox& bbox2) const;
     };
+
 } // namespace GisStorage
 
 #endif // GIS_STORAGE_SYSTEM_H

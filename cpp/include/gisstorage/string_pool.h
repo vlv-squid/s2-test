@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <atomic>
+#include <array>
 
 namespace GisStorage {
 
@@ -45,6 +47,15 @@ namespace GisStorage {
         size_t GetPoolSize() const { return string_count_; }
         size_t GetTotalSize() const { return total_size_; }
 
+        // 获取缓存统计信息
+        struct CacheStats {
+            uint64_t hits;
+            uint64_t misses;
+            double hit_rate;
+            size_t cache_size;
+        };
+        CacheStats GetCacheStats() const;
+
         // 清空池
         void Clear();
 
@@ -67,16 +78,24 @@ namespace GisStorage {
         int pool_fd_ = -1;
         char* pool_mmap_ = nullptr;
         size_t pool_size_ = 0;
-        uint32_t string_count_ = 0;
+        mutable uint32_t string_count_ = 0;
 
         // 字符串偏移量索引，用于O(1)查找
-        std::vector<size_t> string_offsets_;
+        mutable std::vector<size_t> string_offsets_;
         bool use_mmap_mode_ = false;
 
-        // LRU缓存
+        // 无锁缓存设计
         mutable std::unordered_map<uint32_t, CacheEntry> cache_;
         mutable std::list<CacheEntry> lru_list_;
-        mutable size_t max_cache_size_ = 5000; // 增加缓存大小到5000个字符串
+        mutable size_t max_cache_size_ = 20000; // 大幅增加缓存大小到20000个字符串
+
+        // 缓存统计
+        mutable std::atomic<uint64_t> cache_hits_{0};
+        mutable std::atomic<uint64_t> cache_misses_{0};
+
+        // 无锁快速缓存（用于热点字符串）
+        mutable std::array<std::pair<uint32_t, std::string>, 1024> fast_cache_;
+        mutable std::atomic<size_t> fast_cache_index_{0};
 
         size_t total_size_;
         mutable std::mutex mutex_;
@@ -87,14 +106,46 @@ namespace GisStorage {
         // 从内存映射中解析字符串
         std::string ParseStringFromMmap(uint32_t id) const;
 
+        // SIMD优化的字符串解析
+        std::string ParseStringFromMmapSIMD(uint32_t id) const;
+
         // 构建字符串偏移量索引
         void BuildStringOffsetsIndex();
+
+        // 并行构建字符串偏移量索引
+        void BuildStringOffsetsIndexParallel();
+
+        // 从内存中的字符串表构建偏移量索引
+        void BuildOffsetsIndexFromMemory() const;
+
+        // 保存偏移量索引到文件
+        bool SaveOffsetsIndexToFile(const std::string& index_file_path) const;
+
+        // 从文件加载偏移量索引
+        bool LoadOffsetsIndexFromFile(const std::string& index_file_path);
 
         // 更新LRU缓存
         void UpdateCache(uint32_t id, const std::string& value) const;
 
+        // 无锁快速缓存操作
+        std::string GetStringFromFastCache(uint32_t id) const;
+        void UpdateFastCache(uint32_t id, const std::string& value) const;
+
+        // 批量预取优化
+        void PrefetchStrings(const std::vector<uint32_t>& ids) const;
+        std::vector<std::string> GetStringsBatch(const std::vector<uint32_t>& ids) const;
+
         // 清理内存映射
         void CleanupMmap();
+
+        // 变长编码辅助函数
+        void EncodeVarint(std::vector<uint8_t>& data, uint32_t value) const;
+        size_t DecodeVarint(const std::vector<uint8_t>& data, size_t offset, uint32_t& value) const;
+        size_t CalculateVarintSize(uint32_t value) const;
+        size_t GetVarintSize(uint32_t value) const;
+
+        // 从mmap中解码变长编码
+        size_t DecodeVarintFromMmap(size_t offset, uint32_t& value) const;
     };
 
 } // namespace GisStorage

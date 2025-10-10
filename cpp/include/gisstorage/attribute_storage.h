@@ -30,6 +30,9 @@ namespace GisStorage {
         // 按需读取属性数据（不依赖完整索引）
         std::unique_ptr<AttributeData> ReadAttributeOnDemand(uint64_t feature_id);
 
+        // 批量读取属性数据（优化版本）
+        std::vector<std::unique_ptr<AttributeData>> ReadAttributesBatch(const std::vector<uint64_t>& feature_ids);
+
         // 根据偏移读取属性数据
         std::unique_ptr<AttributeData> ReadAttributeAtOffset(uint64_t feature_id, int64_t offset);
 
@@ -51,6 +54,12 @@ namespace GisStorage {
 
         // 保存字符串池到文件
         void SaveStringPool();
+
+        // 创建字符串池索引文件
+        void CreateStringPoolIndex();
+
+        // 从 .pool 文件构建索引文件
+        bool BuildIndexFromPoolFile(const std::string& pool_file_path, const std::string& index_file_path);
 
         // 加载字符串池从文件 - 优化版本，支持内存映射
         void LoadStringPool();
@@ -135,6 +144,10 @@ namespace GisStorage {
 
         // 清理内存映射
         void CleanupMmap();
+
+        // 变长编码辅助函数
+        void EncodeVarint(std::vector<uint8_t>& data, uint32_t value) const;
+        size_t DecodeVarint(const std::vector<uint8_t>& data, size_t offset, uint32_t& value) const;
     };
 
 } // namespace GisStorage

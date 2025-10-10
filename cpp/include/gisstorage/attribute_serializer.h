@@ -55,6 +55,10 @@ namespace GisStorage {
         };
         CompressionStats GetCompressionStats() const;
 
+        // 变长编码辅助函数（公开接口）
+        void EncodeVarint(std::vector<uint8_t>& data, uint32_t value);
+        size_t DecodeVarint(const std::vector<uint8_t>& data, size_t offset, uint32_t& value);
+
       private:
         StringPool string_pool_;
         mutable CompressionStats stats_;

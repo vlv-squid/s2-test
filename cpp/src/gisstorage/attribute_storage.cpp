@@ -82,6 +82,11 @@ namespace GisStorage {
     }
 
     std::unique_ptr<AttributeData> AttributeStorage::ReadAttributeOnDemand(uint64_t feature_id) {
+        // 确保字符串池已加载
+        if (serializer_.GetPoolSize() == 0) {
+            LoadStringPool();
+        }
+
         // 按需读取，只使用分块索引
         int64_t offset = -1;
 
@@ -103,6 +108,49 @@ namespace GisStorage {
         return ReadAttributeAtOffset(feature_id, offset);
     }
 
+    std::vector<std::unique_ptr<AttributeData>> AttributeStorage::ReadAttributesBatch(const std::vector<uint64_t>& feature_ids) {
+        std::vector<std::unique_ptr<AttributeData>> results;
+        results.reserve(feature_ids.size());
+
+        // 确保字符串池已加载
+        if (serializer_.GetPoolSize() == 0) {
+            LoadStringPool();
+        }
+
+        // 使用持久文件句柄
+        if (attr_fd_ == -1) {
+            attr_fd_ = open(attribute_file_.c_str(), O_RDONLY);
+            if (attr_fd_ == -1) {
+                return results;
+            }
+        }
+
+        // 批量读取，减少系统调用
+        for (uint64_t feature_id : feature_ids) {
+            // 获取偏移量
+            int64_t offset = -1;
+            if (use_chunked_mode_) {
+                offset = GetChunkedOffset(feature_id);
+            } else {
+                BuildChunkedIndex();
+                if (use_chunked_mode_) {
+                    offset = GetChunkedOffset(feature_id);
+                }
+            }
+
+            if (offset < 0) {
+                results.push_back(nullptr);
+                continue;
+            }
+
+            // 读取属性数据
+            auto attr_data = ReadAttributeAtOffset(feature_id, offset);
+            results.push_back(std::move(attr_data));
+        }
+
+        return results;
+    }
+
     std::unique_ptr<AttributeData> AttributeStorage::ReadAttributeAtOffset(uint64_t feature_id, int64_t offset) {
         // 确保字符串池已加载（按需加载）
         if (serializer_.GetPoolSize() == 0) {
@@ -119,20 +167,39 @@ namespace GisStorage {
 
         // 使用pread进行原子读取，避免文件指针操作
         uint64_t stored_fid;
-        uint32_t prop_count;
 
         // 读取feature_id
         if (pread(attr_fd_, &stored_fid, sizeof(uint64_t), offset) != sizeof(uint64_t)) {
             return nullptr;
         }
 
-        // 读取属性数量
-        if (pread(attr_fd_, &prop_count, sizeof(uint32_t), offset + sizeof(uint64_t)) != sizeof(uint32_t)) {
+        // 读取属性数量 (变长编码，需要先读取1字节判断长度)
+        uint8_t first_byte;
+        if (pread(attr_fd_, &first_byte, 1, offset + sizeof(uint64_t)) != 1) {
             return nullptr;
         }
 
+        // 计算变长编码的属性数量需要多少字节
+        size_t prop_count_bytes = 1;
+        if (first_byte & 0x80) {
+            // 需要更多字节，简单估算最大可能的大小
+            prop_count_bytes = 4; // 最多4字节
+        }
+
+        // 读取属性数量
+        std::vector<uint8_t> prop_count_data(prop_count_bytes);
+        if (pread(attr_fd_, prop_count_data.data(), prop_count_bytes, offset + sizeof(uint64_t)) != static_cast<ssize_t>(prop_count_bytes)) {
+            return nullptr;
+        }
+
+        // 解码属性数量
+        size_t temp_offset = 0;
+        uint32_t prop_count_decoded;
+        temp_offset = serializer_.DecodeVarint(prop_count_data, temp_offset, prop_count_decoded);
+
         // 计算需要读取的数据大小（包括FID、属性数量和属性数据）
-        size_t data_size = sizeof(uint64_t) + sizeof(uint32_t) + prop_count * sizeof(uint32_t) * 2;
+        // 使用保守估算：每个属性对最多需要8字节（两个4字节的变长编码）
+        size_t data_size = sizeof(uint64_t) + prop_count_bytes + prop_count_decoded * 8;
 
         // 读取完整的数据
         std::vector<uint8_t> data(data_size);
@@ -153,15 +220,138 @@ namespace GisStorage {
     }
 
     void AttributeStorage::SaveStringPool() {
+        // 先保存字符串池文件，不创建索引文件（避免在转换过程中阻塞）
         std::vector<uint8_t> pool_data = serializer_.SerializeStringPool();
 
         std::ofstream file(string_pool_file_, std::ios::binary);
         if (file.is_open()) {
             file.write(reinterpret_cast<const char*>(pool_data.data()), pool_data.size());
             file.close();
-            // std::cout << "字符串池已保存到: " << string_pool_file_ << std::endl;
+            std::cout << "字符串池已保存到: " << string_pool_file_ << std::endl;
         } else {
             std::cerr << "无法保存字符串池到: " << string_pool_file_ << std::endl;
+        }
+    }
+
+    void AttributeStorage::CreateStringPoolIndex() {
+        // 在转换完成后创建字符串池索引文件
+        std::string index_file_path = string_pool_file_ + ".index";
+
+        // 检查索引文件是否已存在
+        if (std::filesystem::exists(index_file_path)) {
+            std::cout << "字符串池索引文件已存在，跳过创建: " << index_file_path << std::endl;
+            return;
+        }
+
+        // 检查 .pool 文件是否存在
+        if (!std::filesystem::exists(string_pool_file_)) {
+            std::cerr << "字符串池文件不存在，无法创建索引: " << string_pool_file_ << std::endl;
+            return;
+        }
+
+        std::cout << "开始创建字符串池索引文件..." << std::endl;
+
+        // 直接从 .pool 文件构建索引，而不是从内存中的字符串表
+        // 这样可以避免遍历大量字符串导致的性能问题
+        if (BuildIndexFromPoolFile(string_pool_file_, index_file_path)) {
+            std::cout << "字符串池索引文件已创建: " << index_file_path << std::endl;
+        } else {
+            std::cerr << "无法创建字符串池索引文件: " << index_file_path << std::endl;
+        }
+    }
+
+    bool AttributeStorage::BuildIndexFromPoolFile(const std::string& pool_file_path, const std::string& index_file_path) {
+        try {
+            // 打开 .pool 文件
+            std::ifstream pool_file(pool_file_path, std::ios::binary);
+            if (!pool_file.is_open()) {
+                std::cerr << "无法打开字符串池文件: " << pool_file_path << std::endl;
+                return false;
+            }
+
+            // 获取文件大小
+            pool_file.seekg(0, std::ios::end);
+            size_t file_size = pool_file.tellg();
+            pool_file.seekg(0, std::ios::beg);
+
+            if (file_size < 1) {
+                std::cerr << "字符串池文件太小: " << pool_file_path << std::endl;
+                return false;
+            }
+
+            // 读取整个文件到内存
+            std::vector<uint8_t> pool_data(file_size);
+            pool_file.read(reinterpret_cast<char*>(pool_data.data()), file_size);
+            pool_file.close();
+
+            // 解析字符串数量
+            size_t offset = 0;
+            uint32_t string_count = 0;
+
+            // 解码变长编码的字符串数量
+            while (offset < pool_data.size()) {
+                uint8_t byte = pool_data[offset++];
+                string_count |= (byte & 0x7F) << (7 * (offset - 1));
+                if ((byte & 0x80) == 0)
+                    break;
+            }
+
+            std::cout << "字符串池包含 " << string_count << " 个字符串，开始构建索引..." << std::endl;
+
+            // 构建偏移量索引
+            std::vector<size_t> string_offsets;
+            string_offsets.reserve(string_count);
+
+            // 为每个字符串计算偏移量
+            for (uint32_t i = 0; i < string_count; ++i) {
+                if (offset >= pool_data.size()) {
+                    std::cerr << "字符串池数据损坏，偏移超出范围 (i=" << i << ")" << std::endl;
+                    return false;
+                }
+
+                // 记录当前字符串的偏移量
+                string_offsets.push_back(offset);
+
+                // 读取字符串长度 (变长编码)
+                uint32_t length = 0;
+                size_t length_offset = offset;
+                while (length_offset < pool_data.size()) {
+                    uint8_t byte = pool_data[length_offset++];
+                    length |= (byte & 0x7F) << (7 * (length_offset - offset - 1));
+                    if ((byte & 0x80) == 0)
+                        break;
+                }
+
+                // 跳过字符串内容
+                offset = length_offset + length;
+
+                // 显示进度
+                if (i % 100000 == 0 && i > 0) {
+                    std::cout << "\r已处理 " << i << " 个字符串..." << std::flush;
+                }
+            }
+
+            // 保存索引到文件
+            std::ofstream index_file(index_file_path, std::ios::binary);
+            if (!index_file.is_open()) {
+                std::cerr << "无法创建索引文件: " << index_file_path << std::endl;
+                return false;
+            }
+
+            // 写入字符串数量
+            index_file.write(reinterpret_cast<const char*>(&string_count), sizeof(uint32_t));
+
+            // 写入所有偏移量
+            index_file.write(reinterpret_cast<const char*>(string_offsets.data()), string_offsets.size() * sizeof(size_t));
+
+            index_file.close();
+
+            std::cout << "\n索引构建完成，共 " << string_offsets.size() << " 个字符串" << std::endl;
+            return true;
+
+        } catch (const std::exception& e) {
+            std::cerr << "构建索引时出错: " << e.what() << std::endl;
+            return false;
         }
     }
 
@@ -181,10 +371,19 @@ namespace GisStorage {
                 return;
             }
 
+            auto start_time = std::chrono::high_resolution_clock::now();
+
             // 根据配置决定是否使用mmap方式加载字符串池
             if (use_mmap_mode_ && serializer_.LoadStringPoolFromFile(string_pool_file_)) {
+                auto end_time = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
                 auto stats = serializer_.GetCompressionStats();
-                std::cout << "字符串池已使用mmap加载: " << stats.unique_strings << " 个唯一字符串" << std::endl;
+                auto cache_stats = serializer_.GetStringPool().GetCacheStats();
+
+                std::cout << "字符串池已使用mmap加载: " << stats.unique_strings << " 个唯一字符串" << " (耗时: " << duration.count() << "ms)" << std::endl;
+                std::cout << "缓存配置: 最大容量=" << cache_stats.cache_size << " 个字符串" << std::endl;
+
                 last_pool_file = string_pool_file_;
                 return;
             }
@@ -273,15 +472,50 @@ namespace GisStorage {
                 break;
             }
 
-            // 读取属性数量
-            uint32_t prop_count;
-            if (!file.read(reinterpret_cast<char*>(&prop_count), sizeof(uint32_t))) {
+            // 读取属性数量 (变长编码，需要先读取1字节判断长度)
+            uint8_t first_byte;
+            if (!file.read(reinterpret_cast<char*>(&first_byte), 1)) {
                 break;
             }
 
-            // 计算数据大小并跳过
-            size_t data_size = prop_count * sizeof(uint32_t) * 2;
-            file.seekg(data_size, std::ios::cur);
+            // 计算变长编码的属性数量需要多少字节
+            size_t prop_count_bytes = 1;
+            if (first_byte & 0x80) {
+                // 需要更多字节，简单估算最大可能的大小
+                prop_count_bytes = 4; // 最多4字节
+            }
+
+            // 读取属性数量
+            std::vector<uint8_t> prop_count_data(prop_count_bytes);
+            prop_count_data[0] = first_byte;
+            if (prop_count_bytes > 1) {
+                if (!file.read(reinterpret_cast<char*>(&prop_count_data[1]), prop_count_bytes - 1)) {
+                    break;
+                }
+            }
+
+            // 解码属性数量
+            size_t temp_offset = 0;
+            uint32_t prop_count_decoded;
+            temp_offset = DecodeVarint(prop_count_data, temp_offset, prop_count_decoded);
+
+            // 逐个读取属性对，精确跳过（变长编码的key_id和value_id）
+            for (uint32_t i = 0; i < prop_count_decoded; ++i) {
+                // 读取key_id (变长编码)
+                uint8_t byte;
+                do {
+                    if (!file.read(reinterpret_cast<char*>(&byte), 1)) {
+                        break;
+                    }
+                } while (byte & 0x80);
+
+                // 读取value_id (变长编码)
+                do {
+                    if (!file.read(reinterpret_cast<char*>(&byte), 1)) {
+                        break;
+                    }
+                } while (byte & 0x80);
+            }
 
             if (file.good()) {
                 // 检查是否需要创建新块
@@ -383,45 +617,31 @@ namespace GisStorage {
         }
 
         try {
-            // 写入文件头
-            struct ChunkedIndexHeader {
-                uint32_t version = 1; // 版本号
-                uint32_t chunk_count;
-                uint64_t chunk_size;
-                uint64_t reserved = 0; // 保留字段
-            } header;
+            // 紧凑格式：使用变长编码优化索引存储
+            std::vector<uint8_t> index_data;
 
-            header.chunk_count = static_cast<uint32_t>(index_chunks_.size());
-            header.chunk_size = chunk_size_;
-            file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+            // 写入文件头 (紧凑格式)
+            uint32_t version = 2; // 新版本号，表示紧凑格式
+            EncodeVarint(index_data, version);
+            EncodeVarint(index_data, static_cast<uint32_t>(index_chunks_.size()));
+            EncodeVarint(index_data, static_cast<uint32_t>(chunk_size_));
 
             // 写入每个索引块
             for (const auto& chunk : index_chunks_) {
-                // 写入块头
-                struct ChunkHeader {
-                    uint64_t start_fid;
-                    uint64_t end_fid;
-                    uint32_t entry_count;
-                    uint32_t reserved = 0;
-                } chunk_header;
+                // 写入块头 (紧凑格式)
+                EncodeVarint(index_data, static_cast<uint32_t>(chunk.start_fid));
+                EncodeVarint(index_data, static_cast<uint32_t>(chunk.end_fid));
+                EncodeVarint(index_data, static_cast<uint32_t>(chunk.offset_map.size()));
 
-                chunk_header.start_fid = chunk.start_fid;
-                chunk_header.end_fid = chunk.end_fid;
-                chunk_header.entry_count = static_cast<uint32_t>(chunk.offset_map.size());
-                file.write(reinterpret_cast<const char*>(&chunk_header), sizeof(chunk_header));
-
-                // 写入偏移映射
+                // 写入偏移映射 (紧凑格式)
                 for (const auto& [fid, offset] : chunk.offset_map) {
-                    struct IndexEntry {
-                        uint64_t feature_id;
-                        int64_t offset;
-                    } entry;
-
-                    entry.feature_id = fid;
-                    entry.offset = offset;
-                    file.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
+                    EncodeVarint(index_data, static_cast<uint32_t>(fid));
+                    EncodeVarint(index_data, static_cast<uint32_t>(offset));
                 }
             }
+
+            // 一次性写入所有数据
+            file.write(reinterpret_cast<const char*>(index_data.data()), index_data.size());
 
             file.flush();
             std::cout << "属性分块索引已保存到: " << index_file << " (块数: " << index_chunks_.size() << ")" << std::endl;
@@ -444,69 +664,63 @@ namespace GisStorage {
         }
 
         try {
-            // 读取文件头
-            struct ChunkedIndexHeader {
-                uint32_t version;
-                uint32_t chunk_count;
-                uint64_t chunk_size;
-                uint64_t reserved;
-            } header;
+            // 读取整个文件到内存
+            file.seekg(0, std::ios::end);
+            size_t file_size = file.tellg();
+            file.seekg(0, std::ios::beg);
 
-            if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
-                std::cout << "无法读取属性分块索引文件头" << std::endl;
-                return;
-            }
+            std::vector<uint8_t> index_data(file_size);
+            file.read(reinterpret_cast<char*>(index_data.data()), file_size);
+
+            size_t offset = 0;
+
+            // 读取文件头 (紧凑格式)
+            uint32_t version;
+            offset = DecodeVarint(index_data, offset, version);
 
             // 检查版本号
-            if (header.version != 1) {
-                std::cout << "不支持的属性分块索引版本: " << header.version << std::endl;
+            if (version != 2) {
+                std::cout << "不支持的属性分块索引版本: " << version << std::endl;
                 return;
             }
 
-            std::cout << "加载属性分块索引: 版本=" << header.version << ", 块数=" << header.chunk_count << ", 块大小=" << header.chunk_size << std::endl;
+            uint32_t chunk_count;
+            offset = DecodeVarint(index_data, offset, chunk_count);
+
+            uint32_t chunk_size;
+            offset = DecodeVarint(index_data, offset, chunk_size);
+
+            std::cout << "加载属性分块索引: 版本=" << version << ", 块数=" << chunk_count << ", 块大小=" << chunk_size << std::endl;
 
             // 设置块大小
-            chunk_size_ = header.chunk_size;
+            chunk_size_ = chunk_size;
 
             // 清空现有索引
             index_chunks_.clear();
-            index_chunks_.reserve(header.chunk_count);
+            index_chunks_.reserve(chunk_count);
 
             // 读取每个索引块
-            for (uint32_t i = 0; i < header.chunk_count; ++i) {
+            for (uint32_t i = 0; i < chunk_count; ++i) {
                 IndexChunk chunk;
 
-                // 读取块头
-                struct ChunkHeader {
-                    uint64_t start_fid;
-                    uint64_t end_fid;
-                    uint32_t entry_count;
-                    uint32_t reserved;
-                } chunk_header;
+                // 读取块头 (紧凑格式)
+                uint32_t start_fid, end_fid, entry_count;
+                offset = DecodeVarint(index_data, offset, start_fid);
+                offset = DecodeVarint(index_data, offset, end_fid);
+                offset = DecodeVarint(index_data, offset, entry_count);
 
-                if (!file.read(reinterpret_cast<char*>(&chunk_header), sizeof(chunk_header))) {
-                    std::cout << "读取属性索引块 " << i << " 头失败" << std::endl;
-                    break;
-                }
-
-                chunk.start_fid = chunk_header.start_fid;
-                chunk.end_fid = chunk_header.end_fid;
+                chunk.start_fid = start_fid;
+                chunk.end_fid = end_fid;
                 chunk.loaded = true; // 从文件加载的块直接标记为已加载
 
-                // 读取偏移映射
-                chunk.offset_map.reserve(chunk_header.entry_count);
-                for (uint32_t j = 0; j < chunk_header.entry_count; ++j) {
-                    struct IndexEntry {
-                        uint64_t feature_id;
-                        int64_t offset;
-                    } entry;
+                // 读取偏移映射 (紧凑格式)
+                chunk.offset_map.reserve(entry_count);
+                for (uint32_t j = 0; j < entry_count; ++j) {
+                    uint32_t feature_id, file_offset;
+                    offset = DecodeVarint(index_data, offset, feature_id);
+                    offset = DecodeVarint(index_data, offset, file_offset);
 
-                    if (!file.read(reinterpret_cast<char*>(&entry), sizeof(entry))) {
-                        std::cout << "读取属性索引条目 " << j << " 失败" << std::endl;
-                        break;
-                    }
-
-                    chunk.offset_map[entry.feature_id] = entry.offset;
+                    chunk.offset_map[feature_id] = static_cast<int64_t>(file_offset);
                 }
 
                 index_chunks_.push_back(std::move(chunk));
@@ -518,6 +732,36 @@ namespace GisStorage {
         } catch (const std::exception& e) {
             std::cout << "加载属性分块索引文件失败: " << e.what() << std::endl;
         }
+    }
+
+    void AttributeStorage::EncodeVarint(std::vector<uint8_t>& data, uint32_t value) const {
+        // 使用变长编码，每个字节的最高位表示是否还有后续字节
+        while (value >= 0x80) {
+            data.push_back(static_cast<uint8_t>(value | 0x80));
+            value >>= 7;
+        }
+        data.push_back(static_cast<uint8_t>(value));
+    }
+
+    size_t AttributeStorage::DecodeVarint(const std::vector<uint8_t>& data, size_t offset, uint32_t& value) const {
+        value = 0;
+        int shift = 0;
+
+        while (offset < data.size()) {
+            uint8_t byte = data[offset++];
+            value |= static_cast<uint32_t>(byte & 0x7F) << shift;
+
+            if ((byte & 0x80) == 0) {
+                break; // 最后一个字节
+            }
+
+            shift += 7;
+            if (shift >= 32) {
+                throw std::runtime_error("变长编码值过大");
+            }
+        }
+
+        return offset;
     }
 
 } // namespace GisStorage
