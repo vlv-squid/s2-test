@@ -41,6 +41,9 @@ class StringPool:
         # 线程安全
         self.mutex = threading.Lock()
 
+        # 控制警告输出
+        self.verbose_warnings = False
+
     def get_string_id(self, string: str) -> int:
         """获取字符串ID（如果不存在则添加）"""
         with self.mutex:
@@ -337,27 +340,34 @@ class StringPool:
 
         # 检查偏移量是否在有效范围内
         if offset + 1 > self.pool_size:  # 至少需要1字节的变长编码
-            print(
-                f"警告: 字符串池mmap数据损坏，偏移超出范围 (id={string_id}, offset={offset}, pool_size={self.pool_size})"
-            )
+            if self.verbose_warnings:
+                print(
+                    f"警告: 字符串池mmap数据损坏，偏移超出范围 (id={string_id}, offset={offset}, pool_size={self.pool_size})"
+                )
             return ""
 
         # 读取字符串长度 (变长编码)
         length, offset = self._decode_varint_from_mmap(offset)
 
+        # 如果变长编码解析失败，返回空字符串
+        if length == -1 or offset == -1:
+            return ""
+
         # 检查长度是否合理
         if length > self.pool_size or offset + length > self.pool_size:
-            print(
-                f"警告: 字符串长度异常 (id={string_id}, length={length}, pool_size={self.pool_size})"
-            )
+            if self.verbose_warnings:
+                print(
+                    f"警告: 字符串长度异常 (id={string_id}, length={length}, pool_size={self.pool_size})"
+                )
             return ""
 
         try:
             return self.pool_mmap[offset : offset + length].decode("utf-8")
         except UnicodeDecodeError as e:
-            print(
-                f"警告: 字符串解码失败 (id={string_id}, offset={offset}, length={length}): {e}"
-            )
+            if self.verbose_warnings:
+                print(
+                    f"警告: 字符串解码失败 (id={string_id}, offset={offset}, length={length}): {e}"
+                )
             # 尝试使用错误处理策略
             return self.pool_mmap[offset : offset + length].decode(
                 "utf-8", errors="replace"
@@ -585,13 +595,18 @@ class StringPool:
                 break  # 最后一个字节
 
             shift += 7
-            if shift >= 32:
-                print(f"警告: 变长编码值过大 (offset={start_offset}, value={value})")
+            # 增加shift限制，防止解析错误
+            if shift >= 28:  # 减少到28位，避免解析错误
+                if self.verbose_warnings:
+                    print(
+                        f"警告: 变长编码值过大 (offset={start_offset}, value={value})"
+                    )
                 return -1, -1
 
         # 如果循环结束但没有找到结束字节，返回错误
         if offset >= self.pool_size and (self.pool_mmap[offset - 1] & 0x80) != 0:
-            print(f"警告: 变长编码不完整 (offset={start_offset})")
+            if self.verbose_warnings:
+                print(f"警告: 变长编码不完整 (offset={start_offset})")
             return -1, -1
 
         return value, offset
