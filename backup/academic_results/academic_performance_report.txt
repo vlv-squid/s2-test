@@ -1,0 +1,35 @@
+SPATIAL INDEX PERFORMANCE EVALUATION
+==================================================
+
+EXPERIMENTAL SETUP
+--------------------
+Dataset: /home/chenming/Data/GIS_DATA/filegdb/DLTB_2021CG.gdb
+Total Features: 16,511,241
+Processed Features: 16,511,241
+System Memory: 791.00 MB
+
+PERFORMANCE ANALYSIS
+--------------------
+S2-based Index:
+  Mean Query Time: 0.784 ± 0.028 ms
+  Median Query Time: 0.780 ms
+  Min/Max: 0.748/0.829 ms
+
+OGR Baseline:
+  Mean Query Time: 3800.678 ± 1325.641 ms
+  Median Query Time: 4338.734 ms
+  Min/Max: 409.002/5056.354 ms
+
+PERFORMANCE IMPROVEMENT
+  Average Speedup: 4848.03×
+  Performance Gain: 484702.9%
+
+STATISTICAL SIGNIFICANCE
+  t-statistic: -9.0645
+  p-value: 1.61e-08
+  Result: highly significant (p < 0.001)
+
+SCALABILITY ANALYSIS
+--------------------
+Time Complexity: O(n^0.913) (R² = 0.987)
+Space Complexity: O(n^0.016) (R² = 0.705)

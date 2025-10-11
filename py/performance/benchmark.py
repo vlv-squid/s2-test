@@ -1012,10 +1012,10 @@ def main():
     try:
         if args.test_type == "basic":
             run_basic_test(args.shapefile, args.output_dir)
-        elif args.test_type == "detailed":
-            run_detailed_test(args.shapefile, args.output_dir)
-        elif args.test_type == "quick":
-            run_quick_test(args.shapefile, args.output_dir)
+        # elif args.test_type == "detailed":
+        #     run_detailed_test(args.shapefile, args.output_dir)
+        # elif args.test_type == "quick":
+        #     run_quick_test(args.shapefile, args.output_dir)
 
         print("\n测试完成！")
 
