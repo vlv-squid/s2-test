@@ -185,8 +185,6 @@ class GeometrySerializer:
 
         # 4. 存储数据：偏移量、分辨率、第一个点坐标、差分数据
         data = bytearray()
-        # Python的bytearray没有reserve方法，使用预分配
-        data = bytearray(32 + len(deltas) * 4)  # 预估大小
 
         # 存储偏移量（16字节）
         data.extend(struct.pack("dd", min_x, min_y))
