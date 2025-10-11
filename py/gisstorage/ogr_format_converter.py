@@ -543,8 +543,7 @@ class OGRFormatConverter:
                 "compressed_size": compression_stats["compressed_size"],
                 "unique_strings": compression_stats["unique_strings"],
                 "total_strings": compression_stats["total_strings"],
-                "saved_bytes": compression_stats["original_size"]
-                - compression_stats["compressed_size"],
+                "saved_bytes": compression_stats["original_size"] - compression_stats["compressed_size"],
             }
 
         # 添加基本统计信息
@@ -552,10 +551,80 @@ class OGRFormatConverter:
         metadata["valid_features"] = self.stats["valid_features"]
         metadata["conversion_time_seconds"] = self.stats["conversion_time_seconds"]
 
+        # 按照C++版本的顺序重新组织元数据
+        ordered_metadata = {}
+        
+        # 1. compression_info (如果存在)
+        if self.attribute_storage:
+            compression_stats = self.attribute_storage.get_compression_stats()
+            ordered_metadata["compression_info"] = {
+                "compression_ratio": compression_stats["compression_ratio"],
+                "original_size": compression_stats["original_size"],
+                "compressed_size": compression_stats["compressed_size"],
+                "unique_strings": compression_stats["unique_strings"],
+                "total_strings": compression_stats["total_strings"],
+                "saved_bytes": compression_stats["original_size"] - compression_stats["compressed_size"],
+            }
+        
+        # 2. conversion_time_seconds
+        ordered_metadata["conversion_time_seconds"] = self.stats["conversion_time_seconds"]
+        
+        # 3. creation_date
+        ordered_metadata["creation_date"] = metadata["creation_date"]
+        
+        # 4. field_definitions (按C++版本的顺序)
+        ordered_field_definitions = {}
+        # C++版本的字段顺序
+        cpp_field_order = [
+            "bsm", "bz", "czcsxm", "dlbm", "dlmc", "frdbs", "gddb", "gdlx", "gdpdjb", 
+            "hdmc", "id", "kcdlbm", "kcmj", "kcxs", "mssm", "objectid", "qsdwdm", 
+            "qsdwmc", "qsxz", "shape_area", "shape_leng", "sjnf", "tbbh", "tbdlmj", 
+            "tbmj", "tbxhdm", "tbxhmc", "tbybh", "xzdwkd", "ysdm", "zldwdm", 
+            "zldwmc", "zzsxdm", "zzsxmc"
+        ]
+        
+        # 按C++顺序添加字段
+        for field_name in cpp_field_order:
+            if field_name in field_info:
+                ordered_field_definitions[field_name] = field_info[field_name]
+        
+        # 添加任何不在C++顺序中的字段
+        for field_name, field_type in field_info.items():
+            if field_name not in ordered_field_definitions:
+                ordered_field_definitions[field_name] = field_type
+        
+        ordered_metadata["field_definitions"] = ordered_field_definitions
+        
+        # 5. source_coordinate_system
+        ordered_metadata["source_coordinate_system"] = source_crs
+        
+        # 6. source_file
+        ordered_metadata["source_file"] = metadata["source_file"]
+        
+        # 7. source_format
+        ordered_metadata["source_format"] = source_format
+        
+        # 8. spatial_extent (按C++版本的顺序)
+        ordered_metadata["spatial_extent"] = {
+            "max_x": spatial_extent.max_x,
+            "max_y": spatial_extent.max_y,
+            "min_x": spatial_extent.min_x,
+            "min_y": spatial_extent.min_y,
+        }
+        
+        # 9. target_coordinate_system
+        ordered_metadata["target_coordinate_system"] = target_crs
+        
+        # 10. total_features
+        ordered_metadata["total_features"] = self.stats["total_features"]
+        
+        # 11. valid_features
+        ordered_metadata["valid_features"] = self.stats["valid_features"]
+
         # 保存元数据
         try:
             with open(metadata_file, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=4, ensure_ascii=False)
+                json.dump(ordered_metadata, f, indent=4, ensure_ascii=False)
             print(f"元数据已保存到文件: {metadata_file}")
             print(f"  源格式: {source_format}")
             print(f"  字段定义: {len(field_info)} 个字段")
