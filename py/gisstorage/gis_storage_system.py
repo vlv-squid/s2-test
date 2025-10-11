@@ -8,7 +8,7 @@ import json
 import hashlib
 from datetime import datetime
 from typing import Tuple, List, Dict, Optional, Any
-from .types import BBox
+from .geometry_types import BBox
 from .geometry_data import GeometryData
 from .attribute_data import AttributeData
 from .geometry_storage import GeometryStorage

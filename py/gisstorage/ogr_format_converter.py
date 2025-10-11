@@ -8,7 +8,7 @@ import json
 import time
 from typing import Dict, List, Optional, Any, Tuple
 from osgeo import ogr
-from .types import GeometryType, Coordinate, BBox
+from .geometry_types import GeometryType, Coordinate, BBox
 from .geometry_data import GeometryData
 from .attribute_data import AttributeData
 from .geometry_storage import GeometryStorage

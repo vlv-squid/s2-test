@@ -4,7 +4,7 @@
 #   @date: 2025-08-21
 
 from typing import List, Tuple
-from .types import GeometryType, Coordinate, BBox
+from .geometry_types import GeometryType, Coordinate, BBox
 
 
 class GeometryData:

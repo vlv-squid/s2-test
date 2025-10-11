@@ -3,7 +3,7 @@
 #   @author: vlv-squid
 #   @date: 2025-08-21
 
-from .types import GeometryType, Coordinate, BBox
+from .geometry_types import GeometryType, Coordinate, BBox
 from .geometry_data import GeometryData
 from .attribute_data import AttributeData
 from .geometry_serializer import GeometrySerializer
