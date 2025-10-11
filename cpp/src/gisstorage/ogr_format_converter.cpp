@@ -246,7 +246,7 @@ namespace GisStorage {
 
                 // 根据几何类型提取坐标数据
                 std::vector<uint8_t> coord_data;
-                BBox bbox;
+                BBox bbox = {-1.0, -1.0, 1.0, 1.0};
                 uint32_t num_rings = 0;
 
                 if (geom_type == GeometryType::POLYGON) {

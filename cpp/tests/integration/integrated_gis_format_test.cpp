@@ -21,7 +21,7 @@
 #include "gisindex/s2spatial_index.h"
 
 // 测试配置
-const std::string TEST_DATA_PATH = "/home/chenming/Data/GIS_DATA/filegdb/td_gtbhdc_bg_530000_2020.gdb";
+const std::string TEST_DATA_PATH = "/home/chenming/Projects/test/s2-test/data/test.shp";
 const std::string OUTPUT_DIR = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
 const std::string INDEX_DIR = "/home/chenming/Projects/geotalk-jni/src/main/jni/data/integrated_test";
 

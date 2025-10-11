@@ -5,7 +5,7 @@ file(GLOB GISINDEX_SOURCES "gisindex/*.cpp")
 file(GLOB GISSTORAGE_SOURCES "gisstorage/*.cpp")
 
 # 创建gisindex共享库
-add_library(gisindex STATIC ${GISINDEX_SOURCES})
+add_library(gisindex SHARED ${GISINDEX_SOURCES})
 
 # 设置gisindex库的包含目录
 target_include_directories(gisindex PUBLIC

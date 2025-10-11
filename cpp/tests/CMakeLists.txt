@@ -32,7 +32,7 @@ target_link_libraries(reverse_conversion_test PRIVATE
 add_executable(integrated_gis_format_test 
     integration/integrated_gis_format_test.cpp
 )
-target_link_libraries(integrated_gis_format_test
+target_link_libraries(integrated_gis_format_test PRIVATE
     gisstorage
     GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main
 )
