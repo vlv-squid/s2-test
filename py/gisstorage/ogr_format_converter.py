@@ -86,7 +86,7 @@ class OGRFormatConverter:
             print(f"找到 {feature_count} 个要素")
 
             # 转换每个要素
-            feature_id = 0
+            feature_count = 0
             valid_count = 0
 
             # 用于跟踪FID映射，避免冲突
@@ -128,14 +128,17 @@ class OGRFormatConverter:
                     if attribute:
                         self.attribute_storage.write_attribute(attribute)
 
-                    feature_id += 1
+                    # 更新处理计数
+                    feature_count += 1
 
                     # 显示进度
-                    if feature_id % 1000 == 0:
-                        print(f"已处理 {feature_id}/{feature_count} 个要素")
+                    if feature_count % 1000 == 0:
+                        print(
+                            f"已处理 {feature_count}/{layer.GetFeatureCount()} 个要素"
+                        )
 
                 except Exception as e:
-                    print(f"转换要素 {feature_id} 时出错: {e}")
+                    print(f"转换要素 {feature_count} 时出错: {e}")
                     continue
 
             # 保存字符串池
@@ -157,7 +160,7 @@ class OGRFormatConverter:
             self.attribute_storage.save_chunked_index(attr_index_file)
 
             # 更新统计信息
-            self.stats["total_features"] = feature_id
+            self.stats["total_features"] = feature_count
             self.stats["valid_features"] = valid_count
             self.stats["conversion_time_seconds"] = time.time() - start_time
 
@@ -170,7 +173,7 @@ class OGRFormatConverter:
             # 保存元数据
             self._save_metadata(field_info, source_crs, target_crs)
 
-            print(f"转换完成: {valid_count}/{feature_id} 个有效要素")
+            print(f"转换完成: {valid_count}/{feature_count} 个有效要素")
             print(f"转换时间: {self.stats['conversion_time_seconds']:.2f} 秒")
 
             return True
@@ -282,7 +285,7 @@ class OGRFormatConverter:
                 rings = self._extract_multi_ring_polygon_coordinates(geometry)
                 if not rings:
                     return None
-                
+
                 num_rings = len(rings)
                 encoded_coords = GeometrySerializer.serialize_multi_ring_polygon(rings)
             else:
@@ -290,8 +293,10 @@ class OGRFormatConverter:
                 coordinates = self._extract_coordinates(geometry)
                 if not coordinates:
                     return None
-                
-                encoded_coords = GeometrySerializer.encode_coordinates_delta(coordinates)
+
+                encoded_coords = GeometrySerializer.encode_coordinates_delta(
+                    coordinates
+                )
                 num_rings = 0
 
             return GeometryData(feature_id, geom_type, encoded_coords, bbox, num_rings)
@@ -441,14 +446,16 @@ class OGRFormatConverter:
 
         return coordinates
 
-    def _extract_multi_ring_polygon_coordinates(self, geometry) -> List[List[Coordinate]]:
+    def _extract_multi_ring_polygon_coordinates(
+        self, geometry
+    ) -> List[List[Coordinate]]:
         """提取多边形的多环坐标（外环+内环），与C++版本完全一致"""
         rings = []
-        
+
         try:
             if geometry.GetGeometryType() not in [ogr.wkbPolygon, ogr.wkbPolygon25D]:
                 return rings
-            
+
             # 提取外环
             exterior_ring = geometry.GetGeometryRef(0)
             if exterior_ring:
@@ -459,7 +466,7 @@ class OGRFormatConverter:
                     exterior_coords.append(Coordinate(x, y))
                 if exterior_coords:
                     rings.append(exterior_coords)
-            
+
             # 提取内环（holes）
             for ring_idx in range(1, geometry.GetGeometryCount()):
                 interior_ring = geometry.GetGeometryRef(ring_idx)
@@ -471,10 +478,10 @@ class OGRFormatConverter:
                         interior_coords.append(Coordinate(x, y))
                     if interior_coords:
                         rings.append(interior_coords)
-        
+
         except Exception as e:
             print(f"提取多环坐标时出错: {e}")
-        
+
         return rings
 
     def _save_metadata(
@@ -543,7 +550,8 @@ class OGRFormatConverter:
                 "compressed_size": compression_stats["compressed_size"],
                 "unique_strings": compression_stats["unique_strings"],
                 "total_strings": compression_stats["total_strings"],
-                "saved_bytes": compression_stats["original_size"] - compression_stats["compressed_size"],
+                "saved_bytes": compression_stats["original_size"]
+                - compression_stats["compressed_size"],
             }
 
         # 添加基本统计信息
@@ -553,7 +561,7 @@ class OGRFormatConverter:
 
         # 按照C++版本的顺序重新组织元数据
         ordered_metadata = {}
-        
+
         # 1. compression_info (如果存在)
         if self.attribute_storage:
             compression_stats = self.attribute_storage.get_compression_stats()
@@ -563,47 +571,79 @@ class OGRFormatConverter:
                 "compressed_size": compression_stats["compressed_size"],
                 "unique_strings": compression_stats["unique_strings"],
                 "total_strings": compression_stats["total_strings"],
-                "saved_bytes": compression_stats["original_size"] - compression_stats["compressed_size"],
+                "saved_bytes": compression_stats["original_size"]
+                - compression_stats["compressed_size"],
             }
-        
+
         # 2. conversion_time_seconds
-        ordered_metadata["conversion_time_seconds"] = self.stats["conversion_time_seconds"]
-        
+        ordered_metadata["conversion_time_seconds"] = self.stats[
+            "conversion_time_seconds"
+        ]
+
         # 3. creation_date
         ordered_metadata["creation_date"] = metadata["creation_date"]
-        
+
         # 4. field_definitions (按C++版本的顺序)
         ordered_field_definitions = {}
         # C++版本的字段顺序
         cpp_field_order = [
-            "bsm", "bz", "czcsxm", "dlbm", "dlmc", "frdbs", "gddb", "gdlx", "gdpdjb", 
-            "hdmc", "id", "kcdlbm", "kcmj", "kcxs", "mssm", "objectid", "qsdwdm", 
-            "qsdwmc", "qsxz", "shape_area", "shape_leng", "sjnf", "tbbh", "tbdlmj", 
-            "tbmj", "tbxhdm", "tbxhmc", "tbybh", "xzdwkd", "ysdm", "zldwdm", 
-            "zldwmc", "zzsxdm", "zzsxmc"
+            "bsm",
+            "bz",
+            "czcsxm",
+            "dlbm",
+            "dlmc",
+            "frdbs",
+            "gddb",
+            "gdlx",
+            "gdpdjb",
+            "hdmc",
+            "id",
+            "kcdlbm",
+            "kcmj",
+            "kcxs",
+            "mssm",
+            "objectid",
+            "qsdwdm",
+            "qsdwmc",
+            "qsxz",
+            "shape_area",
+            "shape_leng",
+            "sjnf",
+            "tbbh",
+            "tbdlmj",
+            "tbmj",
+            "tbxhdm",
+            "tbxhmc",
+            "tbybh",
+            "xzdwkd",
+            "ysdm",
+            "zldwdm",
+            "zldwmc",
+            "zzsxdm",
+            "zzsxmc",
         ]
-        
+
         # 按C++顺序添加字段
         for field_name in cpp_field_order:
             if field_name in field_info:
                 ordered_field_definitions[field_name] = field_info[field_name]
-        
+
         # 添加任何不在C++顺序中的字段
         for field_name, field_type in field_info.items():
             if field_name not in ordered_field_definitions:
                 ordered_field_definitions[field_name] = field_type
-        
+
         ordered_metadata["field_definitions"] = ordered_field_definitions
-        
+
         # 5. source_coordinate_system
         ordered_metadata["source_coordinate_system"] = source_crs
-        
+
         # 6. source_file
         ordered_metadata["source_file"] = metadata["source_file"]
-        
+
         # 7. source_format
         ordered_metadata["source_format"] = source_format
-        
+
         # 8. spatial_extent (按C++版本的顺序)
         ordered_metadata["spatial_extent"] = {
             "max_x": spatial_extent.max_x,
@@ -611,13 +651,13 @@ class OGRFormatConverter:
             "min_x": spatial_extent.min_x,
             "min_y": spatial_extent.min_y,
         }
-        
+
         # 9. target_coordinate_system
         ordered_metadata["target_coordinate_system"] = target_crs
-        
+
         # 10. total_features
         ordered_metadata["total_features"] = self.stats["total_features"]
-        
+
         # 11. valid_features
         ordered_metadata["valid_features"] = self.stats["valid_features"]
 
@@ -669,18 +709,18 @@ class OGRFormatConverter:
                         epsg_code = spatial_ref.GetAuthorityCode("PROJCS")
                 except:
                     pass
-                
+
                 # 获取坐标系统名称
                 crs_name = spatial_ref.GetName()
                 if not crs_name:
                     crs_name = "Unknown"
-                
+
                 # 构建完整的坐标系统描述，与C++版本一致
                 if epsg_code:
                     full_crs_name = f"EPSG:{epsg_code} - {crs_name}"
                 else:
                     full_crs_name = crs_name
-                
+
                 return full_crs_name, full_crs_name
             else:
                 return "Unknown", "Unknown"
