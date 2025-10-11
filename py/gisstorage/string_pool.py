@@ -113,12 +113,13 @@ class StringPool:
 
             # 写入每个字符串 - 使用紧凑格式
             for string in self.string_table:
-                # 使用变长编码存储字符串长度
-                length = len(string)
+                # 使用变长编码存储字符串长度（注意：必须是UTF-8编码后的字节长度）
+                encoded_string = string.encode("utf-8")
+                length = len(encoded_string)
                 self._encode_varint(data, length)
 
-                # 直接写入字符串内容
-                data.extend(string.encode("utf-8"))
+                # 直接写入字符串内容（与C++版本一致，使用UTF-8编码）
+                data.extend(encoded_string)
 
             return bytes(data)
 
@@ -281,12 +282,13 @@ class StringPool:
 
                 # 写入每个字符串 - 使用紧凑格式
                 for string in self.string_table:
-                    # 使用变长编码存储字符串长度
-                    length = len(string)
+                    # 使用变长编码存储字符串长度（注意：必须是UTF-8编码后的字节长度）
+                    encoded_string = string.encode("utf-8")
+                    length = len(encoded_string)
                     self._encode_varint(data, length)
 
                     # 直接写入字符串内容
-                    data.extend(string.encode("utf-8"))
+                    data.extend(encoded_string)
 
                 serialized_data = bytes(data)
 

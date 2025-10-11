@@ -6,7 +6,7 @@
 import os
 import json
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from osgeo import ogr
 from .types import GeometryType, Coordinate, BBox
 from .geometry_data import GeometryData
@@ -89,10 +89,34 @@ class OGRFormatConverter:
             feature_id = 0
             valid_count = 0
 
+            # 用于跟踪FID映射，避免冲突
+            used_fids = set()
+            next_available_fid = 1
+
             for feature in layer:
                 try:
+                    # 获取原始FID并处理FID冲突
+                    original_fid = feature.GetFID()
+                    fid = original_fid
+
+                    # 处理FID为0或重复的情况
+                    if fid == 0 or fid in used_fids:
+                        # 找到下一个可用的FID
+                        while next_available_fid in used_fids:
+                            next_available_fid += 1
+                        fid = next_available_fid
+                        next_available_fid += 1
+
+                        if original_fid == 0:
+                            print(f"警告: FID为0的要素映射为 {fid}")
+                        else:
+                            print(f"警告: 重复FID {original_fid} 映射为 {fid}")
+
+                    # 记录使用的FID
+                    used_fids.add(fid)
+
                     # 转换几何数据
-                    geometry = self._convert_geometry(feature, feature_id)
+                    geometry = self._convert_geometry(feature, fid)
                     if geometry:
                         self.geometry_storage.write_geometry(geometry)
                         # 更新空间范围
@@ -100,7 +124,7 @@ class OGRFormatConverter:
                         valid_count += 1
 
                     # 转换属性数据
-                    attribute = self._convert_attributes(feature, feature_id)
+                    attribute = self._convert_attributes(feature, fid)
                     if attribute:
                         self.attribute_storage.write_attribute(attribute)
 
@@ -137,8 +161,14 @@ class OGRFormatConverter:
             self.stats["valid_features"] = valid_count
             self.stats["conversion_time_seconds"] = time.time() - start_time
 
+            # 获取字段定义信息
+            field_info = self._get_field_definitions(layer)
+
+            # 获取坐标系统信息
+            source_crs, target_crs = self._get_coordinate_system_info(layer)
+
             # 保存元数据
-            self._save_metadata()
+            self._save_metadata(field_info, source_crs, target_crs)
 
             print(f"转换完成: {valid_count}/{feature_id} 个有效要素")
             print(f"转换时间: {self.stats['conversion_time_seconds']:.2f} 秒")
@@ -270,14 +300,32 @@ class OGRFormatConverter:
         try:
             properties = {}
 
-            # 获取所有属性字段
+            # 获取所有属性字段（与C++版本一致，只处理非空字段）
             for i in range(feature.GetFieldCount()):
                 field_def = feature.GetFieldDefnRef(i)
                 field_name = field_def.GetName()
-                field_value = feature.GetFieldAsString(i)
-                properties[field_name] = field_value
 
-            return AttributeData(feature_id, properties)
+                # 只处理已设置且非空的字段（与C++版本一致）
+                if feature.IsFieldSetAndNotNull(i):
+                    field_type = field_def.GetType()
+                    if field_type == ogr.OFTInteger:
+                        field_value = str(feature.GetFieldAsInteger(i))
+                    elif field_type == ogr.OFTInteger64:
+                        field_value = str(feature.GetFieldAsInteger64(i))
+                    elif field_type == ogr.OFTReal:
+                        # 与C++版本一致：使用6位小数精度
+                        field_value = f"{feature.GetFieldAsDouble(i):.6f}"
+                    elif field_type == ogr.OFTString:
+                        field_value = feature.GetFieldAsString(i)
+                    elif field_type in [ogr.OFTDate, ogr.OFTTime, ogr.OFTDateTime]:
+                        field_value = feature.GetFieldAsString(i)
+                    else:
+                        field_value = feature.GetFieldAsString(i)
+                    properties[field_name] = field_value
+
+            # 与C++版本一致：按字母顺序排序属性（C++的std::map是有序的）
+            sorted_properties = dict(sorted(properties.items()))
+            return AttributeData(feature_id, sorted_properties)
 
         except Exception as e:
             print(f"转换属性数据时出错: {e}")
@@ -388,52 +436,145 @@ class OGRFormatConverter:
 
         return coordinates
 
-    def _save_metadata(self) -> None:
+    def _save_metadata(
+        self, field_info: Dict[str, int], source_crs: str, target_crs: str
+    ) -> None:
         """保存元数据，与C++版本完全一致"""
-        # 计算空间范围
-        spatial_extent = self._calculate_spatial_extent()
+        # 创建元数据文件路径
+        metadata_file = os.path.join(self.output_dir, f"{self.base_name}_meta.json")
 
-        metadata = {
-            "format_version": "1.0",
-            "source_format": "Shapefile",
-            "source_file": self.input_file,
-            "creation_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "total_features": self.stats["total_features"],
-            "valid_features": self.stats["valid_features"],
-            "conversion_time_seconds": self.stats["conversion_time_seconds"],
-            "compression_info": "FileGDB-style delta encoding",
-            "spatial_extent": {
-                "min_x": spatial_extent.min_x,
-                "min_y": spatial_extent.min_y,
-                "max_x": spatial_extent.max_x,
-                "max_y": spatial_extent.max_y,
-            },
-            "file_sizes": {},
-            "checksums": {},
+        # 读取现有元数据（如果存在）
+        metadata = {}
+        if os.path.exists(metadata_file):
+            try:
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+            except Exception as e:
+                print(f"读取元数据文件失败: {e}")
+
+        # 更新字段定义
+        metadata["field_definitions"] = field_info
+
+        # 更新源文件信息
+        metadata["source_file"] = os.path.basename(self.input_file)
+
+        # 获取实际的驱动名称
+        source_format = "Unknown"
+        try:
+            from osgeo import gdal
+
+            dataset = gdal.OpenEx(self.input_file, gdal.OF_VECTOR, None, None, None)
+            if dataset:
+                driver = dataset.GetDriver()
+                if driver:
+                    driver_name = driver.GetDescription()
+                    if driver_name:
+                        source_format = driver_name
+                dataset = None  # 释放资源
+        except Exception as e:
+            print(f"获取驱动信息失败: {e}")
+            source_format = "ESRI Shapefile"  # 默认值
+
+        metadata["source_format"] = source_format
+
+        # 更新坐标系统信息
+        metadata["source_coordinate_system"] = source_crs
+        metadata["target_coordinate_system"] = target_crs
+
+        # 更新空间范围
+        spatial_extent = self._calculate_spatial_extent()
+        metadata["spatial_extent"] = {
+            "min_x": spatial_extent.min_x,
+            "min_y": spatial_extent.min_y,
+            "max_x": spatial_extent.max_x,
+            "max_y": spatial_extent.max_y,
         }
 
-        # 计算文件大小和校验和
-        files_to_check = [
-            (f"{self.base_name}.geom", "geometry_file"),
-            (f"{self.base_name}.attr", "attribute_file"),
-            (f"{self.base_name}.pool", "string_pool_file"),
-        ]
+        # 添加创建时间
+        metadata["creation_date"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        for filename, key in files_to_check:
-            file_path = os.path.join(self.output_dir, filename)
-            if os.path.exists(file_path):
-                stat_info = os.stat(file_path)
-                metadata["file_sizes"][key] = stat_info.st_size
-                metadata["checksums"][key] = self._calculate_file_checksum(file_path)
+        # 添加压缩信息
+        if self.attribute_storage:
+            compression_stats = self.attribute_storage.get_compression_stats()
+            metadata["compression_info"] = {
+                "compression_ratio": compression_stats["compression_ratio"],
+                "original_size": compression_stats["original_size"],
+                "compressed_size": compression_stats["compressed_size"],
+                "unique_strings": compression_stats["unique_strings"],
+                "total_strings": compression_stats["total_strings"],
+                "saved_bytes": compression_stats["original_size"]
+                - compression_stats["compressed_size"],
+            }
 
-        # 保存元数据文件
-        metadata_file = os.path.join(self.output_dir, f"{self.base_name}_meta.json")
+        # 添加基本统计信息
+        metadata["total_features"] = self.stats["total_features"]
+        metadata["valid_features"] = self.stats["valid_features"]
+        metadata["conversion_time_seconds"] = self.stats["conversion_time_seconds"]
+
+        # 保存元数据
         try:
             with open(metadata_file, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=False)
-            print(f"元数据已保存到: {metadata_file}")
+                json.dump(metadata, f, indent=4, ensure_ascii=False)
+            print(f"元数据已保存到文件: {metadata_file}")
+            print(f"  源格式: {source_format}")
+            print(f"  字段定义: {len(field_info)} 个字段")
+            print(f"  源坐标系统: {source_crs}")
+            print(f"  目标坐标系统: {target_crs}")
+            print(
+                f"  空间范围: [{spatial_extent.min_x:.6f}, {spatial_extent.min_y:.6f} - {spatial_extent.max_x:.6f}, {spatial_extent.max_y:.6f}]"
+            )
+            print(f"  创建时间: {metadata['creation_date']}")
+            if self.attribute_storage:
+                compression_stats = self.attribute_storage.get_compression_stats()
+                print(f"  压缩率: {compression_stats['compression_ratio']:.2f}%")
         except IOError as e:
             print(f"无法保存元数据文件: {metadata_file} (错误: {e})")
+
+    def _get_field_definitions(self, layer) -> Dict[str, int]:
+        """获取字段定义信息，与C++版本完全一致"""
+        field_info = {}
+        layer_defn = layer.GetLayerDefn()
+
+        for i in range(layer_defn.GetFieldCount()):
+            field_defn = layer_defn.GetFieldDefn(i)
+            field_name = field_defn.GetName()
+            field_type = field_defn.GetType()
+
+            # 根据OGR字段类型映射到字节大小
+            if field_type == ogr.OFTInteger:
+                field_info[field_name] = 4
+            elif field_type == ogr.OFTInteger64:
+                field_info[field_name] = 8
+            elif field_type == ogr.OFTReal:
+                field_info[field_name] = 8
+            elif field_type == ogr.OFTString:
+                field_info[field_name] = 4  # 字符串池ID
+            elif field_type == ogr.OFTDate:
+                field_info[field_name] = 4
+            elif field_type == ogr.OFTTime:
+                field_info[field_name] = 4
+            elif field_type == ogr.OFTDateTime:
+                field_info[field_name] = 8
+            else:
+                field_info[field_name] = 4  # 默认值
+
+        return field_info
+
+    def _get_coordinate_system_info(self, layer) -> Tuple[str, str]:
+        """获取坐标系统信息，与C++版本完全一致"""
+        try:
+            spatial_ref = layer.GetSpatialRef()
+            if spatial_ref:
+                # 获取坐标系统名称
+                crs_name = spatial_ref.GetName()
+                if not crs_name:
+                    crs_name = "Unknown"
+                return crs_name, crs_name
+            else:
+                return "Unknown", "Unknown"
+        except Exception as e:
+            print(f"获取坐标系统信息失败: {e}")
+            return "Unknown", "Unknown"
 
     def _load_metadata(self) -> Dict[str, Any]:
         """加载元数据，与C++版本完全一致"""
