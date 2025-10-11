@@ -246,8 +246,13 @@ namespace GisStorage {
 
                 // 根据几何类型提取坐标数据
                 std::vector<uint8_t> coord_data;
-                BBox bbox = {-1.0, -1.0, 1.0, 1.0};
+                BBox bbox;
                 uint32_t num_rings = 0;
+
+                // 直接使用OGR的边界框，确保与Python版本一致
+                OGREnvelope envelope;
+                geometry->getEnvelope(&envelope);
+                bbox = BBox(envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY);
 
                 if (geom_type == GeometryType::POLYGON) {
                     // 对于多边形，使用多环提取
@@ -259,19 +264,6 @@ namespace GisStorage {
 
                     num_rings = static_cast<uint32_t>(rings.size());
                     coord_data = GeometrySerializer::SerializeMultiRingPolygon(rings);
-
-                    // 计算所有环的边界框
-                    for (const auto& ring : rings) {
-                        BBox ring_bbox = CalculateBBox(ring);
-                        if (bbox.IsValid()) {
-                            bbox.min_x = std::min(bbox.min_x, ring_bbox.min_x);
-                            bbox.min_y = std::min(bbox.min_y, ring_bbox.min_y);
-                            bbox.max_x = std::max(bbox.max_x, ring_bbox.max_x);
-                            bbox.max_y = std::max(bbox.max_y, ring_bbox.max_y);
-                        } else {
-                            bbox = ring_bbox;
-                        }
-                    }
                 } else {
                     // 对于非多边形，使用原有逻辑
                     std::vector<Coordinate> coordinates = ExtractGeometryCoordinates(geometry);
@@ -280,7 +272,6 @@ namespace GisStorage {
                         continue;
                     }
 
-                    bbox = CalculateBBox(coordinates);
                     coord_data = EncodeCoordinatesDelta(coordinates);
                 }
 
