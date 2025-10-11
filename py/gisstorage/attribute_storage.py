@@ -243,10 +243,31 @@ class AttributeStorage:
 
     def get_storage_stats(self) -> Dict:
         """获取存储统计信息，与C++版本完全一致"""
+        # 确保字符串池已加载
+        if not self.serializer.string_pool.use_mmap_mode:
+            self.load_string_pool()
+
         compression_stats = self.serializer.get_compression_stats()
 
+        # 计算总要素数（从文件大小估算或从分块索引获取）
+        total_features = 0
+        if self.use_chunked_mode and self.index_chunks:
+            # 从分块索引计算总要素数
+            for chunk in self.index_chunks:
+                total_features += len(chunk.offset_map)
+        else:
+            # 从缓存大小估算（如果缓存为空，尝试从文件估算）
+            total_features = len(self.cache)
+            if total_features == 0:
+                # 简单估算：文件大小除以平均每个要素的大小
+                if os.path.exists(self.attribute_file):
+                    file_size = os.path.getsize(self.attribute_file)
+                    # 估算每个要素平均大小（包括feature_id + 属性数据）
+                    avg_size = 100  # 估算值
+                    total_features = max(0, file_size // avg_size)
+
         return {
-            "total_features": len(self.cache),
+            "total_features": total_features,
             "total_original_size": compression_stats["original_size"],
             "total_compressed_size": compression_stats["compressed_size"],
             "compression_ratio": compression_stats["compression_ratio"],

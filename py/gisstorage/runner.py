@@ -10,8 +10,17 @@ import sys
 import argparse
 
 # 导入新的模块结构
-from .gis_storage_system import GisStorageSystem
-from .ogr_format_converter import OGRFormatConverter
+import sys
+import os
+
+# 添加py目录到Python路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+py_dir = os.path.dirname(current_dir)
+if py_dir not in sys.path:
+    sys.path.insert(0, py_dir)
+
+from gisstorage.gis_storage_system import GisStorageSystem
+from gisstorage.ogr_format_converter import OGRFormatConverter
 
 
 class GisStorageRunner:
@@ -341,7 +350,7 @@ def demo():
     runner = GisStorageRunner()
 
     # 示例数据目录
-    data_dir = "output_data/storage_test"
+    data_dir = "output_data/convert_test"
 
     # 检查是否存在测试数据
     if not os.path.exists(data_dir):
@@ -364,12 +373,12 @@ def demo():
     runner.show_storage_stats()
 
     # 查询几何数据
-    print("\n4. 查询几何数据 (FID=1)...")
-    runner.query_geometry(1)
+    print("\n4. 查询几何数据 (FID=0)...")
+    runner.query_geometry(0)
 
     # 查询属性数据
-    print("\n5. 查询属性数据 (FID=1)...")
-    runner.query_attribute(1)
+    print("\n5. 查询属性数据 (FID=0)...")
+    runner.query_attribute(0)
 
     print("\n=== 演示完成 ===")
 

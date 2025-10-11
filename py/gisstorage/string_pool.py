@@ -360,7 +360,7 @@ class StringPool:
         # 清空现有的偏移量索引
         self.string_offsets.clear()
         # Python的list没有reserve方法，使用预分配
-        self.string_offsets = [None] * self.string_count
+        self.string_offsets = [0] * self.string_count
 
         # 跳过字符串数量字段 (变长编码)
         offset = 0
@@ -378,7 +378,19 @@ class StringPool:
             self.string_offsets[i] = offset
 
             # 读取字符串长度 (变长编码)
-            length, offset = self._decode_varint_from_mmap(offset)
+            if offset >= self.pool_size:
+                print(
+                    f"警告: 字符串池数据损坏，偏移超出范围 (i={i}, offset={offset}, pool_size={self.pool_size})"
+                )
+                break
+
+            length, new_offset = self._decode_varint_from_mmap(offset)
+            if new_offset == -1:
+                print(
+                    f"警告: 无法解析字符串长度 (i={i}, offset={offset}, pool_size={self.pool_size})"
+                )
+                break
+            offset = new_offset
 
             # 跳过字符串内容
             if offset + length > self.pool_size:
@@ -398,7 +410,7 @@ class StringPool:
         # 清空现有的偏移量索引
         self.string_offsets.clear()
         # Python的list没有reserve方法，使用预分配
-        self.string_offsets = [None] * len(self.string_table)
+        self.string_offsets = [0] * len(self.string_table)
 
         # 计算每个字符串在序列化数据中的偏移量
         current_offset = 0
@@ -458,10 +470,10 @@ class StringPool:
                 # 读取偏移量数据
                 self.string_offsets.clear()
                 # Python的list没有reserve方法，使用预分配
-                self.string_offsets = [None] * self.string_count
-                for _ in range(self.string_count):
+                self.string_offsets = [0] * self.string_count
+                for i in range(self.string_count):
                     offset = struct.unpack("Q", f.read(8))[0]
-                    self.string_offsets.append(offset)
+                    self.string_offsets[i] = offset
 
             return True
         except IOError:
@@ -546,8 +558,12 @@ class StringPool:
 
     def _decode_varint_from_mmap(self, offset: int) -> Tuple[int, int]:
         """从mmap中解码变长整数，与C++版本完全一致"""
+        if offset >= self.pool_size:
+            return -1, -1
+
         value = 0
         shift = 0
+        start_offset = offset
 
         while offset < self.pool_size:
             byte = self.pool_mmap[offset]
@@ -559,7 +575,13 @@ class StringPool:
 
             shift += 7
             if shift >= 32:
-                raise ValueError("变长编码值过大")
+                print(f"警告: 变长编码值过大 (offset={start_offset}, value={value})")
+                return -1, -1
+
+        # 如果循环结束但没有找到结束字节，返回错误
+        if offset >= self.pool_size and (self.pool_mmap[offset - 1] & 0x80) != 0:
+            print(f"警告: 变长编码不完整 (offset={start_offset})")
+            return -1, -1
 
         return value, offset
 

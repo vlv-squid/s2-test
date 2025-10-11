@@ -47,6 +47,11 @@ class OGRFormatConverter:
             "conversion_time_seconds": 0.0,
         }
 
+        # 空间范围统计
+        self.spatial_extent = BBox(
+            float("inf"), float("inf"), float("-inf"), float("-inf")
+        )
+
         # 加载的数据
         self.loaded_geometries: Dict[int, GeometryData] = {}
         self.loaded_attributes: Dict[int, AttributeData] = {}
@@ -90,6 +95,8 @@ class OGRFormatConverter:
                     geometry = self._convert_geometry(feature, feature_id)
                     if geometry:
                         self.geometry_storage.write_geometry(geometry)
+                        # 更新空间范围
+                        self._update_spatial_extent(geometry.get_bbox())
                         valid_count += 1
 
                     # 转换属性数据
@@ -109,6 +116,21 @@ class OGRFormatConverter:
 
             # 保存字符串池
             self.attribute_storage.save_string_pool()
+
+            # 构建并保存分块索引
+            print("构建几何数据分块索引...")
+            self.geometry_storage.build_chunked_index()
+            geom_index_file = os.path.join(
+                self.output_dir, f"{self.base_name}.geom.chunked_idx"
+            )
+            self.geometry_storage.save_chunked_index(geom_index_file)
+
+            print("构建属性数据分块索引...")
+            self.attribute_storage.build_chunked_index()
+            attr_index_file = os.path.join(
+                self.output_dir, f"{self.base_name}.attr.chunked_idx"
+            )
+            self.attribute_storage.save_chunked_index(attr_index_file)
 
             # 更新统计信息
             self.stats["total_features"] = feature_id
@@ -368,6 +390,9 @@ class OGRFormatConverter:
 
     def _save_metadata(self) -> None:
         """保存元数据，与C++版本完全一致"""
+        # 计算空间范围
+        spatial_extent = self._calculate_spatial_extent()
+
         metadata = {
             "format_version": "1.0",
             "source_format": "Shapefile",
@@ -377,6 +402,12 @@ class OGRFormatConverter:
             "valid_features": self.stats["valid_features"],
             "conversion_time_seconds": self.stats["conversion_time_seconds"],
             "compression_info": "FileGDB-style delta encoding",
+            "spatial_extent": {
+                "min_x": spatial_extent.min_x,
+                "min_y": spatial_extent.min_y,
+                "max_x": spatial_extent.max_x,
+                "max_y": spatial_extent.max_y,
+            },
             "file_sizes": {},
             "checksums": {},
         }
@@ -430,3 +461,20 @@ class OGRFormatConverter:
                 return file_hash.hexdigest()
         except IOError:
             return ""
+
+    def _update_spatial_extent(self, bbox: BBox) -> None:
+        """更新空间范围，与C++版本完全一致"""
+        if bbox.is_valid():
+            self.spatial_extent = BBox(
+                min(self.spatial_extent.min_x, bbox.min_x),
+                min(self.spatial_extent.min_y, bbox.min_y),
+                max(self.spatial_extent.max_x, bbox.max_x),
+                max(self.spatial_extent.max_y, bbox.max_y),
+            )
+
+    def _calculate_spatial_extent(self) -> BBox:
+        """计算空间范围，与C++版本完全一致"""
+        # 如果没有有效的空间范围，返回默认值
+        if not self.spatial_extent.is_valid():
+            return BBox(0.0, 0.0, 0.0, 0.0)
+        return self.spatial_extent

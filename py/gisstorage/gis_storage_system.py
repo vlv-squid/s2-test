@@ -239,6 +239,20 @@ class GisStorageSystem:
             "metadata": self.get_metadata(),
         }
 
+        # 确保存储系统已初始化
+        if not self.geometry_storage:
+            self._initialize_file_paths()
+            self.geometry_storage = GeometryStorage(self.geom_file)
+            self.geometry_storage.set_chunk_size(10000)
+            self.geometry_storage.set_cache_size(1000)
+
+        if not self.attribute_storage:
+            self._initialize_file_paths()
+            self.attribute_storage = AttributeStorage(self.attr_file, self.pool_file)
+            self.attribute_storage.set_chunk_size(10000)
+            self.attribute_storage.set_cache_size(1000)
+            self.attribute_storage.set_use_mmap_mode(True)
+
         if self.geometry_storage:
             stats["geometry_stats"] = {
                 "file_path": self.geometry_storage.get_geometry_file_path(),

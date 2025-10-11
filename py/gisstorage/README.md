@@ -409,11 +409,13 @@ python py/gisstorage/runner.py convert data/test.shp output_data/convert_test
 # 3. 查看转换结果
 ls -la output_data/convert_test/
 # 应该看到以下文件：
-# - test.geom          # 几何数据文件
-# - test.attr          # 属性数据文件
-# - test.pool          # 字符串池文件
-# - test.pool.index    # 字符串池索引
-# - test_meta.json     # 元数据文件
+# - test.geom               # 几何数据文件
+# - test.attr               # 属性数据文件
+# - test.pool               # 字符串池文件
+# - test.pool.index         # 字符串池索引
+# - test_meta.json          # 元数据文件
+# - test.attr.chunked_idx   # 分块索引文件
+# - test.geom.chunked_idx   # 分块索引文件
 ```
 
 ### 示例2：加载和查询数据
