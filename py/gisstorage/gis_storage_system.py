@@ -79,6 +79,11 @@ class GisStorageSystem:
             self.geometry_storage = GeometryStorage(self.geom_file)
             self.geometry_storage.set_chunk_size(10000)
             self.geometry_storage.set_cache_size(1000)
+            
+            # 加载分块索引
+            chunked_index_file = self.geom_file + ".chunked_idx"
+            if os.path.exists(chunked_index_file):
+                self.geometry_storage.load_chunked_index(chunked_index_file)
 
         return self.geometry_storage.read_geometry(feature_id)
 
@@ -91,6 +96,11 @@ class GisStorageSystem:
             self.attribute_storage.set_chunk_size(10000)
             self.attribute_storage.set_cache_size(1000)  # 设置缓存大小为1000
             self.attribute_storage.set_use_mmap_mode(True)  # 启用mmap模式以优化内存使用
+            
+            # 加载分块索引
+            chunked_index_file = self.attr_file + ".chunked_idx"
+            if os.path.exists(chunked_index_file):
+                self.attribute_storage.load_chunked_index(chunked_index_file)
 
         return self.attribute_storage.read_attribute(feature_id)
 

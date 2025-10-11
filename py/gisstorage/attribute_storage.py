@@ -251,6 +251,13 @@ class AttributeStorage:
 
         # 计算总要素数（从文件大小估算或从分块索引获取）
         total_features = 0
+        
+        # 尝试加载分块索引（如果还没有加载）
+        if not self.use_chunked_mode:
+            chunked_index_file = self.attribute_file + ".chunked_idx"
+            if os.path.exists(chunked_index_file):
+                self.load_chunked_index(chunked_index_file)
+        
         if self.use_chunked_mode and self.index_chunks:
             # 从分块索引计算总要素数
             for chunk in self.index_chunks:

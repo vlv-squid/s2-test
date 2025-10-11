@@ -373,12 +373,12 @@ def demo():
     runner.show_storage_stats()
 
     # 查询几何数据
-    print("\n4. 查询几何数据 (FID=0)...")
-    runner.query_geometry(0)
+    print("\n4. 查询几何数据 (FID=1)...")
+    runner.query_geometry(1)
 
     # 查询属性数据
-    print("\n5. 查询属性数据 (FID=0)...")
-    runner.query_attribute(0)
+    print("\n5. 查询属性数据 (FID=1)...")
+    runner.query_attribute(1)
 
     print("\n=== 演示完成 ===")
 
