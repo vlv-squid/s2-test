@@ -357,61 +357,117 @@ class AttributeStorage:
         self.use_chunked_mode = True
         print(f"构建属性分块索引完成: {len(self.index_chunks)} 个分块")
 
+    def _encode_varint(self, value: int) -> bytes:
+        """使用变长编码压缩整数，与C++版本完全一致"""
+        data = bytearray()
+        while value >= 0x80:
+            data.append((value & 0xFF) | 0x80)
+            value >>= 7
+        data.append(value & 0xFF)
+        return bytes(data)
+
+    def _decode_varint(self, data: bytes, offset: int) -> tuple:
+        """解码变长整数，返回(值, 新偏移量)"""
+        value = 0
+        shift = 0
+        
+        while offset < len(data):
+            byte = data[offset]
+            offset += 1
+            value |= (byte & 0x7F) << shift
+            
+            if (byte & 0x80) == 0:
+                break
+            
+            shift += 7
+        
+        return value, offset
+
     def save_chunked_index(self, index_file: str) -> None:
-        """保存分块索引到文件，与C++版本完全一致"""
-        import json
-
-        index_data = {"version": "1.0", "chunk_size": self.chunk_size, "chunks": []}
-
-        for chunk in self.index_chunks:
-            chunk_data = {
-                "start_fid": chunk.start_fid,
-                "end_fid": chunk.end_fid,
-                "offset_map": chunk.offset_map,
-                "loaded": chunk.loaded,
-            }
-            index_data["chunks"].append(chunk_data)
+        """保存分块索引到文件，使用紧凑格式与C++版本完全一致"""
+        if not self.use_chunked_mode or not self.index_chunks:
+            print("没有属性分块索引需要保存")
+            return
 
         try:
-            with open(index_file, "w") as f:
-                json.dump(index_data, f, indent=2)
+            index_data = bytearray()
+            
+            # 写入文件头 (紧凑格式)
+            version = 2  # 新版本号，表示紧凑格式
+            index_data.extend(self._encode_varint(version))
+            index_data.extend(self._encode_varint(len(self.index_chunks)))
+            index_data.extend(self._encode_varint(self.chunk_size))
+            
+            # 写入每个索引块
+            for chunk in self.index_chunks:
+                # 写入块头 (紧凑格式)
+                index_data.extend(self._encode_varint(chunk.start_fid))
+                index_data.extend(self._encode_varint(chunk.end_fid))
+                index_data.extend(self._encode_varint(len(chunk.offset_map)))
+                
+                # 写入偏移映射 (紧凑格式)
+                for fid, offset in chunk.offset_map.items():
+                    index_data.extend(self._encode_varint(fid))
+                    index_data.extend(self._encode_varint(offset))
+            
+            # 一次性写入所有数据
+            with open(index_file, "wb") as f:
+                f.write(index_data)
+
             print(f"属性分块索引已保存到: {index_file}")
         except IOError as e:
             print(f"无法保存属性分块索引文件: {index_file} (错误: {e})")
 
     def load_chunked_index(self, index_file: str) -> None:
-        """从文件加载分块索引，与C++版本完全一致"""
+        """从文件加载分块索引，使用紧凑格式与C++版本完全一致"""
         if not os.path.exists(index_file):
             print(f"属性分块索引文件不存在: {index_file}")
             return
 
-        import json
-
         try:
-            with open(index_file, "r") as f:
-                index_data = json.load(f)
-
-            if not index_data.get("version") or not index_data.get("chunks"):
-                print("属性分块索引文件格式不正确")
+            with open(index_file, "rb") as f:
+                index_data = f.read()
+            
+            offset = 0
+            
+            # 读取文件头 (紧凑格式)
+            version, offset = self._decode_varint(index_data, offset)
+            
+            # 检查版本号
+            if version != 2:
+                print(f"不支持的属性分块索引版本: {version}")
                 return
-
-            self.chunk_size = index_data.get("chunk_size", 10000)
+            
+            chunk_count, offset = self._decode_varint(index_data, offset)
+            chunk_size, offset = self._decode_varint(index_data, offset)
+            
+            self.chunk_size = chunk_size
             self.index_chunks.clear()
-
-            for chunk_data in index_data["chunks"]:
+            
+            # 读取每个索引块
+            for _ in range(chunk_count):
+                # 读取块头 (紧凑格式)
+                start_fid, offset = self._decode_varint(index_data, offset)
+                end_fid, offset = self._decode_varint(index_data, offset)
+                entry_count, offset = self._decode_varint(index_data, offset)
+                
                 chunk = AttributeStorage.IndexChunk()
-                chunk.start_fid = chunk_data["start_fid"]
-                chunk.end_fid = chunk_data["end_fid"]
-                chunk.offset_map = {
-                    int(k): v for k, v in chunk_data["offset_map"].items()
-                }
-                chunk.loaded = chunk_data.get("loaded", False)
+                chunk.start_fid = start_fid
+                chunk.end_fid = end_fid
+                chunk.loaded = True
+                
+                # 读取偏移映射 (紧凑格式)
+                for _ in range(entry_count):
+                    fid, offset = self._decode_varint(index_data, offset)
+                    file_offset, offset = self._decode_varint(index_data, offset)
+                    chunk.offset_map[fid] = file_offset
+                
                 self.index_chunks.append(chunk)
-
+            
             self.use_chunked_mode = True
             print(f"属性分块索引已加载: {len(self.index_chunks)} 个分块")
 
-        except (json.JSONDecodeError, IOError) as e:
+        except IOError as e:
             print(f"加载属性分块索引失败: {e}")
 
     def _get_chunked_offset(self, feature_id: int) -> int:

@@ -311,8 +311,13 @@ class GeometrySerializer:
     @staticmethod
     def _encode_varint(value: int) -> bytes:
         """变长整数编码辅助函数（类似Protocol Buffers的varint）"""
-        # 使用ZigZag编码处理负数
-        zigzag = (value << 1) ^ (value >> 63)
+        # 使用ZigZag编码处理负数，与C++版本完全一致
+        # 确保value是64位有符号整数
+        if value < 0:
+            # 对于负数，使用64位有符号整数的右移
+            zigzag = (value << 1) ^ ((value >> 63) & 0xFFFFFFFFFFFFFFFF)
+        else:
+            zigzag = (value << 1) ^ 0
 
         data = bytearray()
         while zigzag >= 0x80:

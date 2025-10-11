@@ -184,60 +184,100 @@ class GeometryStorage:
         print(f"构建分块索引完成: {len(self.index_chunks)} 个分块")
 
     def save_chunked_index(self, index_file: str) -> None:
-        """保存分块索引到文件，与C++版本完全一致"""
-        import json
-
-        index_data = {"version": "1.0", "chunk_size": self.chunk_size, "chunks": []}
-
-        for chunk in self.index_chunks:
-            chunk_data = {
-                "start_fid": chunk.start_fid,
-                "end_fid": chunk.end_fid,
-                "offset_map": chunk.offset_map,
-                "loaded": chunk.loaded,
-            }
-            index_data["chunks"].append(chunk_data)
+        """保存分块索引到文件，使用二进制格式与C++版本完全一致"""
+        if not self.use_chunked_mode or not self.index_chunks:
+            print("没有分块索引需要保存")
+            return
 
         try:
-            with open(index_file, "w") as f:
-                json.dump(index_data, f, indent=2)
+            with open(index_file, "wb") as f:
+                # 写入文件头 (24字节)
+                # version (4字节) + chunk_count (4字节) + chunk_size (8字节) + reserved (8字节)
+                version = 1
+                chunk_count = len(self.index_chunks)
+                chunk_size = self.chunk_size
+                reserved = 0
+                
+                f.write(struct.pack("I", version))  # uint32_t
+                f.write(struct.pack("I", chunk_count))  # uint32_t
+                f.write(struct.pack("Q", chunk_size))  # uint64_t
+                f.write(struct.pack("Q", reserved))  # uint64_t
+
+                # 写入每个索引块
+                for chunk in self.index_chunks:
+                    # 写入块头 (24字节)
+                    # start_fid (8字节) + end_fid (8字节) + entry_count (4字节) + reserved (4字节)
+                    entry_count = len(chunk.offset_map)
+                    
+                    f.write(struct.pack("Q", chunk.start_fid))  # uint64_t
+                    f.write(struct.pack("Q", chunk.end_fid))  # uint64_t
+                    f.write(struct.pack("I", entry_count))  # uint32_t
+                    f.write(struct.pack("I", 0))  # uint32_t reserved
+
+                    # 写入偏移映射 (每个条目16字节)
+                    # feature_id (8字节) + offset (8字节)
+                    for fid, offset in chunk.offset_map.items():
+                        f.write(struct.pack("Q", fid))  # uint64_t
+                        f.write(struct.pack("q", offset))  # int64_t
+
             print(f"分块索引已保存到: {index_file}")
         except IOError as e:
             print(f"无法保存分块索引文件: {index_file} (错误: {e})")
 
     def load_chunked_index(self, index_file: str) -> None:
-        """从文件加载分块索引，与C++版本完全一致"""
+        """从文件加载分块索引，使用二进制格式与C++版本完全一致"""
         if not os.path.exists(index_file):
             print(f"分块索引文件不存在: {index_file}")
             return
 
-        import json
-
         try:
-            with open(index_file, "r") as f:
-                index_data = json.load(f)
+            with open(index_file, "rb") as f:
+                # 读取文件头 (24字节)
+                header_data = f.read(24)
+                if len(header_data) < 24:
+                    print("分块索引文件格式不正确：文件头不完整")
+                    return
+                
+                version, chunk_count, chunk_size, reserved = struct.unpack("IIQQ", header_data)
+                
+                if version != 1:
+                    print(f"不支持的分块索引版本: {version}")
+                    return
 
-            if not index_data.get("version") or not index_data.get("chunks"):
-                print("分块索引文件格式不正确")
-                return
+                self.chunk_size = chunk_size
+                self.index_chunks.clear()
 
-            self.chunk_size = index_data.get("chunk_size", 10000)
-            self.index_chunks.clear()
+                # 读取每个索引块
+                for _ in range(chunk_count):
+                    # 读取块头 (24字节)
+                    chunk_header_data = f.read(24)
+                    if len(chunk_header_data) < 24:
+                        print("分块索引文件格式不正确：块头不完整")
+                        break
+                    
+                    start_fid, end_fid, entry_count, reserved = struct.unpack("QQII", chunk_header_data)
+                    
+                    chunk = GeometryStorage.IndexChunk()
+                    chunk.start_fid = start_fid
+                    chunk.end_fid = end_fid
+                    chunk.loaded = True
+                    
+                    # 读取偏移映射
+                    for _ in range(entry_count):
+                        entry_data = f.read(16)
+                        if len(entry_data) < 16:
+                            print("分块索引文件格式不正确：条目不完整")
+                            break
+                        
+                        fid, offset = struct.unpack("Qq", entry_data)
+                        chunk.offset_map[fid] = offset
+                    
+                    self.index_chunks.append(chunk)
 
-            for chunk_data in index_data["chunks"]:
-                chunk = GeometryStorage.IndexChunk()
-                chunk.start_fid = chunk_data["start_fid"]
-                chunk.end_fid = chunk_data["end_fid"]
-                chunk.offset_map = {
-                    int(k): v for k, v in chunk_data["offset_map"].items()
-                }
-                chunk.loaded = chunk_data.get("loaded", False)
-                self.index_chunks.append(chunk)
+                self.use_chunked_mode = True
+                print(f"分块索引已加载: {len(self.index_chunks)} 个分块")
 
-            self.use_chunked_mode = True
-            print(f"分块索引已加载: {len(self.index_chunks)} 个分块")
-
-        except (json.JSONDecodeError, IOError) as e:
+        except IOError as e:
             print(f"加载分块索引失败: {e}")
 
     def _get_chunked_offset(self, feature_id: int) -> int:

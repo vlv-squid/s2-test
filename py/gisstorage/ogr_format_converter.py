@@ -273,21 +273,26 @@ class OGRFormatConverter:
             # 获取几何类型
             geom_type = self._get_geometry_type(geometry.GetGeometryType())
 
-            # 获取坐标
-            coordinates = self._extract_coordinates(geometry)
-            if not coordinates:
-                return None
+            # 直接使用OGR的边界框，确保与C++版本一致
+            envelope = geometry.GetEnvelope()
+            bbox = BBox(envelope[0], envelope[2], envelope[1], envelope[3])
 
-            # 计算边界框
-            bbox = GeometrySerializer.calculate_bbox(coordinates)
-
-            # 编码坐标
-            encoded_coords = GeometrySerializer.encode_coordinates_delta(coordinates)
-
-            # 计算环数量（对于多边形）
-            num_rings = 0
+            # 对于多边形，使用多环提取和序列化，与C++版本一致
             if geom_type == GeometryType.POLYGON:
-                num_rings = geometry.GetGeometryCount()
+                rings = self._extract_multi_ring_polygon_coordinates(geometry)
+                if not rings:
+                    return None
+                
+                num_rings = len(rings)
+                encoded_coords = GeometrySerializer.serialize_multi_ring_polygon(rings)
+            else:
+                # 对于非多边形，使用原有逻辑
+                coordinates = self._extract_coordinates(geometry)
+                if not coordinates:
+                    return None
+                
+                encoded_coords = GeometrySerializer.encode_coordinates_delta(coordinates)
+                num_rings = 0
 
             return GeometryData(feature_id, geom_type, encoded_coords, bbox, num_rings)
 
@@ -436,6 +441,42 @@ class OGRFormatConverter:
 
         return coordinates
 
+    def _extract_multi_ring_polygon_coordinates(self, geometry) -> List[List[Coordinate]]:
+        """提取多边形的多环坐标（外环+内环），与C++版本完全一致"""
+        rings = []
+        
+        try:
+            if geometry.GetGeometryType() not in [ogr.wkbPolygon, ogr.wkbPolygon25D]:
+                return rings
+            
+            # 提取外环
+            exterior_ring = geometry.GetGeometryRef(0)
+            if exterior_ring:
+                exterior_coords = []
+                point_count = exterior_ring.GetPointCount()
+                for i in range(point_count):
+                    x, y = exterior_ring.GetX(i), exterior_ring.GetY(i)
+                    exterior_coords.append(Coordinate(x, y))
+                if exterior_coords:
+                    rings.append(exterior_coords)
+            
+            # 提取内环（holes）
+            for ring_idx in range(1, geometry.GetGeometryCount()):
+                interior_ring = geometry.GetGeometryRef(ring_idx)
+                if interior_ring:
+                    interior_coords = []
+                    point_count = interior_ring.GetPointCount()
+                    for i in range(point_count):
+                        x, y = interior_ring.GetX(i), interior_ring.GetY(i)
+                        interior_coords.append(Coordinate(x, y))
+                    if interior_coords:
+                        rings.append(interior_coords)
+        
+        except Exception as e:
+            print(f"提取多环坐标时出错: {e}")
+        
+        return rings
+
     def _save_metadata(
         self, field_info: Dict[str, int], source_crs: str, target_crs: str
     ) -> None:
@@ -540,23 +581,9 @@ class OGRFormatConverter:
             field_name = field_defn.GetName()
             field_type = field_defn.GetType()
 
-            # 根据OGR字段类型映射到字节大小
-            if field_type == ogr.OFTInteger:
-                field_info[field_name] = 4
-            elif field_type == ogr.OFTInteger64:
-                field_info[field_name] = 8
-            elif field_type == ogr.OFTReal:
-                field_info[field_name] = 8
-            elif field_type == ogr.OFTString:
-                field_info[field_name] = 4  # 字符串池ID
-            elif field_type == ogr.OFTDate:
-                field_info[field_name] = 4
-            elif field_type == ogr.OFTTime:
-                field_info[field_name] = 4
-            elif field_type == ogr.OFTDateTime:
-                field_info[field_name] = 8
-            else:
-                field_info[field_name] = 4  # 默认值
+            # 直接使用OGR字段类型枚举值，与C++版本一致
+            # C++版本使用: field_info[field_defn->GetNameRef()] = field_defn->GetType();
+            field_info[field_name] = field_type
 
         return field_info
 
@@ -565,11 +592,27 @@ class OGRFormatConverter:
         try:
             spatial_ref = layer.GetSpatialRef()
             if spatial_ref:
+                # 获取EPSG代码
+                epsg_code = None
+                try:
+                    epsg_code = spatial_ref.GetAuthorityCode("GEOGCS")
+                    if not epsg_code:
+                        epsg_code = spatial_ref.GetAuthorityCode("PROJCS")
+                except:
+                    pass
+                
                 # 获取坐标系统名称
                 crs_name = spatial_ref.GetName()
                 if not crs_name:
                     crs_name = "Unknown"
-                return crs_name, crs_name
+                
+                # 构建完整的坐标系统描述，与C++版本一致
+                if epsg_code:
+                    full_crs_name = f"EPSG:{epsg_code} - {crs_name}"
+                else:
+                    full_crs_name = crs_name
+                
+                return full_crs_name, full_crs_name
             else:
                 return "Unknown", "Unknown"
         except Exception as e:
