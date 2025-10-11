@@ -17,8 +17,8 @@ python py/gisstorage/runner.py convert data/test.shp output_data/convert_test
 
 # 4. 查询数据
 python py/gisstorage/runner.py load output_data/convert_test --dataset test
-python py/gisstorage/runner.py geom 1
-python py/gisstorage/runner.py attr 1
+python py/gisstorage/runner.py geom 0
+python py/gisstorage/runner.py attr 0
 ```
 
 ### 常用命令
@@ -27,8 +27,8 @@ python py/gisstorage/runner.py attr 1
 | --------- | ------------- | ------------------------------------------------------------- |
 | `convert` | 转换Shapefile | `python py/gisstorage/runner.py convert input.shp output_dir` |
 | `load`    | 加载数据      | `python py/gisstorage/runner.py load data_dir --dataset name` |
-| `geom`    | 查询几何      | `python py/gisstorage/runner.py geom 1`                       |
-| `attr`    | 查询属性      | `python py/gisstorage/runner.py attr 1`                       |
+| `geom`    | 查询几何      | `python py/gisstorage/runner.py geom 0`                       |
+| `attr`    | 查询属性      | `python py/gisstorage/runner.py attr 0`                       |
 | `query`   | 按属性查询    | `python py/gisstorage/runner.py query "field" "value"`        |
 | `stats`   | 显示统计      | `python py/gisstorage/runner.py stats`                        |
 | `meta`    | 显示元数据    | `python py/gisstorage/runner.py meta`                         |
@@ -98,7 +98,7 @@ python -c "import gisstorage; print('GIS存储系统安装成功')"
 
 ```bash
 # 安装核心依赖
-pip install numpy struct
+pip install numpy
 
 # 安装地理数据处理依赖
 pip install geopandas gdal shapely
@@ -156,11 +156,11 @@ ls -la output_data/convert_test/
 # 加载自定义格式数据
 python py/gisstorage/runner.py load output_data/convert_test --dataset test
 
-# 查询几何数据（FID=1）
-python py/gisstorage/runner.py geom 1
+# 查询几何数据（FID=0）
+python py/gisstorage/runner.py geom 0
 
-# 查询属性数据（FID=1）
-python py/gisstorage/runner.py attr 1
+# 查询属性数据（FID=0）
+python py/gisstorage/runner.py attr 0
 
 # 按属性查询
 python py/gisstorage/runner.py query "字段名" "字段值"
@@ -190,10 +190,10 @@ if success:
 success = runner.load_custom_format("output_data/convert_test", "test")
 if success:
     # 查询几何数据
-    runner.query_geometry(1)
+    runner.query_geometry(0)
     
     # 查询属性数据
-    runner.query_attribute(1)
+    runner.query_attribute(0)
     
     # 显示统计信息
     runner.show_storage_stats()
@@ -216,7 +216,7 @@ if metadata:
     print(f"数据集包含 {metadata.get('total_features', 0)} 个要素")
 
 # 批量读取几何数据
-feature_ids = [1, 2, 3, 4, 5]
+feature_ids = [0, 1, 2, 3, 4]
 for fid in feature_ids:
     try:
         geometry = storage.read_geometry(fid)
@@ -274,7 +274,7 @@ total_features = metadata.get('total_features', 0)
 start_time = time.time()
 test_count = min(1000, total_features)  # 测试前1000个要素
 
-for i in range(1, test_count + 1):
+for i in range(0, test_count):
     try:
         geometry = storage.read_geometry(i)
         attribute = storage.read_attribute(i)
@@ -300,29 +300,154 @@ print(f"  属性压缩率: {stats.get('attribute_stats', {}).get('compression_ra
 
 ### 几何数据格式
 
+几何数据采用紧凑的二进制格式存储，每个要素包含以下字段：
+
 ```
-几何数据二进制格式:
-+----------------+----------------+----------------+----------------+
-| 要素ID (8字节) | 几何类型 (1字节) | 边界框 (32字节) | 坐标大小 (4字节) |
-+----------------+----------------+----------------+----------------+
-|                    压缩坐标数据 (变长)                           |
-+----------------------------------------------------------------+
+几何数据二进制格式 (每个要素):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ feature_id      │ 8          │ uint64   │ 要素唯一标识符                    │
+│ geometry_type   │ 1          │ uint8    │ 几何类型 (0=点,1=线,2=面等)       │
+│ padding         │ 7          │ -        │ 填充字节，保持8字节对齐            │
+│ bbox            │ 32         │ 4×double │ 边界框 (min_x,min_y,max_x,max_y)  │
+│ num_rings       │ 4          │ uint32   │ 环数量 (多边形) 或 0 (其他类型)    │
+│ coord_size      │ 4          │ uint32   │ 压缩坐标数据的大小                │
+│ coordinates     │ 变长       │ bytes    │ 差分编码的压缩坐标数据            │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**详细说明：**
+- **feature_id**: 64位无符号整数，要素的唯一标识符
+- **geometry_type**: 几何类型枚举值 (0=POINT, 1=LINE, 2=POLYGON, 3=MULTIPOINT, 4=MULTILINE, 5=MULTIPOLYGON)
+- **padding**: 7字节填充，确保后续字段8字节对齐，提高访问效率
+- **bbox**: 边界框，4个64位浮点数 (min_x, min_y, max_x, max_y)
+- **num_rings**: 环数量，仅对多边形有意义，其他几何类型为0
+- **coord_size**: 压缩坐标数据的字节数
+- **coordinates**: 差分编码的坐标数据，第一个点存储绝对坐标，后续点存储相对偏移
 
 ### 属性数据格式
 
+属性数据采用字符串池优化的紧凑格式：
+
 ```
-属性数据二进制格式:
-+----------------+----------------+----------------+
-| 要素ID (8字节) | JSON长度 (4字节) | JSON数据 (变长) |
-+----------------+----------------+----------------+
+属性数据二进制格式 (每个要素):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ feature_id      │ 8          │ uint64   │ 要素唯一标识符                    │
+│ prop_count      │ 变长       │ varint   │ 属性对的数量 (变长编码)           │
+│ key_id_1        │ 变长       │ varint   │ 第一个属性名的字符串池ID          │
+│ value_id_1      │ 变长       │ varint   │ 第一个属性值的字符串池ID          │
+│ key_id_2        │ 变长       │ varint   │ 第二个属性名的字符串池ID          │
+│ value_id_2      │ 变长       │ varint   │ 第二个属性值的字符串池ID          │
+│ ...             │ ...        │ ...      │ 更多属性对...                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**详细说明：**
+- **feature_id**: 64位无符号整数，要素的唯一标识符
+- **prop_count**: 属性对的数量，使用变长编码（通常1-2字节）
+- **key_id/value_id**: 属性名和属性值在字符串池中的ID，使用变长编码
+- **变长编码**: 小数值使用更少字节，大数值使用更多字节，节省存储空间
+
+### 字符串池格式
+
+字符串池用于去重和压缩字符串数据：
+
+```
+字符串池文件 (.pool):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ string_count    │ 4          │ uint32   │ 唯一字符串的数量                  │
+│ string_1        │ 变长       │ string   │ 第一个字符串 (以null结尾)         │
+│ string_2        │ 变长       │ string   │ 第二个字符串 (以null结尾)         │
+│ ...             │ ...        │ ...      │ 更多字符串...                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+字符串池索引文件 (.pool.index):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ string_count    │ 4          │ uint32   │ 唯一字符串的数量                  │
+│ offset_1        │ 8          │ uint64   │ 第一个字符串在.pool文件中的偏移   │
+│ offset_2        │ 8          │ uint64   │ 第二个字符串在.pool文件中的偏移   │
+│ ...             │ ...        │ ...      │ 更多偏移量...                     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 坐标压缩算法
 
-- **差分编码**: 第一个点存储绝对坐标，后续点存储相对于前一个点的偏移量
-- **压缩率**: 通常可达到50%的压缩率
-- **精度保持**: 使用float类型存储偏移量，在保证精度的同时节省空间
+坐标数据使用差分编码进行压缩：
+
+```
+坐标压缩算法:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 步骤            │ 说明                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 1. 存储偏移量    │ 存储最小坐标值作为偏移量 (min_x, min_y)                   │
+│ 2. 存储分辨率    │ 存储坐标精度/分辨率 (scale)                              │
+│ 3. 绝对坐标      │ 第一个点存储绝对坐标 (x, y)                              │
+│ 4. 差分编码      │ 后续点存储相对于前一个点的偏移量 (Δx, Δy)                │
+│ 5. 整型化        │ 将浮点坐标转换为整数，减少存储空间                       │
+│ 6. 变长编码      │ 使用变长整数编码存储偏移量                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**压缩效果：**
+- 通常可减少50%的存储空间
+- 保持坐标精度，支持高精度地理数据
+- 支持快速随机访问和顺序读取
+
+### 存储格式示例
+
+以下是一个具体的存储格式示例，展示一个多边形要素的二进制布局：
+
+```
+示例：多边形要素 (FID=0, 包含2个环)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 偏移 │ 大小 │ 字段名        │ 值                    │ 说明                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 0x00 │ 8    │ feature_id    │ 0x0000000000000000    │ 要素ID = 0             │
+│ 0x08 │ 1    │ geometry_type │ 0x02                  │ POLYGON (2)            │
+│ 0x09 │ 7    │ padding       │ 0x00000000000000      │ 填充字节               │
+│ 0x10 │ 32   │ bbox          │ min_x,min_y,max_x,max_y│ 边界框 (4×double)     │
+│ 0x30 │ 4    │ num_rings     │ 0x00000002            │ 环数量 = 2             │
+│ 0x34 │ 4    │ coord_size    │ 0x00000100            │ 坐标数据大小 = 256字节 │
+│ 0x38 │ 256  │ coordinates   │ [压缩的坐标数据]       │ 差分编码的坐标         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**属性数据示例：**
+```
+示例：属性数据 (FID=0, 包含3个属性)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 偏移 │ 大小 │ 字段名        │ 值                    │ 说明                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 0x00 │ 8    │ feature_id    │ 0x0000000000000000    │ 要素ID = 0             │
+│ 0x08 │ 1    │ prop_count    │ 0x03                  │ 属性数量 = 3           │
+│ 0x09 │ 1    │ key_id_1      │ 0x01                  │ "name" 的字符串池ID    │
+│ 0x0A │ 1    │ value_id_1    │ 0x05                  │ "Building A" 的ID      │
+│ 0x0B │ 1    │ key_id_2      │ 0x02                  │ "type" 的字符串池ID    │
+│ 0x0C │ 1    │ value_id_2    │ 0x06                  │ "Commercial" 的ID      │
+│ 0x0D │ 1    │ key_id_3      │ 0x03                  │ "area" 的字符串池ID    │
+│ 0x0E │ 1    │ value_id_3    │ 0x07                  │ "1000.5" 的ID         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**文件组织示例：**
+```
+数据集文件结构 (以"test"数据集为例):
+test.geom              # 几何数据文件 (所有要素的几何信息)
+test.attr              # 属性数据文件 (所有要素的属性信息)
+test.pool              # 字符串池文件 (去重后的字符串)
+test.pool.index        # 字符串池索引 (快速查找字符串)
+test_meta.json         # 元数据文件 (数据集信息)
+test.geom.chunked_idx  # 几何分块索引 (大文件优化)
+test.attr.chunked_idx  # 属性分块索引 (大文件优化)
+```
+
 
 ## 🔧 配置选项
 
@@ -355,7 +480,7 @@ geom_storage = GeometryStorage(
 )
 
 # 读取几何数据
-geometry = geom_storage.read_geometry(1)
+geometry = geom_storage.read_geometry(0)
 print(f"几何类型: {geometry.get_geometry_type().name}")
 print(f"边界框: {geometry.get_bbox()}")
 ```
@@ -431,24 +556,24 @@ python py/gisstorage/runner.py meta
 python py/gisstorage/runner.py stats
 
 # 4. 查询第一个要素的几何数据
-python py/gisstorage/runner.py geom 1
+python py/gisstorage/runner.py geom 0
 
 # 5. 查询第一个要素的属性数据
-python py/gisstorage/runner.py attr 1
+python py/gisstorage/runner.py attr 0
 ```
 
 ### 示例3：运行演示程序
 
 ```bash
-# 直接运行演示（会自动使用output_data/storage_test目录）
+# 直接运行演示（会自动使用output_data/convert_test目录）
 python py/gisstorage/runner.py
 
 # 演示程序会依次执行：
 # 1. 加载自定义格式数据
 # 2. 显示元数据信息
 # 3. 显示存储统计信息
-# 4. 查询几何数据 (FID=1)
-# 5. 查询属性数据 (FID=1)
+# 4. 查询几何数据 (FID=0)
+# 5. 查询属性数据 (FID=0)
 ```
 
 ### 示例4：Python脚本中使用
@@ -493,8 +618,8 @@ def main():
     runner.show_storage_stats()
     
     # 查询数据
-    runner.query_geometry(1)
-    runner.query_attribute(1)
+    runner.query_geometry(0)
+    runner.query_attribute(0)
 
 if __name__ == "__main__":
     main()
@@ -619,11 +744,11 @@ batch_size = 100
 metadata = storage.load_metadata()
 total_features = metadata.get('total_features', 0)
 
-for start_idx in range(1, total_features + 1, batch_size):
-    end_idx = min(start_idx + batch_size - 1, total_features)
+for start_idx in range(0, total_features, batch_size):
+    end_idx = min(start_idx + batch_size, total_features)
     print(f"处理要素 {start_idx} 到 {end_idx}")
     
-    for i in range(start_idx, end_idx + 1):
+    for i in range(start_idx, end_idx):
         try:
             geometry = storage.read_geometry(i)
             attribute = storage.read_attribute(i)
@@ -662,7 +787,7 @@ from gisstorage import GisStorageSystem
 storage = GisStorageSystem("output_data/convert_test", "test")
 
 # 读取几何数据并检查坐标
-geometry = storage.read_geometry(1)
+geometry = storage.read_geometry(0)
 coordinates = geometry.decode_coordinates()
 
 print("坐标精度检查:")
@@ -686,8 +811,8 @@ python py/gisstorage/runner.py load output_data/convert_test --dataset test
 python py/gisstorage/runner.py meta
 
 # 检查要素ID是否有效
-python py/gisstorage/runner.py geom 1
-python py/gisstorage/runner.py attr 1
+python py/gisstorage/runner.py geom 0
+python py/gisstorage/runner.py attr 0
 ```
 
 #### 8. 环境变量问题
