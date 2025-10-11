@@ -299,61 +299,82 @@ class AttributeStorage:
         pass
 
     def build_chunked_index(self) -> None:
-        """构建分块索引，与C++版本完全一致"""
+        """构建分块索引，使用简化策略扫描所有要素的偏移量"""
         if not os.path.exists(self.attribute_file):
             return
 
         self.index_chunks.clear()
-        current_chunk = None
-
+        
+        # 第一遍：收集所有要素的偏移量
+        feature_offsets = {}
+        
         with open(self.attribute_file, "rb") as f:
             while True:
                 current_offset = f.tell()
-
+                
                 # 读取feature_id
                 feature_id_data = f.read(8)
                 if len(feature_id_data) < 8:
                     break
                 feature_id = struct.unpack("Q", feature_id_data)[0]
-
+                
+                feature_offsets[feature_id] = current_offset
+                
                 # 读取属性数量 (变长编码)
-                prop_count, _ = self.serializer._decode_varint(
-                    f.read(1024), 0
-                )  # 读取足够的数据
-                f.seek(current_offset + 8)  # 重新定位
-
-                # 跳过属性数据
-                # 这里需要更复杂的逻辑来跳过变长编码的数据
-                # 简化实现：读取到下一个feature_id
+                varint_data = bytearray()
                 while True:
-                    byte = f.read(1)
-                    if not byte:
+                    byte_data = f.read(1)
+                    if not byte_data:
                         break
-                    # 检查是否是下一个feature_id的开始（简化实现）
-                    if byte[0] == 0:  # 假设feature_id不会以0开头
-                        f.seek(f.tell() - 1)
+                    varint_data.append(byte_data[0])
+                    if (byte_data[0] & 0x80) == 0:
                         break
-
-                # 检查是否需要创建新的分块
-                if (
-                    current_chunk is None
-                    or len(current_chunk.offset_map) >= self.chunk_size
-                ):
-                    if current_chunk is not None:
-                        current_chunk.end_fid = feature_id - 1
-                        self.index_chunks.append(current_chunk)
-
-                    current_chunk = AttributeStorage.IndexChunk()
-                    current_chunk.start_fid = feature_id
-
-                current_chunk.offset_map[feature_id] = current_offset
-
+                
+                prop_count, _ = self.serializer._decode_varint(bytes(varint_data), 0)
+                
+                # 读取并跳过每个属性
+                for _ in range(prop_count):
+                    # 读取field_idx (变长编码)
+                    while True:
+                        byte_data = f.read(1)
+                        if not byte_data:
+                            break
+                        if (byte_data[0] & 0x80) == 0:
+                            break
+                    
+                    # 读取value_idx (变长编码)
+                    while True:
+                        byte_data = f.read(1)
+                        if not byte_data:
+                            break
+                        if (byte_data[0] & 0x80) == 0:
+                            break
+        
+        # 第二遍：按feature_id排序并创建分块
+        sorted_fids = sorted(feature_offsets.keys())
+        
+        current_chunk = None
+        for feature_id in sorted_fids:
+            # 检查是否需要创建新的分块
+            if (
+                current_chunk is None
+                or len(current_chunk.offset_map) >= self.chunk_size
+            ):
+                if current_chunk is not None:
+                    current_chunk.end_fid = feature_id - 1
+                    self.index_chunks.append(current_chunk)
+                
+                current_chunk = AttributeStorage.IndexChunk()
+                current_chunk.start_fid = feature_id
+            
+            current_chunk.offset_map[feature_id] = feature_offsets[feature_id]
+        
         # 添加最后一个分块
         if current_chunk is not None:
             if current_chunk.offset_map:
                 current_chunk.end_fid = max(current_chunk.offset_map.keys())
             self.index_chunks.append(current_chunk)
-
+        
         self.use_chunked_mode = True
         print(f"构建属性分块索引完成: {len(self.index_chunks)} 个分块")
 

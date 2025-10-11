@@ -329,7 +329,7 @@ class GeometrySerializer:
 
     @staticmethod
     def _decode_varint(data: bytes, offset: int) -> Tuple[int, int]:
-        """变长整数解码辅助函数"""
+        """变长整数解码辅助函数，与C++版本完全一致"""
         result = 0
         shift = 0
 
@@ -342,5 +342,11 @@ class GeometrySerializer:
                 break
             shift += 7
 
-        # ZigZag解码
-        return ((result >> 1) ^ (-(result & 1)), offset)
+        # ZigZag解码，与C++版本完全一致
+        # C++版本: return static_cast<int64_t>((result >> 1) ^ (-(result & 1)));
+        # 需要确保结果是64位有符号整数
+        decoded = (result >> 1) ^ (-(result & 1))
+        # 将结果转换为64位有符号整数范围
+        if decoded > 0x7FFFFFFFFFFFFFFF:
+            decoded = decoded - 0x10000000000000000
+        return (decoded, offset)
