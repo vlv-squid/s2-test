@@ -266,14 +266,23 @@ class AttributeStorage:
                     avg_size = 100  # 估算值
                     total_features = max(0, file_size // avg_size)
 
+        # 计算压缩统计信息
+        original_size = compression_stats.get("original_size", 0)
+        compressed_size = compression_stats.get("compressed_size", 0)
+        compression_ratio = 0.0
+        saved_bytes = 0
+
+        if original_size > 0:
+            compression_ratio = (1.0 - compressed_size / original_size) * 100.0
+            saved_bytes = original_size - compressed_size
+
         return {
             "total_features": total_features,
-            "total_original_size": compression_stats["original_size"],
-            "total_compressed_size": compression_stats["compressed_size"],
-            "compression_ratio": compression_stats["compression_ratio"],
+            "total_original_size": original_size,
+            "total_compressed_size": compressed_size,
+            "compression_ratio": compression_ratio,
             "string_pool_size": self.serializer.get_pool_size(),
-            "string_pool_saved_bytes": compression_stats["original_size"]
-            - compression_stats["compressed_size"],
+            "string_pool_saved_bytes": saved_bytes,
         }
 
     def set_chunk_size(self, chunk_size: int) -> None:

@@ -16,8 +16,6 @@ class GeometrySerializer:
     def serialize_geometry(geometry: GeometryData) -> bytes:
         """序列化几何数据，与C++版本完全一致"""
         data = bytearray()
-        # Python的bytearray没有reserve方法，使用预分配
-        data = bytearray(geometry.get_serialized_size())
 
         # 写入feature_id (8字节)
         feature_id = geometry.get_feature_id()

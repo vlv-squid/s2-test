@@ -350,7 +350,16 @@ class StringPool:
             )
             return ""
 
-        return self.pool_mmap[offset : offset + length].decode("utf-8")
+        try:
+            return self.pool_mmap[offset : offset + length].decode("utf-8")
+        except UnicodeDecodeError as e:
+            print(
+                f"警告: 字符串解码失败 (id={string_id}, offset={offset}, length={length}): {e}"
+            )
+            # 尝试使用错误处理策略
+            return self.pool_mmap[offset : offset + length].decode(
+                "utf-8", errors="replace"
+            )
 
     def _build_string_offsets_index(self) -> None:
         """构建字符串偏移量索引，与C++版本完全一致"""
