@@ -17,8 +17,8 @@ python py/gisstorage/runner.py convert data/test.shp output_data/convert_test
 
 # 4. 查询数据
 python py/gisstorage/runner.py load output_data/convert_test --dataset test
-python py/gisstorage/runner.py geom 0
-python py/gisstorage/runner.py attr 0
+python py/gisstorage/runner.py geom 1
+python py/gisstorage/runner.py attr 1
 ```
 
 ### 常用命令
@@ -27,8 +27,8 @@ python py/gisstorage/runner.py attr 0
 | --------- | ------------- | ------------------------------------------------------------- |
 | `convert` | 转换Shapefile | `python py/gisstorage/runner.py convert input.shp output_dir` |
 | `load`    | 加载数据      | `python py/gisstorage/runner.py load data_dir --dataset name` |
-| `geom`    | 查询几何      | `python py/gisstorage/runner.py geom 0`                       |
-| `attr`    | 查询属性      | `python py/gisstorage/runner.py attr 0`                       |
+| `geom`    | 查询几何      | `python py/gisstorage/runner.py geom 1`                       |
+| `attr`    | 查询属性      | `python py/gisstorage/runner.py attr 1`                       |
 | `query`   | 按属性查询    | `python py/gisstorage/runner.py query "field" "value"`        |
 | `stats`   | 显示统计      | `python py/gisstorage/runner.py stats`                        |
 | `meta`    | 显示元数据    | `python py/gisstorage/runner.py meta`                         |
@@ -78,7 +78,8 @@ gisstorage/
 ├── attribute_storage.py           # 属性数据存储
 ├── gis_storage_system.py          # 主存储系统类
 ├── ogr_format_converter.py        # OGR格式转换器
-└── runner.py                      # 命令行运行器
+├── runner.py                      # 命令行运行器
+└── README.md                      # 本文档
 ```
 
 ## 🛠️ 环境配置
@@ -156,11 +157,11 @@ ls -la output_data/convert_test/
 # 加载自定义格式数据
 python py/gisstorage/runner.py load output_data/convert_test --dataset test
 
-# 查询几何数据（FID=0）
-python py/gisstorage/runner.py geom 0
+# 查询几何数据（FID=1）
+python py/gisstorage/runner.py geom 1
 
-# 查询属性数据（FID=0）
-python py/gisstorage/runner.py attr 0
+# 查询属性数据（FID=1）
+python py/gisstorage/runner.py attr 1
 
 # 按属性查询
 python py/gisstorage/runner.py query "字段名" "字段值"
@@ -190,10 +191,10 @@ if success:
 success = runner.load_custom_format("output_data/convert_test", "test")
 if success:
     # 查询几何数据
-    runner.query_geometry(0)
+    runner.query_geometry(1)
     
     # 查询属性数据
-    runner.query_attribute(0)
+    runner.query_attribute(1)
     
     # 显示统计信息
     runner.show_storage_stats()
@@ -216,7 +217,7 @@ if metadata:
     print(f"数据集包含 {metadata.get('total_features', 0)} 个要素")
 
 # 批量读取几何数据
-feature_ids = [0, 1, 2, 3, 4]
+feature_ids = [1, 2, 3, 4, 5]  # Feature ID从1开始
 for fid in feature_ids:
     try:
         geometry = storage.read_geometry(fid)
@@ -274,7 +275,7 @@ total_features = metadata.get('total_features', 0)
 start_time = time.time()
 test_count = min(1000, total_features)  # 测试前1000个要素
 
-for i in range(0, test_count):
+for i in range(1, test_count + 1):  # Feature ID从1开始
     try:
         geometry = storage.read_geometry(i)
         attribute = storage.read_attribute(i)
@@ -443,88 +444,121 @@ print(f"  属性压缩率: {stats.get('attribute_stats', {}).get('compression_ra
 #### 几何分块索引文件 (.geom.chunked_idx)
 
 ```
-几何分块索引文件格式 (JSON):
+几何分块索引文件格式 (二进制):
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ 字段名称        │ 数据类型 │ 说明                                          │
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ version         │ string   │ 索引文件版本 ("1.0")                          │
-│ chunk_size      │ int      │ 每个分块包含的要素数量 (默认10000)             │
-│ chunks          │ array    │ 分块数组                                      │
-│ └─ start_fid    │ int      │ 分块起始要素ID                                │
-│ └─ end_fid      │ int      │ 分块结束要素ID                                │
-│ └─ offset_map   │ object   │ 要素ID到文件偏移量的映射                      │
-│ └─ loaded       │ bool     │ 分块是否已加载到内存                          │
+│ version         │ 4          │ uint32   │ 索引文件版本 (1)                  │
+│ chunk_count     │ 4          │ uint32   │ 分块数量                          │
+│ chunk_size      │ 8          │ uint64   │ 每个分块包含的要素数量 (默认10000) │
+│ reserved        │ 8          │ uint64   │ 保留字段                          │
+│ chunk_1_header  │ 24         │ -        │ 第一个分块头                      │
+│ chunk_1_data    │ 变长       │ -        │ 第一个分块数据                    │
+│ chunk_2_header  │ 24         │ -        │ 第二个分块头                      │
+│ chunk_2_data    │ 变长       │ -        │ 第二个分块数据                    │
+│ ...             │ ...        │ ...      │ 更多分块...                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+分块头格式 (24字节):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ start_fid       │ 8          │ uint64   │ 分块起始要素ID                    │
+│ end_fid         │ 8          │ uint64   │ 分块结束要素ID                    │
+│ entry_count     │ 4          │ uint32   │ 分块中的要素数量                  │
+│ reserved        │ 4          │ uint32   │ 保留字段                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+分块数据格式 (每个条目16字节):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ feature_id      │ 8          │ uint64   │ 要素ID                            │
+│ offset          │ 8          │ int64    │ 要素在几何文件中的偏移量          │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **示例：**
-```json
-{
-  "version": "1.0",
-  "chunk_size": 10000,
-  "chunks": [
-    {
-      "start_fid": 0,
-      "end_fid": 9999,
-      "offset_map": {
-        "0": 0,
-        "1": 56,
-        "2": 112,
-        "...": "..."
-      },
-      "loaded": false
-    },
-    {
-      "start_fid": 10000,
-      "end_fid": 19999,
-      "offset_map": {
-        "10000": 560000,
-        "10001": 560056,
-        "...": "..."
-      },
-      "loaded": false
-    }
-  ]
-}
+```
+文件头 (24字节):
+version=1, chunk_count=2, chunk_size=10000, reserved=0
+
+第一个分块:
+  - 分块头: start_fid=1, end_fid=10000, entry_count=10000, reserved=0
+  - 分块数据: 10000个条目，每个16字节
+    * FID=1, offset=0
+    * FID=2, offset=464
+    * FID=3, offset=902
+    * ...
+
+第二个分块:
+  - 分块头: start_fid=10001, end_fid=13916, entry_count=3916, reserved=0
+  - 分块数据: 3916个条目，每个16字节
+    * FID=10001, offset=14150727
+    * FID=10002, offset=14154653
+    * ...
 ```
 
 #### 属性分块索引文件 (.attr.chunked_idx)
 
 ```
-属性分块索引文件格式 (JSON):
+属性分块索引文件格式 (紧凑二进制):
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ 字段名称        │ 数据类型 │ 说明                                          │
+│ 字段名称        │ 大小(字节) │ 数据类型 │ 说明                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ version         │ string   │ 索引文件版本 ("1.0")                          │
-│ chunk_size      │ int      │ 每个分块包含的要素数量 (默认10000)             │
-│ chunks          │ array    │ 分块数组                                      │
-│ └─ start_fid    │ int      │ 分块起始要素ID                                │
-│ └─ end_fid      │ int      │ 分块结束要素ID                                │
-│ └─ offset_map   │ object   │ 要素ID到文件偏移量的映射                      │
-│ └─ loaded       │ bool     │ 分块是否已加载到内存                          │
+│ version         │ 变长       │ varint   │ 索引文件版本 (2)                  │
+│ chunk_count     │ 变长       │ varint   │ 分块数量                          │
+│ chunk_size      │ 变长       │ varint   │ 每个分块包含的要素数量 (默认10000) │
+│ chunk_1_header  │ 变长       │ varint   │ 第一个分块头 (紧凑格式)           │
+│ chunk_1_data    │ 变长       │ varint   │ 第一个分块数据 (紧凑格式)         │
+│ chunk_2_header  │ 变长       │ varint   │ 第二个分块头 (紧凑格式)           │
+│ chunk_2_data    │ 变长       │ varint   │ 第二个分块数据 (紧凑格式)         │
+│ ...             │ ...        │ ...      │ 更多分块...                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+分块头格式 (紧凑格式，使用varint编码):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 编码方式   │ 说明                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ start_fid       │ varint     │ 分块起始要素ID                              │
+│ end_fid         │ varint     │ 分块结束要素ID                              │
+│ entry_count     │ varint     │ 分块中的要素数量                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+分块数据格式 (紧凑格式，使用varint编码):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 字段名称        │ 编码方式   │ 说明                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ feature_id      │ varint     │ 要素ID                                      │
+│ offset          │ varint     │ 要素在属性文件中的偏移量                    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **示例：**
-```json
-{
-  "version": "1.0",
-  "chunk_size": 10000,
-  "chunks": [
-    {
-      "start_fid": 0,
-      "end_fid": 9999,
-      "offset_map": {
-        "0": 0,
-        "1": 15,
-        "2": 30,
-        "...": "..."
-      },
-      "loaded": false
-    }
-  ]
-}
 ```
+文件头 (紧凑格式):
+version=2, chunk_count=2, chunk_size=10000
+
+第一个分块:
+  - 分块头: start_fid=1, end_fid=10000, entry_count=10000
+  - 分块数据: 10000个条目，每个条目包含feature_id和offset
+    * FID=1, offset=0
+    * FID=2, offset=15
+    * FID=3, offset=30
+    * ...
+
+第二个分块:
+  - 分块头: start_fid=10001, end_fid=13916, entry_count=3916
+  - 分块数据: 3916个条目，每个条目包含feature_id和offset
+    * FID=10001, offset=...
+    * FID=10002, offset=...
+    * ...
+```
+
+**Varint编码说明：**
+- 小数值使用更少字节，大数值使用更多字节
+- 每个字节的最高位表示是否还有后续字节
+- 例如：值1编码为1字节，值300编码为2字节
 
 #### 字符串池索引文件 (.pool.index)
 
@@ -590,8 +624,19 @@ test.attr              # 属性数据文件 (所有要素的属性信息)
 test.pool              # 字符串池文件 (去重后的字符串)
 test.pool.index        # 字符串池索引 (快速查找字符串)
 test_meta.json         # 元数据文件 (数据集信息)
-test.geom.chunked_idx  # 几何分块索引 (大文件优化)
-test.attr.chunked_idx  # 属性分块索引 (大文件优化)
+test.geom.chunked_idx  # 几何分块索引 (二进制格式，大文件优化)
+test.attr.chunked_idx  # 属性分块索引 (紧凑二进制格式，大文件优化)
+```
+
+**文件大小示例 (test数据集):**
+```
+test.geom              # 20.8MB (几何数据)
+test.attr              # 1.0MB (属性数据)
+test.pool              # 903KB (字符串池)
+test.pool.index        # 618KB (字符串池索引)
+test_meta.json         # 1.5KB (元数据)
+test.geom.chunked_idx  # 223KB (几何分块索引)
+test.attr.chunked_idx  # 69KB (属性分块索引)
 ```
 
 
@@ -626,7 +671,7 @@ geom_storage = GeometryStorage(
 )
 
 # 读取几何数据
-geometry = geom_storage.read_geometry(0)
+geometry = geom_storage.read_geometry(1)
 print(f"几何类型: {geometry.get_geometry_type().name}")
 print(f"边界框: {geometry.get_bbox()}")
 ```
@@ -702,10 +747,10 @@ python py/gisstorage/runner.py meta
 python py/gisstorage/runner.py stats
 
 # 4. 查询第一个要素的几何数据
-python py/gisstorage/runner.py geom 0
+python py/gisstorage/runner.py geom 1
 
 # 5. 查询第一个要素的属性数据
-python py/gisstorage/runner.py attr 0
+python py/gisstorage/runner.py attr 1
 ```
 
 ### 示例3：运行演示程序
@@ -718,8 +763,8 @@ python py/gisstorage/runner.py
 # 1. 加载自定义格式数据
 # 2. 显示元数据信息
 # 3. 显示存储统计信息
-# 4. 查询几何数据 (FID=0)
-# 5. 查询属性数据 (FID=0)
+# 4. 查询几何数据 (FID=1)
+# 5. 查询属性数据 (FID=1)
 ```
 
 ### 示例4：Python脚本中使用
@@ -764,8 +809,8 @@ def main():
     runner.show_storage_stats()
     
     # 查询数据
-    runner.query_geometry(0)
-    runner.query_attribute(0)
+    runner.query_geometry(1)
+    runner.query_attribute(1)
 
 if __name__ == "__main__":
     main()
@@ -933,7 +978,7 @@ from gisstorage import GisStorageSystem
 storage = GisStorageSystem("output_data/convert_test", "test")
 
 # 读取几何数据并检查坐标
-geometry = storage.read_geometry(0)
+geometry = storage.read_geometry(1)
 coordinates = geometry.decode_coordinates()
 
 print("坐标精度检查:")
@@ -957,11 +1002,44 @@ python py/gisstorage/runner.py load output_data/convert_test --dataset test
 python py/gisstorage/runner.py meta
 
 # 检查要素ID是否有效
-python py/gisstorage/runner.py geom 0
-python py/gisstorage/runner.py attr 0
+python py/gisstorage/runner.py geom 1
+python py/gisstorage/runner.py attr 1
 ```
 
-#### 8. 环境变量问题
+#### 8. Feature ID从1开始的问题
+
+**问题**: 尝试查询Feature ID 0时出现"Feature ID 0 not found"错误
+
+**原因**: 当前版本的Feature ID从1开始，不是从0开始
+
+**解决方案**:
+```bash
+# 使用Feature ID 1而不是0
+python py/gisstorage/runner.py geom 1
+python py/gisstorage/runner.py attr 1
+
+# 在Python代码中也要注意
+geometry = storage.read_geometry(1)  # 正确
+# geometry = storage.read_geometry(0)  # 错误，会抛出异常
+```
+
+**验证Feature ID范围**:
+```python
+# 检查元数据中的总要素数
+metadata = storage.load_metadata()
+total_features = metadata.get('total_features', 0)
+print(f"总要素数: {total_features}")
+
+# Feature ID范围是 1 到 total_features
+for fid in range(1, min(6, total_features + 1)):  # 测试前5个要素
+    try:
+        geometry = storage.read_geometry(fid)
+        print(f"Feature ID {fid}: 存在")
+    except Exception as e:
+        print(f"Feature ID {fid}: 不存在 - {e}")
+```
+
+#### 9. 环境变量问题
 
 **问题**: 环境变量未正确设置
 
