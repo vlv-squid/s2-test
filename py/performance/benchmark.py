@@ -42,14 +42,23 @@ class GISBenchmark:
         self.ogr_layer = self.ogr_datasource.GetLayer(0)
 
         # 初始化自定义GIS存储系统
-        self.gis_system = GisStorageSystem(output_dir, self.shapefile_name)
+        # 检查数据文件是否在子目录中
+        if os.path.exists(f"{output_dir}/convert_test/{self.shapefile_name}.geom"):
+            data_dir = f"{output_dir}/convert_test"
+        else:
+            data_dir = output_dir
+
+        self.gis_system = GisStorageSystem(data_dir, self.shapefile_name)
         self.geometry_storage = GeometryStorage(
-            f"{output_dir}/{self.shapefile_name}.geom"
+            f"{data_dir}/{self.shapefile_name}.geom"
         )
         self.attribute_storage = AttributeStorage(
-            f"{output_dir}/{self.shapefile_name}.attr",
-            f"{output_dir}/{self.shapefile_name}.pool",
+            f"{data_dir}/{self.shapefile_name}.attr",
+            f"{data_dir}/{self.shapefile_name}.pool",
         )
+
+        # 构建分块索引以确保正确读取
+        self.attribute_storage.build_chunked_index()
 
         # 初始化S2索引
         self.s2_index = S2SpatialIndex(
