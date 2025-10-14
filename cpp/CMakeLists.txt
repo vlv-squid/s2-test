@@ -56,7 +56,15 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 find_package(GTest REQUIRED)
 find_package(Boost REQUIRED COMPONENTS geometry)
-find_package(GDAL REQUIRED PATHS "${CMAKE_PREFIX_PATH}/lib64/cmake/gdal")
+# 设置conda环境路径
+set(CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+if(CONDA_PREFIX)
+    message(STATUS "检测到conda环境: ${CONDA_PREFIX}")
+    set(CMAKE_PREFIX_PATH "${CONDA_PREFIX};${CMAKE_PREFIX_PATH}")
+endif()
+
+# 查找GDAL库
+find_package(GDAL REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(s2 REQUIRED)
 find_package(TBB REQUIRED)

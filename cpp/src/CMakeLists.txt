@@ -18,6 +18,7 @@ target_link_libraries(gisindex PUBLIC
     GDAL::GDAL
     s2::s2
     TBB::tbb
+    pthread
 )
 
 # 设置gisindex库的编译特性
