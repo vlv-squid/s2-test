@@ -9,6 +9,7 @@
 #include <iostream>
 #include <filesystem>
 #include <cmath>
+#include <set>
 #include <gdal.h>
 #include <ogrsf_frmts.h>
 #include <cpl_conv.h>
@@ -77,17 +78,22 @@ namespace S2Main {
         std::vector<S2CellId> cellIds;
         coverer.GetCovering(rect, &cellIds);
 
-        // 使用absl::Span优化内存访问
+        // 使用set来去重，与Python版本保持一致
+        std::set<int> unique_fids;
         absl::Span<const S2CellId> cell_span(cellIds);
         for (const auto& cellId : cell_span) {
             auto it = indexMap_.find(cellId.id());
             if (it != indexMap_.end()) {
                 // 使用absl::InlinedVector的data()方法直接访问
                 const auto& fids = it->second;
-                query_result_cache_.insert(query_result_cache_.end(), fids.begin(), fids.end());
+                for (int fid : fids) {
+                    unique_fids.insert(fid);
+                }
             }
         }
 
+        // 将去重后的结果复制到缓存向量
+        query_result_cache_.assign(unique_fids.begin(), unique_fids.end());
         last_query_size_ = query_result_cache_.size();
         return query_result_cache_;
     }
@@ -147,12 +153,14 @@ namespace S2Main {
     }
 
     size_t S2SpatialIndex::GetTotalFeatureCount() const {
-        size_t total_count = 0;
-        // 使用absl::flat_hash_map的迭代器优化
+        std::set<int> unique_fids;
+        // 收集所有唯一的要素ID
         for (const auto& [cell_id, fids] : indexMap_) {
-            total_count += fids.size();
+            for (int fid : fids) {
+                unique_fids.insert(fid);
+            }
         }
-        return total_count;
+        return unique_fids.size();
     }
 
     bool S2SpatialIndex::BuildFromDataset(const std::string& dataset_path, int batch_size) {
@@ -182,6 +190,7 @@ namespace S2Main {
         // 统计信息
         size_t processed_count = 0;
         size_t total_entries = 0;
+        bool first_batch = true;
 
         poLayer->ResetReading();
 
@@ -192,10 +201,16 @@ namespace S2Main {
         while (OGRFeature* poFeature = poLayer->GetNextFeature()) {
             OGRGeometry* poGeometry = poFeature->GetGeometryRef();
             if (poGeometry) {
-                OGRPoint center;
-                if (poGeometry->Centroid(&center) == OGRERR_NONE) {
-                    // 将坐标转换为S2 Cell ID
-                    S2LatLng latlng = S2LatLng::FromDegrees(center.getY(), center.getX());
+                // 获取几何体的外包矩形
+                OGREnvelope envelope;
+                poGeometry->getEnvelope(&envelope);
+
+                // 检查外包矩形是否有效
+                if (envelope.MinX < envelope.MaxX && envelope.MinY < envelope.MaxY) {
+                    // 使用外包矩形创建S2区域
+                    S2LatLng p1 = S2LatLng::FromDegrees(envelope.MinY, envelope.MinX);
+                    S2LatLng p2 = S2LatLng::FromDegrees(envelope.MaxY, envelope.MaxX);
+                    S2LatLngRect rect(p1, p2);
 
                     // 使用S2RegionCoverer获取Cell ID
                     S2RegionCoverer::Options options;
@@ -204,16 +219,11 @@ namespace S2Main {
                     options.set_max_cells(8);
                     S2RegionCoverer coverer(options);
 
-                    // 创建一个小矩形区域
-                    S2LatLng p1 = S2LatLng::FromDegrees(center.getY() - 0.0001, center.getX() - 0.0001);
-                    S2LatLng p2 = S2LatLng::FromDegrees(center.getY() + 0.0001, center.getX() + 0.0001);
-                    S2LatLngRect rect(p1, p2);
-
                     std::vector<S2CellId> cellIds;
                     coverer.GetCovering(rect, &cellIds);
 
-                    if (!cellIds.empty()) {
-                        S2CellId cellId = cellIds[0];
+                    // 为每个覆盖的单元格添加要素ID
+                    for (const auto& cellId : cellIds) {
                         batch_entries.emplace_back(cellId.id(), poFeature->GetFID());
                     }
                 }
@@ -224,9 +234,10 @@ namespace S2Main {
             // 当批次满了或者是最后一批时，处理当前批次
             if (batch_entries.size() >= batch_size || processed_count == total_features) {
                 // 将当前批次添加到索引（增量构建）
-                if (processed_count <= batch_size) {
+                if (first_batch) {
                     // 第一批，清空并构建
                     Build(batch_entries);
+                    first_batch = false;
                 } else {
                     // 后续批次，增量添加
                     AddBatch(batch_entries);
@@ -343,10 +354,16 @@ namespace S2Main {
                 OGRGeometry* poGeometry = poFeature->GetGeometryRef();
                 if (poGeometry && !poGeometry->IsEmpty()) {
                     try {
-                        OGRPoint center;
-                        if (poGeometry->Centroid(&center) == OGRERR_NONE) {
-                            // 计算S2 Cell ID
-                            S2LatLng latlng = S2LatLng::FromDegrees(center.getY(), center.getX());
+                        // 获取几何体的外包矩形
+                        OGREnvelope envelope;
+                        poGeometry->getEnvelope(&envelope);
+
+                        // 检查外包矩形是否有效
+                        if (envelope.MinX < envelope.MaxX && envelope.MinY < envelope.MaxY) {
+                            // 使用外包矩形创建S2区域
+                            S2LatLng p1 = S2LatLng::FromDegrees(envelope.MinY, envelope.MinX);
+                            S2LatLng p2 = S2LatLng::FromDegrees(envelope.MaxY, envelope.MaxX);
+                            S2LatLngRect rect(p1, p2);
 
                             S2RegionCoverer::Options options;
                             options.set_min_level(level_);
@@ -354,15 +371,12 @@ namespace S2Main {
                             options.set_max_cells(8);
                             S2RegionCoverer coverer(options);
 
-                            S2LatLng p1 = S2LatLng::FromDegrees(center.getY() - 0.0001, center.getX() - 0.0001);
-                            S2LatLng p2 = S2LatLng::FromDegrees(center.getY() + 0.0001, center.getX() + 0.0001);
-                            S2LatLngRect rect(p1, p2);
-
                             std::vector<S2CellId> cellIds;
                             coverer.GetCovering(rect, &cellIds);
 
-                            if (!cellIds.empty()) {
-                                local_entries.emplace_back(cellIds[0].id(), fid);
+                            // 为每个覆盖的单元格添加要素ID
+                            for (const auto& cellId : cellIds) {
+                                local_entries.emplace_back(cellId.id(), fid);
                             }
                         }
                     } catch (const std::exception& e) {
