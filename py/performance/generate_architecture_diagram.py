@@ -95,7 +95,7 @@ def create_architecture_diagram():
         6,
         7.5,
         "分离式存储架构设计",
-        fontsize=16,
+        fontsize=20,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -118,7 +118,7 @@ def create_architecture_diagram():
         2.25,
         7.0,
         "输入数据源",
-        fontsize=12,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -140,7 +140,7 @@ def create_architecture_diagram():
         1.4,
         6.6,
         "Shapefile",
-        fontsize=9,
+        fontsize=16,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -160,7 +160,7 @@ def create_architecture_diagram():
         2.8,
         6.6,
         "FileGDB",
-        fontsize=9,
+        fontsize=16,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -181,7 +181,7 @@ def create_architecture_diagram():
         5.5,
         6.6,
         "OGR格式转换器",
-        fontsize=9,
+        fontsize=16,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -203,7 +203,7 @@ def create_architecture_diagram():
         6,
         5.5,
         "分离式存储层",
-        fontsize=12,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -225,7 +225,7 @@ def create_architecture_diagram():
         2.05,
         5.0,
         "几何数据存储",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -234,8 +234,8 @@ def create_architecture_diagram():
     ax.text(
         2.05,
         4.8,
-        "data.geom",
-        fontsize=8,
+        ".geom",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -256,7 +256,7 @@ def create_architecture_diagram():
         5.05,
         5.0,
         "属性数据存储",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -265,8 +265,8 @@ def create_architecture_diagram():
     ax.text(
         5.05,
         4.8,
-        "data.attr",
-        fontsize=8,
+        ".attr",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -287,7 +287,7 @@ def create_architecture_diagram():
         8.05,
         5.0,
         "字符串池存储",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -296,8 +296,8 @@ def create_architecture_diagram():
     ax.text(
         8.05,
         4.8,
-        "data.pool",
-        fontsize=8,
+        ".pool",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -318,7 +318,7 @@ def create_architecture_diagram():
         10.55,
         5.0,
         "元数据",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -327,8 +327,8 @@ def create_architecture_diagram():
     ax.text(
         10.55,
         4.8,
-        "data_meta.json",
-        fontsize=7,
+        "_meta.json",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -350,7 +350,7 @@ def create_architecture_diagram():
         6,
         3.8,
         "索引层",
-        fontsize=12,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -372,7 +372,7 @@ def create_architecture_diagram():
         2.05,
         3.3,
         "几何分块索引",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -381,8 +381,8 @@ def create_architecture_diagram():
     ax.text(
         2.05,
         3.1,
-        "data.geom.chunked_idx",
-        fontsize=7,
+        ".geom.chunked_idx",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -403,7 +403,7 @@ def create_architecture_diagram():
         5.05,
         3.3,
         "属性分块索引",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -412,8 +412,8 @@ def create_architecture_diagram():
     ax.text(
         5.05,
         3.1,
-        "data.attr.chunked_idx",
-        fontsize=7,
+        ".attr.chunked_idx",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -434,7 +434,7 @@ def create_architecture_diagram():
         8.05,
         3.3,
         "S2空间索引",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -443,8 +443,8 @@ def create_architecture_diagram():
     ax.text(
         8.05,
         3.1,
-        "data.s2idx",
-        fontsize=7,
+        ".s2idx",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -465,7 +465,7 @@ def create_architecture_diagram():
         10.55,
         3.3,
         "字符串池索引",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -474,8 +474,8 @@ def create_architecture_diagram():
     ax.text(
         10.55,
         3.1,
-        "data.pool.index",
-        fontsize=7,
+        ".pool.index",
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -497,7 +497,7 @@ def create_architecture_diagram():
         6,
         1.9,
         "查询层",
-        fontsize=12,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -519,7 +519,7 @@ def create_architecture_diagram():
         6,
         1.5,
         "统一查询接口",
-        fontsize=9,
+        fontsize=16,
         fontweight="bold",
         ha="center",
         color=colors["text"],
@@ -529,7 +529,7 @@ def create_architecture_diagram():
         6,
         1.3,
         "空间查询 | 属性查询 | 混合查询",
-        fontsize=8,
+        fontsize=14,
         ha="center",
         color=colors["text"],
         fontfamily=selected_font,
@@ -538,23 +538,20 @@ def create_architecture_diagram():
     # 连接线 - 使用折线连接，多个目标先汇合再连接
     # 输入到转换器 - 使用折线连接，避免与实体重叠
     # Shapefile -> 汇合点
-    ax.plot(
-        [1.4, 1.4], [6.6, 7.0], color=colors["arrow"], linewidth=1.2
-    )  # 垂直向上延长
-    ax.plot(
-        [1.4, 3.5], [7.0, 7.0], color=colors["arrow"], linewidth=1.2
-    )  # 水平到汇合点
+    ax.plot([1.4, 1.4], [6.6, 7.0], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向上延长
+    ax.plot([1.4, 3.5], [7.0, 7.0], color=colors["arrow"],
+            linewidth=1.2)  # 水平到汇合点
 
     # FileGDB -> 汇合点
-    ax.plot(
-        [2.8, 2.8], [6.6, 7.0], color=colors["arrow"], linewidth=1.2
-    )  # 垂直向上延长
+    ax.plot([2.8, 2.8], [6.6, 7.0], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向上延长
 
     # 从汇合点到转换器
-    ax.plot([3.5, 3.5], [7.0, 6.6], color=colors["arrow"], linewidth=1.2)  # 垂直向下
-    ax.plot(
-        [3.5, 4.5], [6.6, 6.6], color=colors["arrow"], linewidth=1.2
-    )  # 水平到转换器
+    ax.plot([3.5, 3.5], [7.0, 6.6], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([3.5, 4.5], [6.6, 6.6], color=colors["arrow"],
+            linewidth=1.2)  # 水平到转换器
     ax.arrow(
         4.3,
         6.6,
@@ -583,26 +580,30 @@ def create_architecture_diagram():
 
     # 存储层到索引层 - 使用折线连接，先汇合到中心点
     # 几何数据存储 -> 汇合点
-    ax.plot([2.05, 2.05], [4.7, 4.0], color=colors["arrow"], linewidth=1.2)  # 垂直向下
-    ax.plot([2.05, 5.5], [4.0, 4.0], color=colors["arrow"], linewidth=1.2)  # 水平到中心
+    ax.plot([2.05, 2.05], [4.7, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([2.05, 5.5], [4.0, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # 属性数据存储 -> 汇合点
-    ax.plot([5.05, 5.05], [4.7, 4.0], color=colors["arrow"], linewidth=1.2)  # 垂直向下
+    ax.plot([5.05, 5.05], [4.7, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
 
     # 字符串池存储 -> 汇合点
-    ax.plot([8.05, 8.05], [4.7, 4.0], color=colors["arrow"], linewidth=1.2)  # 垂直向下
-    ax.plot([8.05, 5.5], [4.0, 4.0], color=colors["arrow"], linewidth=1.2)  # 水平到中心
+    ax.plot([8.05, 8.05], [4.7, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([8.05, 5.5], [4.0, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # 元数据 -> 汇合点
-    ax.plot(
-        [10.55, 10.55], [4.7, 4.0], color=colors["arrow"], linewidth=1.2
-    )  # 垂直向下
-    ax.plot(
-        [10.55, 5.5], [4.0, 4.0], color=colors["arrow"], linewidth=1.2
-    )  # 水平到中心
+    ax.plot([10.55, 10.55], [4.7, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([10.55, 5.5], [4.0, 4.0], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # 从汇合点到索引层
-    ax.plot([5.5, 5.5], [4.0, 3.6], color=colors["arrow"], linewidth=1.2)  # 垂直向下
+    ax.plot([5.5, 5.5], [4.0, 3.6], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
     ax.arrow(
         5.5,
         3.65,
@@ -617,22 +618,28 @@ def create_architecture_diagram():
 
     # 索引层到查询层 - 使用折线连接，先汇合到中心点
     # 几何分块索引 -> 汇合点
-    ax.plot([2.05, 2.05], [3.0, 2.5], color=colors["arrow"], linewidth=1.2)  # 垂直向下
-    ax.plot([2.05, 6], [2.5, 2.5], color=colors["arrow"], linewidth=1.2)  # 水平到中心
+    ax.plot([2.05, 2.05], [3.0, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([2.05, 6], [2.5, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # 属性分块索引 -> 汇合点
-    ax.plot([5.05, 5.05], [3.0, 2.5], color=colors["arrow"], linewidth=1.2)  # 垂直向下
-    ax.plot([5.05, 6], [2.5, 2.5], color=colors["arrow"], linewidth=1.2)  # 水平到中心
+    ax.plot([5.05, 5.05], [3.0, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([5.05, 6], [2.5, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # S2空间索引 -> 汇合点
-    ax.plot([8.05, 8.05], [3.0, 2.5], color=colors["arrow"], linewidth=1.2)  # 垂直向下
-    ax.plot([8.05, 6], [2.5, 2.5], color=colors["arrow"], linewidth=1.2)  # 水平到中心
+    ax.plot([8.05, 8.05], [3.0, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([8.05, 6], [2.5, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # 字符串池索引 -> 汇合点
-    ax.plot(
-        [10.55, 10.55], [3.0, 2.5], color=colors["arrow"], linewidth=1.2
-    )  # 垂直向下
-    ax.plot([10.55, 6], [2.5, 2.5], color=colors["arrow"], linewidth=1.2)  # 水平到中心
+    ax.plot([10.55, 10.55], [3.0, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 垂直向下
+    ax.plot([10.55, 6], [2.5, 2.5], color=colors["arrow"],
+            linewidth=1.2)  # 水平到中心
 
     # 从汇合点到查询层
     ax.plot([6, 6], [2.5, 1.8], color=colors["arrow"], linewidth=1.2)  # 垂直向下
