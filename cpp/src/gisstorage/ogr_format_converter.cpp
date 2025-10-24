@@ -272,6 +272,7 @@ namespace GisStorage {
                         continue;
                     }
 
+                    bbox = CalculateBBox(coordinates);
                     coord_data = EncodeCoordinatesDelta(coordinates);
                 }
 

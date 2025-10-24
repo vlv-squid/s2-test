@@ -670,6 +670,45 @@ namespace GisStorage {
         UpdateChecksums();
     }
 
+    void GisStorageSystem::PreloadChunkedIndexes() {
+        // 预加载几何分块索引
+        if (std::filesystem::exists(geom_chunked_index_file_)) {
+            std::cout << "预加载几何分块索引文件: " << geom_chunked_index_file_ << std::endl;
+
+            // 初始化几何存储对象
+            if (!geometry_storage_) {
+                geometry_storage_ = std::make_unique<GeometryStorage>(geom_file_);
+                geometry_storage_->SetChunkSize(10000);
+                geometry_storage_->SetCacheSize(1000);
+            }
+
+            // 加载分块索引
+            geometry_storage_->LoadChunkedIndex(geom_chunked_index_file_);
+        }
+
+        // 预加载属性分块索引和字符串池
+        if (std::filesystem::exists(attr_chunked_index_file_)) {
+            std::cout << "预加载属性分块索引文件: " << attr_chunked_index_file_ << std::endl;
+
+            // 初始化属性存储对象
+            if (!attribute_storage_) {
+                attribute_storage_ = std::make_unique<AttributeStorage>(attr_file_, pool_file_);
+                attribute_storage_->SetChunkSize(10000);
+                attribute_storage_->SetCacheSize(1000);
+                attribute_storage_->SetUseMmapMode(true);
+            }
+
+            // 预加载字符串池（使用mmap）
+            if (std::filesystem::exists(pool_file_)) {
+                std::cout << "预加载字符串池文件: " << pool_file_ << std::endl;
+                attribute_storage_->LoadStringPool();
+            }
+
+            // 加载分块索引
+            attribute_storage_->LoadChunkedIndex(attr_chunked_index_file_);
+        }
+    }
+
     void GisStorageSystem::InitializeFilePaths() {
         geom_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::GEOMETRY_DATA;
         attr_file_ = output_dir_ + "/" + shapefile_name_ + FileExtensions::ATTRIBUTE_DATA;

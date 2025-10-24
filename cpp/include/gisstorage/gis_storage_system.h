@@ -16,7 +16,6 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <tbb/tbb.h>
-#include <mutex>
 
 // 前向声明
 namespace S2Main {
@@ -102,6 +101,9 @@ namespace GisStorage {
 
         // 轻量级设置数据集名称（仅加载S2索引和元数据，不加载几何和属性索引）
         void SetDatasetNameLightweight(const std::string& dataset_name);
+
+        // 预加载分块索引文件（在数据源打开时调用）
+        void PreloadChunkedIndexes();
 
         // S2索引管理
         void InitializeS2Index(int resolution = 15);
