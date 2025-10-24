@@ -539,7 +539,7 @@ def create_architecture_diagram():
     # 输入到转换器 - 使用折线连接，避免与实体重叠
     # Shapefile -> 汇合点
     ax.plot(
-        [1.4, 1.4], [6.6, 7.0], color=colors["arrow"], linewidth=1.2
+        [1.4, 1.4], [6.8, 7.0], color=colors["arrow"], linewidth=1.2
     )  # 垂直向上延长
     ax.plot(
         [1.4, 3.5], [7.0, 7.0], color=colors["arrow"], linewidth=1.2
@@ -547,16 +547,16 @@ def create_architecture_diagram():
 
     # FileGDB -> 汇合点
     ax.plot(
-        [2.8, 2.8], [6.6, 7.0], color=colors["arrow"], linewidth=1.2
+        [2.8, 2.8], [6.8, 7.0], color=colors["arrow"], linewidth=1.2
     )  # 垂直向上延长
 
     # 从汇合点到转换器
     ax.plot([3.5, 3.5], [7.0, 6.6], color=colors["arrow"], linewidth=1.2)  # 垂直向下
     ax.plot(
-        [3.5, 4.5], [6.6, 6.6], color=colors["arrow"], linewidth=1.2
+        [3.5, 4.4], [6.6, 6.6], color=colors["arrow"], linewidth=1.2
     )  # 水平到转换器
     ax.arrow(
-        4.3,
+        4.25,
         6.6,
         0.15,
         0,
@@ -568,10 +568,10 @@ def create_architecture_diagram():
     )
 
     # 转换器到存储层 - 垂直连接
-    ax.plot([5.5, 5.5], [6.4, 5.3], color=colors["arrow"], linewidth=1.2)
+    ax.plot([5.5, 5.5], [6.4, 5.4], color=colors["arrow"], linewidth=1.2)
     ax.arrow(
         5.5,
-        5.35,
+        5.45,
         0,
         -0.05,
         head_width=0.05,
@@ -604,10 +604,10 @@ def create_architecture_diagram():
     )  # 水平到中心
 
     # 从汇合点到索引层
-    ax.plot([3.75, 3.75], [4.0, 3.6], color=colors["arrow"], linewidth=1.2)  # 垂直向下
+    ax.plot([3.75, 3.75], [4.0, 3.7], color=colors["arrow"], linewidth=1.2)  # 垂直向下
     ax.arrow(
         3.75,
-        3.65,
+        3.75,
         0,
         -0.05,
         head_width=0.05,
@@ -643,10 +643,10 @@ def create_architecture_diagram():
     )  # 水平到中心
 
     # 从汇合点到查询层
-    ax.plot([3.75, 3.75], [2.5, 1.8], color=colors["arrow"], linewidth=1.2)  # 垂直向下
+    ax.plot([3.75, 3.75], [2.5, 2.0], color=colors["arrow"], linewidth=1.2)  # 垂直向下
     ax.arrow(
         3.75,
-        1.85,
+        2.05,
         0,
         -0.05,
         head_width=0.05,
