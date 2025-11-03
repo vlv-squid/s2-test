@@ -12,6 +12,11 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <mutex>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 namespace GisStorage {
 
@@ -93,10 +98,12 @@ namespace GisStorage {
         // 保存分块索引到文件
         void SaveChunkedIndex(const std::string& index_file);
 
+        void SaveChunkedIndex() { SaveChunkedIndex(index_file_); }
+
         // 从文件加载分块索引
         void LoadChunkedIndex(const std::string& index_file);
 
-      private:
+      public:
         // 索引块结构
         struct IndexChunk {
             uint64_t start_fid;
@@ -111,11 +118,16 @@ namespace GisStorage {
             IndexChunk& operator=(IndexChunk&&) = default;
         };
 
+      private:
+
         std::string attribute_file_;
         std::string string_pool_file_;
+        std::string index_file_;
 
         // 分块索引
         std::vector<IndexChunk> index_chunks_;
+        // 进程内共享的只读索引视图，按index文件路径缓存，避免每实例重复解析
+        std::shared_ptr<const std::vector<IndexChunk>> shared_index_chunks_;
         bool use_chunked_mode_ = false;
         size_t chunk_size_ = 10000; // 默认每个块10000个要素
 

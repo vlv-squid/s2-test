@@ -10,6 +10,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <nlohmann/json.hpp>
+#include <unordered_map>
+#include <mutex>
 
 namespace GisStorage {
     namespace {

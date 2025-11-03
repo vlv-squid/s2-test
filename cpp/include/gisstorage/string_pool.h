@@ -10,10 +10,13 @@
 #include <vector>
 #include <mutex>
 #include <list>
+#include <memory>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 #include <atomic>
 #include <array>
 
@@ -81,8 +84,13 @@ namespace GisStorage {
         mutable uint32_t string_count_ = 0;
 
         // 字符串偏移量索引，用于O(1)查找
-        mutable std::vector<size_t> string_offsets_;
+        // 使用shared_ptr共享，避免每个实例重复存储
+        mutable std::shared_ptr<const std::vector<size_t>> shared_string_offsets_;
+        mutable std::vector<size_t> string_offsets_; // 回退到本地存储（如果未使用共享）
         bool use_mmap_mode_ = false;
+
+        // 共享mmap信息（用于多实例共享同一个mmap）
+        std::shared_ptr<void> shared_mmap_info_; // 类型擦除，实际类型在cpp中定义
 
         // 无锁缓存设计
         mutable std::unordered_map<uint32_t, CacheEntry> cache_;

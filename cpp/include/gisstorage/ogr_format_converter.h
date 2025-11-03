@@ -106,6 +106,9 @@ namespace GisStorage {
         // 构建分块索引以支持流式读取
         void BuildChunkedIndexes();
 
+        // 保存分块索引
+        void SaveChunckedIndexes();
+
         // 更新统计信息
         void UpdateStats(size_t geom_size, size_t attr_original_size, size_t attr_compressed_size);
 
