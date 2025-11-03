@@ -8,7 +8,6 @@
 
 namespace GisStorage {
 
-    // AttributeData 实现
     AttributeData::AttributeData(uint64_t feature_id, const std::map<std::string, std::string>& properties)
         : feature_id_(feature_id)
         , properties_(properties) {}
@@ -19,7 +18,6 @@ namespace GisStorage {
     }
 
     size_t AttributeData::GetSerializedSize() const {
-        // 计算JSON字符串长度
         std::ostringstream oss;
         oss << "{";
         bool first = true;
