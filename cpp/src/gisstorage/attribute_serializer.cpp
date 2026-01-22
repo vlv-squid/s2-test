@@ -26,8 +26,10 @@ namespace GisStorage {
         EncodeVarint(data, prop_count);
 
         size_t original_size = sizeof(uint64_t) + sizeof(uint32_t); // feature_id + prop_count
-        for (const auto& [key, value] : properties) {
+        for (const auto& [key, value_opt] : properties) {
             uint32_t key_id = string_pool_.GetStringId(key);
+            // 使用特殊标记表示NULL值
+            std::string value = value_opt.has_value() ? value_opt.value() : "\x00NULL_VALUE\x00";
             uint32_t value_id = string_pool_.GetStringId(value);
             EncodeVarint(data, key_id);
             EncodeVarint(data, value_id);
@@ -49,7 +51,7 @@ namespace GisStorage {
         offset += sizeof(uint64_t);
         uint32_t prop_count;
         offset = DecodeVarint(data, offset, prop_count);
-        std::map<std::string, std::string> properties;
+        std::map<std::string, std::optional<std::string>> properties;
         for (uint32_t i = 0; i < prop_count; ++i) {
             if (offset >= data.size()) {
                 throw std::runtime_error("属性数据不完整");
@@ -69,7 +71,12 @@ namespace GisStorage {
                 throw std::runtime_error("字符串池中找不到对应的字符串 - key_id: " + std::to_string(key_id) + ", value_id: " + std::to_string(value_id) + ", 字符串池大小: " + std::to_string(string_pool_.GetPoolSize()));
             }
 
-            properties[key] = value;
+            // 检查是否为NULL值的特殊标记
+            if (value == "\x00NULL_VALUE\x00") {
+                properties[key] = std::nullopt;
+            } else {
+                properties[key] = value;
+            }
         }
 
         return std::make_unique<AttributeData>(feature_id, properties);

@@ -53,6 +53,12 @@ namespace GisStorage {
         // 设置缓存大小
         void SetCacheSize(size_t cache_size) { max_cache_size_ = cache_size; }
 
+        // 检查是否启用分块模式
+        bool IsChunkedMode() const { return use_chunked_mode_; }
+
+        // 获取所有FID
+        std::vector<uint64_t> GetAllFeatureIds() const;
+
         // 构建分块索引
         void BuildChunkedIndex();
 

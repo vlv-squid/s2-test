@@ -249,13 +249,13 @@ namespace GisStorage {
 
                 GeometryData geom_data(fid, geom_type, coord_data, bbox, num_rings);
                 int64_t geom_offset = geometry_storage_->WriteGeometry(geom_data);
-                std::map<std::string, std::string> properties;
+                std::map<std::string, std::optional<std::string>> properties;
                 for (int i = 0; i < field_count; ++i) {
                     OGRFieldDefn* field_defn = feature_defn->GetFieldDefn(i);
                     std::string field_name = field_defn->GetNameRef();
 
+                    std::optional<std::string> field_value;
                     if (feature->IsFieldSetAndNotNull(i)) {
-                        std::string field_value;
                         switch (field_defn->GetType()) {
                             case OFTInteger:
                                 field_value = std::to_string(feature->GetFieldAsInteger(i));
@@ -267,19 +267,24 @@ namespace GisStorage {
                                 field_value = std::to_string(feature->GetFieldAsDouble(i));
                                 break;
                             case OFTString:
-                                field_value = feature->GetFieldAsString(i);
-                                break;
                             case OFTDate:
                             case OFTTime:
-                            case OFTDateTime:
-                                field_value = feature->GetFieldAsString(i);
+                            case OFTDateTime: {
+                                const char* str_value = feature->GetFieldAsString(i);
+                                field_value = str_value ? std::optional<std::string>(str_value) : std::nullopt;
                                 break;
-                            default:
-                                field_value = feature->GetFieldAsString(i);
+                            }
+                            default: {
+                                const char* str_value = feature->GetFieldAsString(i);
+                                field_value = str_value ? std::optional<std::string>(str_value) : std::nullopt;
                                 break;
+                            }
                         }
-                        properties[field_name] = field_value;
+                    } else {
+                        // 字段未设置或为NULL
+                        field_value = std::nullopt;
                     }
+                    properties[field_name] = field_value;
                 }
 
                 AttributeData attr_data(fid, properties);
@@ -1002,37 +1007,43 @@ namespace GisStorage {
             }
 
             const auto& properties = attr_data.GetProperties();
-            for (const auto& [field_name, field_value] : properties) {
+            for (const auto& [field_name, field_value_opt] : properties) {
                 int field_index = feature_defn->GetFieldIndex(field_name.c_str());
                 if (field_index >= 0) {
-                    OGRFieldDefn* field_defn = feature_defn->GetFieldDefn(field_index);
-                    OGRFieldType field_type = field_defn->GetType();
+                    if (field_value_opt.has_value()) {
+                        const std::string& field_value = field_value_opt.value();
+                        OGRFieldDefn* field_defn = feature_defn->GetFieldDefn(field_index);
+                        OGRFieldType field_type = field_defn->GetType();
 
-                    switch (field_type) {
-                        case OFTInteger:
-                            try {
-                                feature->SetField(field_index, std::stoi(field_value));
-                            } catch (const std::exception&) {
-                                feature->SetField(field_index, 0);
-                            }
-                            break;
-                        case OFTInteger64:
-                            try {
-                                feature->SetField(field_index, std::stoll(field_value));
-                            } catch (const std::exception&) {
-                                feature->SetField(field_index, 0LL);
-                            }
-                            break;
-                        case OFTReal:
-                            try {
-                                feature->SetField(field_index, std::stod(field_value));
-                            } catch (const std::exception&) {
-                                feature->SetField(field_index, 0.0);
-                            }
-                            break;
-                        default:
-                            feature->SetField(field_index, field_value.c_str());
-                            break;
+                        switch (field_type) {
+                            case OFTInteger:
+                                try {
+                                    feature->SetField(field_index, std::stoi(field_value));
+                                } catch (const std::exception&) {
+                                    feature->SetField(field_index, 0);
+                                }
+                                break;
+                            case OFTInteger64:
+                                try {
+                                    feature->SetField(field_index, std::stoll(field_value));
+                                } catch (const std::exception&) {
+                                    feature->SetField(field_index, 0LL);
+                                }
+                                break;
+                            case OFTReal:
+                                try {
+                                    feature->SetField(field_index, std::stod(field_value));
+                                } catch (const std::exception&) {
+                                    feature->SetField(field_index, 0.0);
+                                }
+                                break;
+                            default:
+                                feature->SetField(field_index, field_value.c_str());
+                                break;
+                        }
+                    } else {
+                        // 属性值为NULL，不设置字段值，让OGR保持默认状态
+                        // feature->SetFieldNull(field_index); // 如果需要明确设置为NULL
                     }
                 }
             }
