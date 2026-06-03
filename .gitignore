@@ -2,6 +2,7 @@
 .idea/
 .cache/
 build/
+cpp/build/
 data/
 png/
 py/gisindex/__pycache__/
@@ -11,3 +12,5 @@ index/
 index_py/
 output/
 output_data/
+pepers/
+articles/

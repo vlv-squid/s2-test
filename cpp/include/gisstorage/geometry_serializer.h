@@ -17,25 +17,31 @@ namespace GisStorage {
     class GeometrySerializer {
       public:
         // 序列化几何数据
-        static std::vector<uint8_t> serializeGeometry(const GeometryData& geometry);
+        static std::vector<uint8_t> SerializeGeometry(const GeometryData& geometry);
 
         // 反序列化几何数据
-        static std::unique_ptr<GeometryData> deserializeGeometry(const std::vector<uint8_t>& data);
+        static std::unique_ptr<GeometryData> DeserializeGeometry(const std::vector<uint8_t>& data);
 
         // 序列化坐标数据
-        static std::vector<uint8_t> serializeCoordinates(const std::vector<Coordinate>& coordinates);
+        static std::vector<uint8_t> SerializeCoordinates(const std::vector<Coordinate>& coordinates);
 
         // 反序列化坐标数据
-        static std::vector<Coordinate> deserializeCoordinates(const std::vector<uint8_t>& data);
+        static std::vector<Coordinate> DeserializeCoordinates(const std::vector<uint8_t>& data);
 
         // 差分编码坐标压缩
-        static std::vector<uint8_t> encodeCoordinatesDelta(const std::vector<Coordinate>& coordinates);
+        static std::vector<uint8_t> EncodeCoordinatesDelta(const std::vector<Coordinate>& coordinates);
 
         // 差分编码坐标解压
-        static std::vector<Coordinate> decodeCoordinatesDelta(const std::vector<uint8_t>& data);
+        static std::vector<Coordinate> DecodeCoordinatesDelta(const std::vector<uint8_t>& data);
+
+        // 多环多边形序列化
+        static std::vector<uint8_t> SerializeMultiRingPolygon(const std::vector<std::vector<Coordinate>>& rings);
+
+        // 多环多边形反序列化
+        static std::vector<std::vector<Coordinate>> DeserializeMultiRingPolygon(const std::vector<uint8_t>& data);
 
         // 计算边界框
-        static BBox calculateBBox(const std::vector<Coordinate>& coordinates);
+        static BBox CalculateBBox(const std::vector<Coordinate>& coordinates);
     };
 
 } // namespace GisStorage

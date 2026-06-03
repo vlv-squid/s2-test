@@ -10,67 +10,113 @@
 #include <iostream>
 #include <stdexcept>
 #include <nlohmann/json.hpp>
+#include <unordered_map>
+#include <mutex>
 
 namespace GisStorage {
+    namespace {
+        std::mutex g_geom_index_cache_mutex;
+        std::unordered_map<std::string, std::weak_ptr<const std::vector<GeometryStorage::IndexChunk>>> g_geom_index_cache;
+    } // namespace
 
-    // GeometryStorage 实现
     GeometryStorage::GeometryStorage(const std::string& geometry_file)
-        : geometry_file_(geometry_file)
-        , index_built_(false) {
-        // 创建目录
+        : geometry_file_(geometry_file) {
+        index_file_ = geometry_file_ + ".chunked_idx";
         std::filesystem::path file_path(geometry_file);
         std::filesystem::create_directories(file_path.parent_path());
     }
 
-    int64_t GeometryStorage::writeGeometry(const GeometryData& geometry) {
-        // 使用追加模式，因为文件在构造函数中已经被清理
+    GeometryStorage::~GeometryStorage() {
+        CleanupMmap();
+    }
+
+    int64_t GeometryStorage::WriteGeometry(const GeometryData& geometry) {
         std::ofstream file(geometry_file_, std::ios::binary | std::ios::app);
         if (!file) {
             throw std::runtime_error("无法打开几何文件进行写入: " + geometry_file_);
         }
 
         int64_t offset = file.tellp();
-        std::vector<uint8_t> geom_binary = GeometrySerializer::serializeGeometry(geometry);
+        std::vector<uint8_t> geom_binary = GeometrySerializer::SerializeGeometry(geometry);
 
         if (!geom_binary.empty()) {
             file.write(reinterpret_cast<const char*>(geom_binary.data()), geom_binary.size());
-            file.flush(); // 确保数据写入磁盘
-            // 清除索引缓存
-            offset_index_.clear();
-            index_built_ = false;
+            file.flush();
+            cache_.clear();
             return offset;
         } else {
-            throw std::runtime_error("几何数据序列化失败 for FID " + std::to_string(geometry.getFeatureId()));
+            throw std::runtime_error("几何数据序列化失败 for FID " + std::to_string(geometry.GetFeatureId()));
         }
     }
 
-    std::unique_ptr<GeometryData> GeometryStorage::readGeometry(uint64_t feature_id) {
-        const auto& offsets = getOffsetIndex();
-        auto it = offsets.find(feature_id);
-        if (it == offsets.end()) {
-            throw std::runtime_error("Feature ID " + std::to_string(feature_id) + " not found");
+    std::unique_ptr<GeometryData> GeometryStorage::ReadGeometry(uint64_t feature_id) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto cache_it = cache_.find(feature_id);
+        if (cache_it != cache_.end()) {
+            return std::make_unique<GeometryData>(*cache_it->second);
         }
 
+        int64_t offset = -1;
+        if (use_chunked_mode_) {
+            offset = GetChunkedOffset(feature_id);
+        } else {
+            BuildChunkedIndex();
+            if (use_chunked_mode_) {
+                offset = GetChunkedOffset(feature_id);
+            }
+        }
+
+        if (offset < 0) {
+            return nullptr;
+        }
+
+        std::unique_ptr<GeometryData> result = ReadGeometryAtOffset(feature_id, offset);
+        if (result) {
+            UpdateCache(feature_id, std::make_unique<GeometryData>(*result));
+        }
+
+        return result;
+    }
+
+    std::unique_ptr<GeometryData> GeometryStorage::ReadGeometryOnDemand(uint64_t feature_id) {
+        int64_t offset = -1;
+        if (use_chunked_mode_) {
+            offset = GetChunkedOffset(feature_id);
+        } else {
+            BuildChunkedIndex();
+            if (use_chunked_mode_) {
+                offset = GetChunkedOffset(feature_id);
+            }
+        }
+        if (offset < 0) {
+            return nullptr;
+        }
+
+        return ReadGeometryAtOffset(feature_id, offset);
+    }
+
+    std::unique_ptr<GeometryData> GeometryStorage::ReadGeometryAtOffset(uint64_t feature_id, int64_t offset) {
         std::ifstream file(geometry_file_, std::ios::binary);
         if (!file) {
-            throw std::runtime_error("无法打开几何文件: " + geometry_file_);
+            return nullptr;
         }
 
-        file.seekg(it->second);
+        file.seekg(offset);
+        uint64_t stored_fid;
+        if (!file.read(reinterpret_cast<char*>(&stored_fid), sizeof(uint64_t))) {
+            return nullptr;
+        }
 
-        // 先读取头部数据以确定需要读取的总大小（与Python版本保持一致）
-        std::vector<uint8_t> header_data(48);
-        if (!file.read(reinterpret_cast<char*>(header_data.data()), 48)) {
+        file.seekg(offset);
+        std::vector<uint8_t> header_data(52);
+        if (!file.read(reinterpret_cast<char*>(header_data.data()), 52)) {
             throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
         }
 
-        // 获取坐标数据大小
         uint32_t coord_size = 0;
         if (!file.read(reinterpret_cast<char*>(&coord_size), sizeof(uint32_t))) {
             throw std::runtime_error("几何数据不完整 for FID " + std::to_string(feature_id));
         }
-
-        // 读取坐标数据
         std::vector<uint8_t> coord_data(coord_size);
         if (coord_size > 0) {
             if (!file.read(reinterpret_cast<char*>(coord_data.data()), coord_size)) {
@@ -78,180 +124,350 @@ namespace GisStorage {
             }
         }
 
-        // 组合所有数据进行反序列化
         std::vector<uint8_t> geom_data = header_data;
         geom_data.insert(geom_data.end(), reinterpret_cast<uint8_t*>(&coord_size), reinterpret_cast<uint8_t*>(&coord_size) + sizeof(uint32_t));
         geom_data.insert(geom_data.end(), coord_data.begin(), coord_data.end());
 
-        return GeometrySerializer::deserializeGeometry(geom_data);
+        return GeometrySerializer::DeserializeGeometry(geom_data);
     }
 
-    std::vector<uint64_t> GeometryStorage::getAllFeatureIds() {
-        const auto& offsets = getOffsetIndex();
-        std::vector<uint64_t> feature_ids;
-        feature_ids.reserve(offsets.size());
-        for (const auto& pair : offsets) {
-            feature_ids.push_back(pair.first);
+    bool GeometryStorage::HasFeature(uint64_t feature_id) {
+        return ReadGeometryOnDemand(feature_id) != nullptr;
+    }
+
+    std::vector<uint64_t> GeometryStorage::GetAllFeatureIds() const {
+        std::vector<uint64_t> fids;
+        const auto& chunks = shared_index_chunks_ ? *shared_index_chunks_ : index_chunks_;
+        for (const auto& chunk : chunks) {
+            for (const auto& [fid, offset] : chunk.offset_map) {
+                fids.push_back(fid);
+            }
         }
-        return feature_ids;
+        std::sort(fids.begin(), fids.end());
+        return fids;
     }
 
-    bool GeometryStorage::hasFeature(uint64_t feature_id) {
-        const auto& offsets = getOffsetIndex();
-        return offsets.find(feature_id) != offsets.end();
+    void GeometryStorage::ClearCache() {
+        cache_.clear();
     }
 
-    void GeometryStorage::clearCache() {
-        offset_index_.clear();
-        index_built_ = false;
-    }
-
-    void GeometryStorage::buildOffsetIndex() {
-        offset_index_.clear();
-
-        std::ifstream file(geometry_file_, std::ios::binary);
-        if (!file) {
+    void GeometryStorage::BuildChunkedIndex() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (use_chunked_mode_) {
             return;
         }
 
-        while (true) {
-            int64_t current_pos = file.tellg();
+        if (std::filesystem::exists(index_file_)) {
+            std::cout << "发现几何分块索引文件，正在加载..." << std::endl;
+            LoadChunkedIndex(index_file_);
+            if (use_chunked_mode_) {
+                return;
+            }
+        }
 
-            // 读取feature_id
-            uint64_t fid;
-            file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t));
-            if (file.gcount() < sizeof(uint64_t)) {
-                break; // 文件结束
+        std::cout << "重新构建几何分块索引..." << std::endl;
+        std::ifstream file(geometry_file_, std::ios::binary);
+        if (!file) {
+            std::cout << "无法打开几何文件构建分块索引: " << geometry_file_ << std::endl;
+            return;
+        }
+
+        index_chunks_.clear();
+        IndexChunk current_chunk;
+        current_chunk.start_fid = std::numeric_limits<uint64_t>::max(); // 初始化为最大值
+        current_chunk.end_fid = 0;
+        current_chunk.loaded = true;
+
+        while (file.good()) {
+            int64_t current_offset = file.tellg();
+            uint64_t feature_id;
+            if (!file.read(reinterpret_cast<char*>(&feature_id), sizeof(uint64_t))) {
+                break;
             }
 
-            offset_index_[fid] = current_pos;
-
-            // 手动解析记录结构（与Python版本保持一致）
             try {
-                // 跳过geometry_type(1B) + 7字节填充 + bbox(32B) = 40字节
-                file.seekg(40, std::ios::cur);
-
-                // 读取坐标大小(4B)
+                file.seekg(44, std::ios::cur);
                 uint32_t coord_size;
                 file.read(reinterpret_cast<char*>(&coord_size), sizeof(uint32_t));
-                if (file.gcount() < sizeof(uint32_t)) {
+                if (static_cast<size_t>(file.gcount()) < sizeof(uint32_t)) {
                     break;
                 }
 
-                // 跳过坐标数据
                 file.seekg(coord_size, std::ios::cur);
 
             } catch (const std::exception& e) {
-                std::cerr << "解析几何记录失败 at FID " << fid << ": " << e.what() << std::endl;
+                std::cerr << "解析几何记录失败 at FID " << feature_id << ": " << e.what() << std::endl;
+                break;
+            }
+
+            if (file.good()) {
+                if (current_chunk.offset_map.size() >= chunk_size_) {
+                    current_chunk.end_fid = feature_id - 1;
+                    index_chunks_.push_back(current_chunk);
+
+                    current_chunk.offset_map.clear();
+                    current_chunk.start_fid = feature_id;
+                    current_chunk.end_fid = feature_id;
+                }
+
+                current_chunk.offset_map[feature_id] = current_offset;
+                if (current_chunk.start_fid == std::numeric_limits<uint64_t>::max()) {
+                    current_chunk.start_fid = feature_id;
+                }
+                current_chunk.end_fid = feature_id;
+            }
+        }
+
+        if (!current_chunk.offset_map.empty()) {
+            index_chunks_.push_back(current_chunk);
+        }
+
+        use_chunked_mode_ = true;
+        std::cout << "构建了 " << index_chunks_.size() << " 个几何索引块" << std::endl;
+        for (size_t i = 0; i < index_chunks_.size() && i < 3; ++i) {
+            const auto& chunk = index_chunks_[i];
+            std::cout << "块 " << i << ": FID范围 [" << chunk.start_fid << "-" << chunk.end_fid << "], 条目数: " << chunk.offset_map.size() << std::endl;
+        }
+    }
+
+    int64_t GeometryStorage::GetChunkedOffset(uint64_t feature_id) const {
+        if (shared_index_chunks_) {
+            for (const auto& chunk : *shared_index_chunks_) {
+                if (feature_id >= chunk.start_fid && feature_id <= chunk.end_fid) {
+                    auto it = chunk.offset_map.find(feature_id);
+                    if (it != chunk.offset_map.end()) {
+                        return it->second;
+                    }
+                    break;
+                }
+            }
+            return -1;
+        }
+
+        for (auto& chunk : index_chunks_) {
+            if (feature_id >= chunk.start_fid && feature_id <= chunk.end_fid) {
+                if (!chunk.loaded) {
+                    LoadIndexChunk(const_cast<IndexChunk*>(&chunk));
+                }
+
+                auto it = chunk.offset_map.find(feature_id);
+                if (it != chunk.offset_map.end()) {
+                    return it->second;
+                }
                 break;
             }
         }
+        return -1;
     }
 
-    const std::unordered_map<uint64_t, int64_t>& GeometryStorage::getOffsetIndex() {
-        if (!index_built_) {
-            buildOffsetIndex();
-            index_built_ = true;
-        }
-        return offset_index_;
-    }
-
-    void GeometryStorage::loadIndexFromFile(const std::string& index_file) {
-        if (!std::filesystem::exists(index_file)) {
-            std::cout << "索引文件不存在: " << index_file << std::endl;
+    void GeometryStorage::LoadIndexChunk(IndexChunk* chunk) const {
+        if (chunk->loaded) {
             return;
         }
 
-        offset_index_.clear();
+        chunk->loaded = true;
+    }
 
-        // 尝试读取JSON格式的索引文件
-        std::ifstream file(index_file);
+    void GeometryStorage::UpdateCache(uint64_t fid, std::unique_ptr<GeometryData> data) const {
+        if (cache_.size() >= max_cache_size_) {
+            auto it = cache_.begin();
+            for (size_t i = 0; i < max_cache_size_ / 2 && it != cache_.end(); ++i) {
+                it = cache_.erase(it);
+            }
+        }
+
+        cache_[fid] = std::move(data);
+    }
+
+    void GeometryStorage::CleanupMmap() {
+        if (geom_mmap_ && geom_mmap_ != MAP_FAILED) {
+            munmap(geom_mmap_, geom_size_);
+            geom_mmap_ = nullptr;
+        }
+        if (geom_fd_ >= 0) {
+            close(geom_fd_);
+            geom_fd_ = -1;
+        }
+        geom_size_ = 0;
+    }
+
+    void GeometryStorage::SaveChunkedIndex(const std::string& index_file) {
+        if (!use_chunked_mode_ || index_chunks_.empty()) {
+            std::cout << "没有分块索引需要保存" << std::endl;
+            return;
+        }
+
+        std::ofstream file(index_file, std::ios::binary);
         if (!file) {
-            std::cout << "无法打开索引文件: " << index_file << std::endl;
+            std::cout << "无法创建分块索引文件: " << index_file << std::endl;
             return;
         }
 
         try {
-            nlohmann::json index_data = nlohmann::json::parse(file);
+            struct ChunkedIndexHeader {
+                uint32_t version = 1;
+                uint32_t chunk_count;
+                uint64_t chunk_size;
+                uint64_t reserved = 0;
+            } header;
 
-            // 验证JSON结构
-            if (!index_data.contains("version") || !index_data.contains("data") || !index_data["data"].contains("features")) {
-                std::cout << "索引文件格式不正确" << std::endl;
+            header.chunk_count = static_cast<uint32_t>(index_chunks_.size());
+            header.chunk_size = chunk_size_;
+            file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+
+            for (const auto& chunk : index_chunks_) {
+                struct ChunkHeader {
+                    uint64_t start_fid;
+                    uint64_t end_fid;
+                    uint32_t entry_count;
+                    uint32_t reserved = 0;
+                } chunk_header;
+
+                chunk_header.start_fid = chunk.start_fid;
+                chunk_header.end_fid = chunk.end_fid;
+                chunk_header.entry_count = static_cast<uint32_t>(chunk.offset_map.size());
+                file.write(reinterpret_cast<const char*>(&chunk_header), sizeof(chunk_header));
+
+                for (const auto& [fid, offset] : chunk.offset_map) {
+                    struct IndexEntry {
+                        uint64_t feature_id;
+                        int64_t offset;
+                    } entry;
+
+                    entry.feature_id = fid;
+                    entry.offset = offset;
+                    file.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
+                }
+            }
+
+            file.flush();
+            std::cout << "几何分块索引已保存到: " << index_file << " (块数: " << index_chunks_.size() << ")" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cout << "保存几何分块索引文件失败: " << e.what() << std::endl;
+        }
+    }
+
+    void GeometryStorage::LoadChunkedIndex(const std::string& index_file) {
+        if (!std::filesystem::exists(index_file)) {
+            std::cout << "几何分块索引文件不存在: " << index_file << std::endl;
+            return;
+        }
+
+        static std::mutex s_geom_shared_storage_mutex;
+        static std::unordered_map<std::string, std::shared_ptr<const std::vector<IndexChunk>>> s_geom_shared_storage;
+        {
+            std::lock_guard<std::mutex> storage_lk(s_geom_shared_storage_mutex);
+            auto storage_it = s_geom_shared_storage.find(index_file);
+            if (storage_it != s_geom_shared_storage.end()) {
+                shared_index_chunks_ = storage_it->second;
+                use_chunked_mode_ = true;
+                {
+                    std::lock_guard<std::mutex> lk(g_geom_index_cache_mutex);
+                    g_geom_index_cache[index_file] = storage_it->second;
+                }
+
+                return;
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(g_geom_index_cache_mutex);
+            auto it = g_geom_index_cache.find(index_file);
+            if (it != g_geom_index_cache.end()) {
+                auto shared = it->second.lock();
+                if (shared) {
+                    shared_index_chunks_ = shared;
+                    use_chunked_mode_ = true;
+                    {
+                        std::lock_guard<std::mutex> storage_lk(s_geom_shared_storage_mutex);
+                        s_geom_shared_storage[index_file] = shared;
+                    }
+                    return;
+                }
+            }
+        }
+
+        std::cout << "发现几何分块索引文件，正在加载..." << std::endl;
+        std::ifstream file(index_file, std::ios::binary);
+        if (!file) {
+            std::cout << "无法打开几何分块索引文件: " << index_file << std::endl;
+            return;
+        }
+
+        try {
+            struct ChunkedIndexHeader {
+                uint32_t version;
+                uint32_t chunk_count;
+                uint64_t chunk_size;
+                uint64_t reserved;
+            } header;
+
+            if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
+                std::cout << "无法读取几何分块索引文件头" << std::endl;
                 return;
             }
 
-            std::cout << "索引文件格式: JSON" << std::endl;
-            std::cout << "版本: " << index_data["version"] << std::endl;
-            std::cout << "要素数量: " << index_data["data"]["features"].size() << std::endl;
-
-            // 读取每个索引条目
-            int count = 0;
-            for (const auto& feature : index_data["data"]["features"].items()) {
-                uint64_t fid = std::stoull(feature.key());
-                int64_t geom_offset = feature.value()["geom_offset"];
-                int64_t attr_offset = feature.value()["attr_offset"];
-
-                offset_index_[fid] = geom_offset;
-
-                if (count < 5) { // 只显示前5个条目
-                    std::cout << "索引条目 " << count << ": FID=" << fid << ", geom_offset=" << geom_offset << ", attr_offset=" << attr_offset << std::endl;
-                }
-                count++;
-            }
-
-            std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
-            index_built_ = true;
-
-        } catch (const nlohmann::json::exception& e) {
-            std::cout << "JSON索引文件解析失败: " << e.what() << std::endl;
-            std::cout << "尝试读取旧格式的二进制索引文件..." << std::endl;
-
-            // 如果JSON解析失败，尝试读取旧的二进制格式
-            file.close();
-            file.open(index_file, std::ios::binary);
-            if (!file) {
-                std::cout << "无法以二进制模式打开索引文件" << std::endl;
+            if (header.version != 1) {
+                std::cout << "不支持的几何分块索引版本: " << header.version << std::endl;
                 return;
             }
 
-            // 读取索引条目数量
-            uint32_t count;
-            file.read(reinterpret_cast<char*>(&count), sizeof(uint32_t));
-            if (file.gcount() < sizeof(uint32_t)) {
-                std::cout << "无法读取索引条目数量" << std::endl;
-                return;
+            std::cout << "加载几何分块索引: 版本=" << header.version << ", 块数=" << header.chunk_count << ", 块大小=" << header.chunk_size << std::endl;
+            chunk_size_ = header.chunk_size;
+            std::vector<IndexChunk> temp_chunks;
+            temp_chunks.reserve(header.chunk_count);
+
+            for (uint32_t i = 0; i < header.chunk_count; ++i) {
+                IndexChunk chunk;
+                struct ChunkHeader {
+                    uint64_t start_fid;
+                    uint64_t end_fid;
+                    uint32_t entry_count;
+                    uint32_t reserved;
+                } chunk_header;
+
+                if (!file.read(reinterpret_cast<char*>(&chunk_header), sizeof(chunk_header))) {
+                    std::cout << "读取几何索引块 " << i << " 头失败" << std::endl;
+                    break;
+                }
+
+                chunk.start_fid = chunk_header.start_fid;
+                chunk.end_fid = chunk_header.end_fid;
+                chunk.loaded = true;
+                chunk.offset_map.reserve(chunk_header.entry_count);
+                for (uint32_t j = 0; j < chunk_header.entry_count; ++j) {
+                    struct IndexEntry {
+                        uint64_t feature_id;
+                        int64_t offset;
+                    } entry;
+
+                    if (!file.read(reinterpret_cast<char*>(&entry), sizeof(entry))) {
+                        std::cout << "读取几何索引条目 " << j << " 失败" << std::endl;
+                        break;
+                    }
+
+                    chunk.offset_map[entry.feature_id] = entry.offset;
+                }
+
+                temp_chunks.push_back(std::move(chunk));
             }
 
-            std::cout << "索引条目数量: " << count << std::endl;
-
-            // 读取每个索引条目：FID + 几何偏移 + 属性偏移
-            for (uint32_t i = 0; i < count; ++i) {
-                uint64_t fid = 0;
-                int64_t geom_offset = 0;
-                int64_t attr_offset = 0;
-
-                if (!file.read(reinterpret_cast<char*>(&fid), sizeof(uint64_t))) {
-                    std::cout << "读取索引条目 " << i << " 的FID失败" << std::endl;
-                    break;
-                }
-                if (!file.read(reinterpret_cast<char*>(&geom_offset), sizeof(int64_t))) {
-                    std::cout << "读取索引条目 " << i << " 的geom_offset失败" << std::endl;
-                    break;
-                }
-                if (!file.read(reinterpret_cast<char*>(&attr_offset), sizeof(int64_t))) {
-                    std::cout << "读取索引条目 " << i << " 的attr_offset失败" << std::endl;
-                    break;
-                }
-
-                offset_index_[fid] = geom_offset;
-
-                if (i < 5) { // 只显示前5个条目
-                    std::cout << "索引条目 " << i << ": FID=" << fid << ", geom_offset=" << geom_offset << ", attr_offset=" << attr_offset << std::endl;
-                }
+            auto shared = std::make_shared<const std::vector<IndexChunk>>(std::move(temp_chunks));
+            {
+                std::lock_guard<std::mutex> storage_lk(s_geom_shared_storage_mutex);
+                s_geom_shared_storage[index_file] = shared;
             }
+            {
+                std::lock_guard<std::mutex> lk(g_geom_index_cache_mutex);
+                g_geom_index_cache[index_file] = shared;
+            }
+            shared_index_chunks_ = shared;
+            use_chunked_mode_ = true;
+            std::cout << "几何分块索引加载完成(共享): 共 " << shared_index_chunks_->size() << " 个块" << std::endl;
 
-            std::cout << "加载的索引条目数量: " << offset_index_.size() << std::endl;
-            index_built_ = true;
+        } catch (const std::exception& e) {
+            std::cout << "加载几何分块索引文件失败: " << e.what() << std::endl;
         }
     }
 

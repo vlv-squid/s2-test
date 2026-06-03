@@ -11,17 +11,18 @@ import json
 import statistics
 import argparse
 from pathlib import Path
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Optional
 import matplotlib.pyplot as plt
 import numpy as np
-from collections import defaultdict
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from osgeo import ogr, osr
-from gisstorage.gissystem import GisStorageSystem
-from gisstorage.storage import GeometryStorage, AttributeStorage
+from osgeo import ogr
+from gisstorage.gis_storage_system import GisStorageSystem
+from gisstorage.geometry_storage import GeometryStorage
+from gisstorage.attribute_storage import AttributeStorage
+from gisstorage.ogr_format_converter import OGRFormatConverter
 from gisindex.s2_index import S2SpatialIndex
 
 
@@ -41,19 +42,32 @@ class GISBenchmark:
         self.ogr_layer = self.ogr_datasource.GetLayer(0)
 
         # 初始化自定义GIS存储系统
-        self.gis_system = GisStorageSystem(output_dir)
+        # 检查数据文件是否在子目录中
+        if os.path.exists(f"{output_dir}/convert_test/{self.shapefile_name}.geom"):
+            data_dir = f"{output_dir}/convert_test"
+        else:
+            data_dir = output_dir
+
+        self.gis_system = GisStorageSystem(data_dir, self.shapefile_name)
         self.geometry_storage = GeometryStorage(
-            f"{output_dir}/{self.shapefile_name}_geom.dat"
+            f"{data_dir}/{self.shapefile_name}.geom"
         )
         self.attribute_storage = AttributeStorage(
-            f"{output_dir}/{self.shapefile_name}_attr.dat",
-            f"{output_dir}/{self.shapefile_name}_pool.dat",
+            f"{data_dir}/{self.shapefile_name}.attr",
+            f"{data_dir}/{self.shapefile_name}.pool",
         )
+
+        # 构建分块索引以确保正确读取
+        self.attribute_storage.build_chunked_index()
 
         # 初始化S2索引
         self.s2_index = S2SpatialIndex(
-            shapefile_path, f"./index_py/s2.pkl", resolution=15
+            shapefile_path, "./index_py/s2.pkl", resolution=15
         )
+        # 如果索引不存在，构建索引
+        if not os.path.exists("./index_py/s2.pkl"):
+            print("构建S2索引...")
+            self.s2_index.build_index()
 
         # 测试配置
         self.test_sizes = [100, 500, 1000, 5000, 10000]
@@ -66,19 +80,22 @@ class GISBenchmark:
 
     def convert_shapefile_if_needed(self):
         """如果需要，转换Shapefile为自定义格式"""
-        geom_file = f"{self.output_dir}/{self.shapefile_name}_geom.dat"
+        geom_file = f"{self.output_dir}/{self.shapefile_name}.geom"
         if not os.path.exists(geom_file):
             print("转换Shapefile为自定义格式...")
-            valid_fids = self.gis_system.convert_shapefile(self.shapefile_path)
-            print(f"转换完成，有效要素数量: {len(valid_fids)}")
-
-            # 转换完成后，重新加载字符串池
-            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}_pool.dat"):
-                self.attribute_storage.load_string_pool()
+            converter = OGRFormatConverter(self.shapefile_path, self.output_dir)
+            success = converter.convert_shapefile_to_custom_format()
+            if success:
+                print("转换完成")
+                # 转换完成后，重新加载字符串池
+                if os.path.exists(f"{self.output_dir}/{self.shapefile_name}.pool"):
+                    self.attribute_storage.load_string_pool()
+            else:
+                print("转换失败")
         else:
             print("自定义格式文件已存在，跳过转换")
             # 确保字符串池已加载
-            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}_pool.dat"):
+            if os.path.exists(f"{self.output_dir}/{self.shapefile_name}.pool"):
                 self.attribute_storage.load_string_pool()
 
     def run_multiple_tests(self, test_func, *args, **kwargs) -> List[Dict]:
@@ -90,7 +107,7 @@ class GISBenchmark:
                 result = test_func(*args, **kwargs)
                 if result:
                     results.append(result)
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"    测试失败: {e}")
         return results
 
@@ -193,7 +210,7 @@ class GISBenchmark:
             try:
                 geom = self.geometry_storage.read_geometry(fid)
                 geometries.append(geom)
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"读取几何数据失败 FID {fid}: {e}")
         geom_time = time.time() - geom_start
 
@@ -204,7 +221,7 @@ class GISBenchmark:
             try:
                 attr = self.attribute_storage.read_attribute(fid)
                 attributes.append(attr)
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"读取属性数据失败 FID {fid}: {e}")
         attr_time = time.time() - attr_start
 
@@ -319,7 +336,7 @@ class GISBenchmark:
             try:
                 geom = self.geometry_storage.read_geometry(fid)
                 geometries.append(geom)
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"读取几何数据失败 FID {fid}: {e}")
         geom_time = time.time() - geom_start
 
@@ -330,7 +347,7 @@ class GISBenchmark:
             try:
                 attr = self.attribute_storage.read_attribute(fid)
                 attributes.append(attr)
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"读取属性数据失败 FID {fid}: {e}")
         attr_time = time.time() - attr_start
 
@@ -484,7 +501,7 @@ class GISBenchmark:
 
         start_time = time.time()
         feature_count = 0
-        for feature in self.ogr_layer:
+        for _ in self.ogr_layer:
             feature_count += 1
         query_time = time.time() - start_time
 
@@ -525,7 +542,6 @@ class GISBenchmark:
         print(f"候选要素: {len(candidate_fids)}")
 
         # 读取候选要素的几何数据
-        geom_start = time.time()
         result_count = 0
         for fid in candidate_fids:
             try:
@@ -540,9 +556,8 @@ class GISBenchmark:
                         and geom_bbox[3] >= bbox[1]
                     ):
                         result_count += 1
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"读取几何数据失败 FID {fid}: {e}")
-        geom_time = time.time() - geom_start
 
         total_time = time.time() - start_time
 
@@ -580,7 +595,7 @@ class GISBenchmark:
                         and geom_bbox[3] >= bbox[1]
                     ):
                         candidate_fids.append(fid)
-            except Exception as e:
+            except (ValueError, RuntimeError, IOError) as e:
                 print(f"读取几何数据失败 FID {fid}: {e}")
                 continue
 
@@ -595,7 +610,15 @@ class GISBenchmark:
         # 获取字符串池统计信息
         string_pool = self.attribute_storage.serializer.string_pool
         unique_count = string_pool.get_pool_size()
-        total_count = len(string_pool.string_table)
+        # 安全地获取字符串表长度
+        try:
+            total_count = (
+                len(string_pool.string_table)
+                if hasattr(string_pool, "string_table")
+                else unique_count
+            )
+        except AttributeError:
+            total_count = unique_count
         total_size = string_pool.get_total_size()
 
         # 计算压缩率
@@ -917,7 +940,7 @@ class GISBenchmark:
 
             plt.show()
 
-        except Exception as e:
+        except (ValueError, RuntimeError, IOError, ImportError) as e:
             print(f"生成图表失败: {e}")
             import traceback
 
@@ -989,14 +1012,14 @@ def main():
     try:
         if args.test_type == "basic":
             run_basic_test(args.shapefile, args.output_dir)
-        elif args.test_type == "detailed":
-            run_detailed_test(args.shapefile, args.output_dir)
-        elif args.test_type == "quick":
-            run_quick_test(args.shapefile, args.output_dir)
+        # elif args.test_type == "detailed":
+        #     run_detailed_test(args.shapefile, args.output_dir)
+        # elif args.test_type == "quick":
+        #     run_quick_test(args.shapefile, args.output_dir)
 
         print("\n测试完成！")
 
-    except Exception as e:
+    except (ValueError, RuntimeError, IOError, ImportError) as e:
         print(f"测试过程中发生错误: {e}")
         import traceback
 

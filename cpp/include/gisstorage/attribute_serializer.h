@@ -20,23 +20,30 @@ namespace GisStorage {
         AttributeSerializer();
 
         // 序列化属性数据（使用字符串池）
-        std::vector<uint8_t> serializeAttributes(const AttributeData& attribute);
+        std::vector<uint8_t> SerializeAttributes(const AttributeData& attribute);
 
         // 反序列化属性数据（从字符串池恢复）
-        std::unique_ptr<AttributeData> deserializeAttributes(const std::vector<uint8_t>& data);
+        std::unique_ptr<AttributeData> DeserializeAttributes(const std::vector<uint8_t>& data);
 
         // 序列化字符串池
-        std::vector<uint8_t> serializeStringPool() const;
+        std::vector<uint8_t> SerializeStringPool() const;
 
         // 反序列化字符串池
-        void deserializeStringPool(const std::vector<uint8_t>& data);
+        void DeserializeStringPool(const std::vector<uint8_t>& data);
 
         // 获取字符串池统计信息
-        size_t getPoolSize() const { return string_pool_.getPoolSize(); }
-        size_t getPoolTotalSize() const { return string_pool_.getTotalSize(); }
+        size_t GetPoolSize() const { return string_pool_.GetPoolSize(); }
+        size_t GetPoolTotalSize() const { return string_pool_.GetTotalSize(); }
 
         // 清空字符串池
-        void clearStringPool() { string_pool_.clear(); }
+        void ClearStringPool() { string_pool_.Clear(); }
+
+        // 从文件加载字符串池（使用mmap）
+        bool LoadStringPoolFromFile(const std::string& file_path) { return string_pool_.LoadFromFile(file_path); }
+
+        // 获取字符串池引用（用于直接访问mmap功能）
+        StringPool& GetStringPool() { return string_pool_; }
+        const StringPool& GetStringPool() const { return string_pool_; }
 
         // 获取压缩率统计
         struct CompressionStats {
@@ -46,14 +53,18 @@ namespace GisStorage {
             size_t unique_strings;
             size_t total_strings;
         };
-        CompressionStats getCompressionStats() const;
+        CompressionStats GetCompressionStats() const;
+
+        // 变长编码辅助函数（公开接口）
+        void EncodeVarint(std::vector<uint8_t>& data, uint32_t value);
+        size_t DecodeVarint(const std::vector<uint8_t>& data, size_t offset, uint32_t& value);
 
       private:
         StringPool string_pool_;
         mutable CompressionStats stats_;
 
         // 辅助函数
-        void updateStats(size_t original_size, size_t compressed_size);
+        void UpdateStats(size_t original_size, size_t compressed_size);
     };
 
 } // namespace GisStorage

@@ -1,290 +1,244 @@
-# C++ GIS 空间索引与存储系统
+# GIS存储系统 - C++版本
 
 ## 📋 项目概述
 
-这是一个高性能的C++ GIS空间索引与存储系统，提供了多种空间索引算法（S2、R树、混合索引）和自定义二进制存储格式。该系统专为大规模地理空间数据处理而设计，支持高效的几何数据压缩、快速空间查询和多线程并行处理。
+这是一个基于Google S2几何库的高性能GIS数据存储和索引系统。系统提供完整的Shapefile/FileGDB转换、数据存储、空间索引和元数据管理功能，专为大规模GIS数据处理设计。支持多种GIS格式的转换，包括Shapefile、FileGDB等，并提供高效的S2空间索引和属性查询功能。
 
 ## 🏗️ 系统架构
 
 ### 核心模块
 
-#### 1. 空间索引模块 (`gisindex/`)
-- **S2空间索引**: 基于Google S2几何库的全球空间索引
-- **R树索引**: 经典的空间索引结构，适用于局部查询
-- **混合索引**: 结合S2和R树的优势，提供最优查询性能
-- **序列化支持**: 索引数据的持久化存储和快速加载
+1. **GIS索引模块** (`gisindex/`)
+   - S2空间索引 - 基于Google S2几何库的高性能空间索引
+   - 二进制序列化 - 高效的索引数据序列化/反序列化
+   - 多层级索引支持 - 支持不同精度的空间索引
 
-#### 2. 存储系统模块 (`gisstorage/`)
-- **几何数据存储**: 高效的几何数据二进制存储格式
-- **属性数据存储**: 支持JSON格式的属性数据存储
-- **字符串池优化**: 字符串去重和压缩存储
-- **Shapefile转换**: 支持Shapefile到自定义格式的转换
+2. **GIS存储模块** (`gisstorage/`)
+   - 几何数据存储 - 高效的几何数据存储和管理
+   - 属性数据管理 - 属性数据的存储和查询
+   - 字符串池优化 - 字符串数据的去重和优化
+   - OGR格式转换 - 支持Shapefile、FileGDB等多种格式转换
+   - 统一存储系统 - 提供统一的存储和查询接口
+   - 逆向转换 - 支持将自定义格式转换回标准GIS格式
 
-## 🚀 主要特性
+### 设计特点
 
-### 空间索引特性
-- **多级索引**: 支持S2、R树、混合索引等多种索引类型
-- **自动优化**: 根据查询范围自动选择最优索引策略
-- **持久化存储**: 索引数据可持久化到磁盘，支持快速加载
-- **并发查询**: 支持多线程并发空间查询
+- **高性能**: 使用二进制格式，避免数据库开销
+- **模块化**: 清晰的模块化设计，易于扩展和维护
+- **完整性**: 提供从数据转换到索引构建的完整工作流
+- **标准化**: 统一的文件扩展名和元数据格式
 
-### 存储系统特性
-- **坐标压缩**: 差分编码压缩，可减少50%存储空间
-- **二进制格式**: 高效的二进制存储格式，支持快速读写
-- **索引缓存**: 智能缓存机制，提高随机访问性能
-- **数据完整性**: 完善的数据校验和错误恢复机制
-
-## 📁 文件结构
+## 📁 项目结构
 
 ```
 cpp/
-├── include/
-│   ├── gisindex/           # 空间索引头文件
-│   │   ├── s2spatial_index.h      # S2空间索引
-│   │   ├── rtree_spatial_index.h  # R树空间索引
-│   │   ├── hybrid_index.h         # 混合索引
-│   │   ├── serialize_s2.h         # S2索引序列化
-│   │   ├── serialize_rtree.h      # R树索引序列化
-│   │   └── struct_dkbbox.h        # 数据结构定义
-│   └── gisstorage/         # 存储系统头文件
-│       ├── gis_storage.h          # 主存储接口
-│       ├── gis_storage_system.h   # 存储系统管理
-│       ├── geometry_storage.h     # 几何数据存储
-│       ├── attribute_storage.h    # 属性数据存储
-│       ├── geometry_data.h        # 几何数据结构
-│       ├── attribute_data.h       # 属性数据结构
-│       ├── geometry_serializer.h  # 几何数据序列化
-│       ├── attribute_serializer.h # 属性数据序列化
-│       ├── string_pool.h          # 字符串池优化
-│       └── shapefile_converter.h  # Shapefile转换
-├── src/
-│   ├── gisindex/           # 空间索引实现
-│   │   ├── s2spatial_index.cpp
-│   │   ├── rtree_spatial_index.cpp
-│   │   ├── hybrid_index.cpp
-│   │   ├── serialize_s2.cpp
-│   │   └── serialize_rtree.cpp
-│   └── gisstorage/         # 存储系统实现
-│       ├── gis_storage.cpp
-│       ├── gis_storage_system.cpp
-│       ├── geometry_storage.cpp
-│       ├── attribute_storage.cpp
-│       ├── geometry_serializer.cpp
-│       ├── attribute_serializer.cpp
-│       ├── string_pool.cpp
-│       └── shapefile_converter.cpp
-├── test/                   # 测试文件
-│   ├── s2index_test.cpp           # S2索引测试
-│   ├── gis_storage_test.cpp       # 存储系统测试
-│   └── file_io_performance_test.cpp # 性能测试
-├── CMakeLists.txt          # 构建配置
-└── README.md              # 本文档
+├── include/              # 头文件
+│   ├── gisindex/        # GIS索引模块头文件
+│   └── gisstorage/      # GIS存储模块头文件
+├── src/                 # 源代码
+│   ├── gisindex/        # GIS索引模块实现
+│   └── gisstorage/      # GIS存储模块实现
+├── tests/               # 测试代码
+│   ├── unit/            # 单元测试
+│   ├── integration/     # 集成测试
+│   └── performance/     # 性能测试
+├── examples/            # 示例程序
+├── benchmarks/          # 基准测试
+├── tools/               # 工具脚本
+│   ├── build/           # 构建工具
+│   ├── demo/            # 演示工具
+│   └── benchmark/       # 基准测试工具
+└── docs/                # 文档
+    ├── architecture.md  # 系统架构
+    ├── build.md         # 构建指南
+    ├── test.md          # 测试指南
+    └── benchmark.md     # 基准测试指南
 ```
 
-## 🛠️ 编译与安装
+## 🚀 快速开始
 
-### 系统要求
-- **编译器**: GCC 7.0+ 或 Clang 5.0+
-- **C++标准**: C++17 或更高版本
-- **依赖库**: 
-  - S2 Geometry Library
-  - Boost.Geometry
-  - GDAL/OGR (可选，用于Shapefile支持)
-  - SQLite3 (用于索引持久化)
-
-### 编译步骤
+### 1. 构建项目
 
 ```bash
-# 1. 创建构建目录
-cd cpp
+# 使用构建脚本（推荐）
+./tools/build/build.sh --all
+
+# 或使用CMake
 mkdir build && cd build
-
-# 2. 配置CMake
-cmake .. -DCMAKE_BUILD_TYPE=Release
-
-# 3. 编译
-make -j$(nproc)
-
-# 4. 运行测试
-make test
+cmake ../cpp
+make
 ```
 
-### 依赖安装
+### 2. 运行测试
 
-#### Ubuntu/Debian
 ```bash
-sudo apt-get update
-sudo apt-get install libgdal-dev libboost-all-dev libsqlite3-dev
+# 使用CTest运行所有测试
+cd build
+ctest
+
+# 运行特定测试
+cd build/tests
+./s2index_test
+./gis_storage_test
+./integrated_gis_format_test
 ```
 
-#### CentOS/RHEL
+### 3. 运行示例
+
 ```bash
-sudo yum install gdal-devel boost-devel sqlite-devel
+# 运行完整演示程序
+cd examples
+./gis_storage_demo ../../data/test.shp ./output
+
+# 或使用演示脚本
+./tools/demo/run_demo.sh ../../data/test.shp ./output
 ```
 
-## 📖 使用示例
+## 📦 可执行文件
 
-### 基本使用
+### 测试程序
+- `s2index_test` - S2索引功能测试
+- `gis_storage_test` - GIS存储系统测试
+- `reverse_conversion_test` - 逆向转换测试
+- `integrated_gis_format_test` - 集成测试
+- `file_io_performance_test` - 文件I/O性能测试
+- `gdal_filegdb_performance_test` - GDAL FileGDB性能测试
+- `custom_format_performance_test` - 自定义格式性能测试
 
-```cpp
-#include "gisindex/s2spatial_index.h"
-#include "gisstorage/gis_storage_system.h"
-#include <iostream>
+### 基准测试
+- `spatial_index_benchmark` - 空间索引性能基准测试
 
-int main() {
-    // 创建S2空间索引
-    S2SpatialIndex index("./data/test.gdb", 15);
-    
-    // 构建索引
-    index.buildIndex();
-    
-    // 执行空间查询
-    BBox query_bbox = {103.2504, 26.4297, 103.3028, 26.4747};
-    auto results = index.queryByBBox(query_bbox);
-    
-    std::cout << "查询结果数量: " << results.size() << std::endl;
-    
-    return 0;
-}
-```
+### 示例程序
+- `gis_storage_demo` - 完整演示程序，展示完整工作流
 
-### 存储系统使用
+## 💻 使用方法
+
+### 基本使用流程
 
 ```cpp
 #include "gisstorage/gis_storage_system.h"
+#include "gisstorage/ogr_format_converter.h"
 
-int main() {
-    // 创建存储系统
-    GisStorageSystem storage("./output");
-    
-    // 从Shapefile转换数据
-    storage.convertFromShapefile("./data/test.shp");
-    
-    // 批量读取几何数据
-    std::vector<uint64_t> feature_ids = {1, 2, 3, 4, 5};
-    auto geometries = storage.readGeometries(feature_ids);
-    auto attributes = storage.readAttributes(feature_ids);
-    
-    return 0;
-}
+// 1. 转换OGR格式
+GisStorage::OGRFormatConverter converter("input.shp", "output_dir");
+auto feature_ids = converter.Convert();
+
+// 2. 创建存储系统
+GisStorage::GisStorageSystem storage("output_dir");
+storage.InitializeStorageFiles("input.shp");
+
+// 3. 构建S2索引
+storage.InitializeS2Index(15);
+storage.BuildS2IndexFromDataset("input.shp", 1000);
+
+// 4. 生成和保存元数据
+storage.UpdateFileSizes();
+storage.UpdateChecksums();
+storage.SaveMetadata();
+
+// 5. 查询数据
+auto features = storage.QueryS2Index(bbox, 15);
+auto geometry = storage.ReadGeometry(feature_id);
+auto attributes = storage.ReadAttribute(feature_id);
 ```
 
-### 混合索引使用
+### 文件格式
 
-```cpp
-#include "gisindex/hybrid_index.h"
+系统生成以下文件：
+- `.geom` - 几何数据文件
+- `.attr` - 属性数据文件
+- `.pool` - 字符串池文件
+- `.idx` - 索引数据文件
+- `_meta.json` - 元数据文件
+- `.s2idx` - S2索引文件
 
-int main() {
-    // 创建混合索引
-    HybridIndex hybrid_index("./data/test.gdb");
-    
-    // 构建索引
-    hybrid_index.buildIndex();
-    
-    // 执行查询
-    BBox query_bbox = {103.2504, 26.4297, 103.3028, 26.4747};
-    auto results = hybrid_index.query(query_bbox);
-    
-    return 0;
-}
-```
+## 🔧 依赖要求
+
+- CMake 3.28.3+
+- C++17 编译器
+- GDAL 3.x
+- Google S2 几何库
+- Boost Geometry
+- Google Test
+- nlohmann/json
+- TBB (Threading Building Blocks)
+- absl (Abseil C++库)
 
 ## 📊 性能特点
 
-### 空间索引性能
-- **S2索引**: 全球范围查询，层级可调，适合大规模数据
-- **R树索引**: 局部查询性能优异，内存占用适中
-- **混合索引**: 结合两者优势，查询性能最优
+- **查询性能**: 相比GDAL顺序扫描，性能提升显著
+- **内存效率**: 优化的数据结构，内存占用合理
+- **I/O性能**: 二进制格式，读写速度快
+- **扩展性**: 支持大规模数据集处理
 
-### 存储系统性能
-- **坐标压缩**: 差分编码可减少50%存储空间
-- **读取性能**: 随机访问O(1)时间复杂度
-- **并发处理**: 支持多线程并行读写
-- **内存效率**: 智能缓存，最小化内存占用
+## 🛠️ 工具脚本
 
-## 🧪 测试与验证
-
-### 运行测试
+### 构建工具
 ```bash
+./tools/build/build.sh --help    # 查看构建选项
+./tools/build/build.sh --clean   # 清理构建
+./tools/build/build.sh --test    # 构建测试
+```
+
+### 测试工具
+```bash
+# 使用CTest运行测试
 cd build
-./s2index_test          # S2索引测试
-./gis_storage_test      # 存储系统测试
-./file_io_performance_test  # 性能测试
+ctest                           # 运行所有测试
+ctest -L unit                   # 运行单元测试
+ctest -L performance            # 运行性能测试
+ctest --verbose                 # 详细输出
 ```
 
-### 性能基准
-- **索引构建**: 100万要素约需30秒
-- **空间查询**: 平均查询时间<10ms
-- **数据压缩**: 坐标数据压缩率50-70%
-- **并发性能**: 8线程下性能提升6-8倍
-
-## 🔧 配置选项
-
-### CMake配置选项
+### 演示工具
 ```bash
-# 启用调试模式
-cmake .. -DCMAKE_BUILD_TYPE=Debug
-
-# 启用测试
-cmake .. -DBUILD_TESTS=ON
-
-# 指定安装路径
-cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local
-
-# 启用优化
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-O3 -march=native"
+./tools/demo/run_demo.sh input.shp output/  # 运行演示程序
 ```
 
-## 🐛 故障排除
+### 基准测试工具
+```bash
+./tools/benchmark/run_cpp_benchmark.sh  # 运行基准测试
+```
 
-### 常见问题
+## 📚 文档
 
-1. **编译错误**: 确保C++17支持
-   ```bash
-   export CXXFLAGS="-std=c++17"
-   ```
+详细文档请参考 `docs/` 目录：
+- [系统架构](docs/architecture.md) - 系统架构和模块说明
+- [构建指南](docs/build.md) - 构建和配置说明
+- [演示程序](docs/examples.md) - 使用示例和演示
+- [基准测试](docs/benchmark.md) - 性能测试指南
 
-2. **依赖库缺失**: 检查依赖库安装
-   ```bash
-   pkg-config --exists gdal && echo "GDAL found" || echo "GDAL missing"
-   ```
+## 🔍 测试
 
-3. **内存不足**: 调整系统限制
-   ```bash
-   ulimit -s unlimited
-   ```
+```bash
+# 运行所有测试
+cd build
+ctest
 
-## 📈 开发计划
+# 运行特定测试
+cd build/tests
+./s2index_test
+./gis_storage_test
+./integrated_gis_format_test
+./reverse_conversion_test
 
-### 近期计划
-- [ ] 支持更多空间索引算法（H3、Geohash）
-- [ ] 添加空间分析功能
-- [ ] 优化内存使用和缓存策略
-- [ ] 增加更多数据格式支持
+# 运行性能测试
+./file_io_performance_test
+./gdal_filegdb_performance_test
+./custom_format_performance_test
+```
 
-### 长期计划
-- [ ] 分布式索引支持
-- [ ] 实时数据更新
-- [ ] 机器学习集成
-- [ ] Web服务接口
+## 📈 扩展性
 
-## 📄 许可证
+系统采用模块化设计，可以轻松扩展：
+- 新的空间索引算法
+- 不同的数据格式支持
+- 额外的GIS功能模块
+- 自定义存储后端
 
-本项目遵循与主项目相同的许可证。
+## ⚠️ 注意事项
 
-## 🤝 贡献指南
-
-欢迎提交Issue和Pull Request来改进项目。请确保：
-1. 代码符合项目的编码规范
-2. 添加适当的测试用例
-3. 更新相关文档
-
-## 📞 联系方式
-
-如有问题或建议，请通过以下方式联系：
-- 提交GitHub Issue
-- 发送邮件至项目维护者
-
----
-
-*最后更新: 2025年1月*
+- 确保输出目录有写入权限
+- S2层级设置影响索引精度和性能
+- 大数据集建议使用适当的S2层级设置
+- 建议在构建前检查所有依赖项
