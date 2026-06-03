@@ -220,13 +220,13 @@ storage.write_geometry(geometry_data);
 
 ## 📄 许可证
 
-本项目采用MIT许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目采用 MIT 开源许可证 (Copyright © 2025 chenming) - 查看 [LICENSE](LICENSE) 文件了解完整条款。
 
 ## 📞 联系方式
 
-如有问题或建议，请通过以下方式联系：
-- 提交Issue
-- 发送邮件
+如有问题或建议，欢迎通过以下方式联系：
+- 提交 [GitHub Issue](https://github.com/chenming/s2-test/issues)
+- 发送邮件至 seu1252584884@163.com
 - 项目讨论区
 
 ---
