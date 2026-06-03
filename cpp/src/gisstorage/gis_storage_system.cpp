@@ -71,6 +71,14 @@ namespace GisStorage {
     }
 
     std::vector<uint64_t> GisStorageSystem::GetAllFeatureIds() {
+        if (attribute_storage_ && attribute_storage_->IsChunkedMode()) {
+            return attribute_storage_->GetAllFeatureIds();
+        }
+
+        if (geometry_storage_ && geometry_storage_->IsChunkedMode()) {
+            return geometry_storage_->GetAllFeatureIds();
+        }
+
         const auto& metadata = GetMetadata();
         size_t valid_features = metadata.valid_features;
 
@@ -80,7 +88,7 @@ namespace GisStorage {
 
         std::vector<uint64_t> feature_ids;
         feature_ids.reserve(valid_features);
-        for (size_t i = 1; i <= valid_features; ++i) {
+        for (size_t i = 0; i < valid_features; ++i) {
             feature_ids.push_back(i);
         }
 
@@ -120,8 +128,20 @@ namespace GisStorage {
                     try {
                         auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                         if (attr) {
-                            std::string value = attr->GetProperty(field_name);
-                            if (value == field_value) {
+                            auto value_opt = attr->GetProperty(field_name);
+                            bool match = false;
+                            if (field_value == "NULL") {
+                                // 查询NULL值的属性
+                                match = !value_opt.has_value();
+                            } else if (field_value == "NOT_NULL") {
+                                // 查询非NULL值的属性
+                                match = value_opt.has_value();
+                            } else {
+                                // 正常值比较
+                                std::string value = attr->GetProperty(field_name, "");
+                                match = (value == field_value);
+                            }
+                            if (match) {
                                 results.push_back(fid);
                                 found_count++;
                             }
@@ -189,8 +209,20 @@ namespace GisStorage {
                     try {
                         auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                         if (attr) {
-                            std::string value = attr->GetProperty(field_name);
-                            if (value == field_value) {
+                            auto value_opt = attr->GetProperty(field_name);
+                            bool match = false;
+                            if (field_value == "NULL") {
+                                // 查询NULL值的属性
+                                match = !value_opt.has_value();
+                            } else if (field_value == "NOT_NULL") {
+                                // 查询非NULL值的属性
+                                match = value_opt.has_value();
+                            } else {
+                                // 正常值比较
+                                std::string value = attr->GetProperty(field_name, "");
+                                match = (value == field_value);
+                            }
+                            if (match) {
                                 local_results.push_back(fid);
                             }
                         }
@@ -271,8 +303,20 @@ namespace GisStorage {
                     try {
                         auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                         if (attr) {
-                            std::string value = attr->GetProperty(field_name);
-                            if (value == field_value) {
+                            auto value_opt = attr->GetProperty(field_name);
+                            bool match = false;
+                            if (field_value == "NULL") {
+                                // 查询NULL值的属性
+                                match = !value_opt.has_value();
+                            } else if (field_value == "NOT_NULL") {
+                                // 查询非NULL值的属性
+                                match = value_opt.has_value();
+                            } else {
+                                // 正常值比较
+                                std::string value = attr->GetProperty(field_name, "");
+                                match = (value == field_value);
+                            }
+                            if (match) {
                                 results.push_back(fid);
                                 found_count++;
                             }
@@ -329,8 +373,17 @@ namespace GisStorage {
                     uint64_t fid = spatial_candidates[j];
                     auto attr = attribute_storage_ ? attribute_storage_->ReadAttributeOnDemand(fid) : nullptr;
                     if (attr) {
-                        std::string value = attr->GetProperty(field_name);
-                        if (value == field_value) {
+                        auto value_opt = attr->GetProperty(field_name);
+                        bool match = false;
+                        if (field_value == "NULL") {
+                            match = !value_opt.has_value();
+                        } else if (field_value == "NOT_NULL") {
+                            match = value_opt.has_value();
+                        } else {
+                            std::string value = attr->GetProperty(field_name, "");
+                            match = (value == field_value);
+                        }
+                        if (match) {
                             results.push_back(fid);
                             found_count++;
                         }
@@ -413,9 +466,12 @@ namespace GisStorage {
                 try {
                     auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                     if (attr) {
-                        std::string value = attr->GetProperty(field_name);
-                        if (value.find(pattern) != std::string::npos) {
-                            results.push_back(fid);
+                        auto value_opt = attr->GetProperty(field_name);
+                        if (value_opt.has_value()) {
+                            std::string value = value_opt.value();
+                            if (value.find(pattern) != std::string::npos) {
+                                results.push_back(fid);
+                            }
                         }
                     }
                 } catch (const std::exception& e) {
@@ -460,9 +516,9 @@ namespace GisStorage {
                 try {
                     auto attr = attribute_storage_->ReadAttributeOnDemand(fid);
                     if (attr) {
-                        std::string value = attr->GetProperty(field_name);
-                        if (!value.empty()) {
-                            results.emplace_back(fid, value);
+                        auto value_opt = attr->GetProperty(field_name);
+                        if (value_opt.has_value() && !value_opt.value().empty()) {
+                            results.emplace_back(fid, value_opt.value());
                         }
                     }
                 } catch (const std::exception& e) {
@@ -630,7 +686,7 @@ namespace GisStorage {
 
     void GisStorageSystem::InitializeS2Index(int resolution) {
         if (!s2_spatial_index_) {
-            s2_spatial_index_ = std::make_unique<S2Main::S2SpatialIndex>(s2_index_file_, resolution);
+            s2_spatial_index_ = new S2Main::S2SpatialIndex(s2_index_file_, resolution);
         }
     }
 

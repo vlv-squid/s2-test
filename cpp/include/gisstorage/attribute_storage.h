@@ -92,6 +92,12 @@ namespace GisStorage {
         // 设置是否启用mmap模式
         void SetUseMmapMode(bool use_mmap) { use_mmap_mode_ = use_mmap; }
 
+        // 检查是否启用分块模式
+        bool IsChunkedMode() const { return use_chunked_mode_; }
+
+        // 获取所有FID
+        std::vector<uint64_t> GetAllFeatureIds() const;
+
         // 构建分块索引
         void BuildChunkedIndex();
 

@@ -9,12 +9,29 @@
 namespace GisStorage {
 
     AttributeData::AttributeData(uint64_t feature_id, const std::map<std::string, std::string>& properties)
+        : feature_id_(feature_id) {
+        for (const auto& prop : properties) {
+            properties_[prop.first] = prop.second;
+        }
+    }
+
+    AttributeData::AttributeData(uint64_t feature_id, const std::map<std::string, std::optional<std::string>>& properties)
         : feature_id_(feature_id)
         , properties_(properties) {}
 
-    std::string AttributeData::GetProperty(const std::string& key, const std::string& default_value) const {
+    std::optional<std::string> AttributeData::GetProperty(const std::string& key) const {
         auto it = properties_.find(key);
-        return (it != properties_.end()) ? it->second : default_value;
+        return (it != properties_.end()) ? it->second : std::nullopt;
+    }
+
+    std::string AttributeData::GetProperty(const std::string& key, const std::string& default_value) const {
+        auto value = GetProperty(key);
+        return value.has_value() ? value.value() : default_value;
+    }
+
+    bool AttributeData::HasProperty(const std::string& key) const {
+        auto value = GetProperty(key);
+        return value.has_value();
     }
 
     size_t AttributeData::GetSerializedSize() const {
@@ -24,7 +41,12 @@ namespace GisStorage {
         for (const auto& prop : properties_) {
             if (!first)
                 oss << ",";
-            oss << "\"" << prop.first << "\":\"" << prop.second << "\"";
+            oss << "\"" << prop.first << "\":";
+            if (prop.second.has_value()) {
+                oss << "\"" << prop.second.value() << "\"";
+            } else {
+                oss << "null";
+            }
             first = false;
         }
         oss << "}";

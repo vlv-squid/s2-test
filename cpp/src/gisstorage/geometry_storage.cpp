@@ -135,6 +135,18 @@ namespace GisStorage {
         return ReadGeometryOnDemand(feature_id) != nullptr;
     }
 
+    std::vector<uint64_t> GeometryStorage::GetAllFeatureIds() const {
+        std::vector<uint64_t> fids;
+        const auto& chunks = shared_index_chunks_ ? *shared_index_chunks_ : index_chunks_;
+        for (const auto& chunk : chunks) {
+            for (const auto& [fid, offset] : chunk.offset_map) {
+                fids.push_back(fid);
+            }
+        }
+        std::sort(fids.begin(), fids.end());
+        return fids;
+    }
+
     void GeometryStorage::ClearCache() {
         cache_.clear();
     }
@@ -162,7 +174,7 @@ namespace GisStorage {
 
         index_chunks_.clear();
         IndexChunk current_chunk;
-        current_chunk.start_fid = 0;
+        current_chunk.start_fid = std::numeric_limits<uint64_t>::max(); // 初始化为最大值
         current_chunk.end_fid = 0;
         current_chunk.loaded = true;
 
@@ -199,6 +211,9 @@ namespace GisStorage {
                 }
 
                 current_chunk.offset_map[feature_id] = current_offset;
+                if (current_chunk.start_fid == std::numeric_limits<uint64_t>::max()) {
+                    current_chunk.start_fid = feature_id;
+                }
                 current_chunk.end_fid = feature_id;
             }
         }

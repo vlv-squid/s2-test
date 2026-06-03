@@ -159,7 +159,7 @@ namespace GisStorage {
         std::string shapefile_name_;
         std::unique_ptr<GeometryStorage> geometry_storage_;
         std::unique_ptr<AttributeStorage> attribute_storage_;
-        std::unique_ptr<S2Main::S2SpatialIndex> s2_spatial_index_;
+        S2Main::S2SpatialIndex* s2_spatial_index_;
 
         // 文件路径
         std::string geom_file_;

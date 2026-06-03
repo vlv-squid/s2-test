@@ -174,18 +174,35 @@ namespace GisStorage {
         size_t temp_offset = 0;
         uint32_t prop_count_decoded;
         temp_offset = serializer_.DecodeVarint(prop_count_data, temp_offset, prop_count_decoded);
-        size_t data_size = sizeof(uint64_t) + prop_count_bytes + prop_count_decoded * 8;
 
-        std::vector<uint8_t> data(data_size);
-        if (pread(attr_fd_, data.data(), data_size, offset) != static_cast<ssize_t>(data_size)) {
-            throw std::runtime_error("属性数据不完整 for FID " + std::to_string(feature_id));
+        // 使用足够大的固定缓冲区来读取属性数据，避免预先计算不准确的大小
+        const size_t max_attribute_data_size = 4096;
+        std::vector<uint8_t> data(max_attribute_data_size);
+        ssize_t actual_read = pread(attr_fd_, data.data(), max_attribute_data_size, offset);
+        if (actual_read <= 0) {
+            throw std::runtime_error("属性数据读取失败 for FID " + std::to_string(feature_id));
         }
+
+        // 调整向量大小为实际读取的字节数
+        data.resize(actual_read);
 
         return serializer_.DeserializeAttributes(data);
     }
 
     bool AttributeStorage::HasFeature(uint64_t feature_id) {
         return ReadAttributeOnDemand(feature_id) != nullptr;
+    }
+
+    std::vector<uint64_t> AttributeStorage::GetAllFeatureIds() const {
+        std::vector<uint64_t> fids;
+        const auto& chunks = shared_index_chunks_ ? *shared_index_chunks_ : index_chunks_;
+        for (const auto& chunk : chunks) {
+            for (const auto& [fid, offset] : chunk.offset_map) {
+                fids.push_back(fid);
+            }
+        }
+        std::sort(fids.begin(), fids.end());
+        return fids;
     }
 
     void AttributeStorage::ClearCache() {
@@ -400,7 +417,7 @@ namespace GisStorage {
 
         index_chunks_.clear();
         IndexChunk current_chunk;
-        current_chunk.start_fid = 0;
+        current_chunk.start_fid = std::numeric_limits<uint64_t>::max(); // 初始化为最大值
         current_chunk.end_fid = 0;
         current_chunk.loaded = true;
 
@@ -460,6 +477,9 @@ namespace GisStorage {
                 }
 
                 current_chunk.offset_map[feature_id] = current_offset;
+                if (current_chunk.start_fid == std::numeric_limits<uint64_t>::max()) {
+                    current_chunk.start_fid = feature_id;
+                }
                 current_chunk.end_fid = feature_id;
             }
         }
